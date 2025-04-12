@@ -5,7 +5,7 @@ import pandas as pd
 
 app = FastAPI()
 
-# Abilita CORS per tutte le origini (puoi restringere a specifici domini)
+# Abilita CORS per tutte le origini (puoi restringerlo se necessario)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,6 +13,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Funzione per calcolare l'RSI
 def calcola_rsi(serie, periodi=14):
     delta = serie.diff()
     gain = delta.where(delta > 0, 0)
@@ -31,20 +32,22 @@ def analyze(symbol: str):
     if hist.empty or len(hist) < 200:
         return {"segnale": "ERROR", "commento": f"Dati insufficienti per {symbol.upper()}"}
 
-    # Calcolo medie mobili
+    # Calcolo indicatori tecnici
     hist['MA_9'] = hist['Close'].rolling(window=9).mean()
     hist['MA_21'] = hist['Close'].rolling(window=21).mean()
     hist['MA_200'] = hist['Close'].rolling(window=200).mean()
     hist['RSI'] = calcola_rsi(hist['Close'])
 
+    # Ultimi due valori per rilevare incrocio
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
 
-    # Condizione incrocio: MA9 e MA21 passano da sotto a sopra la MA200
+    # Verifica incrocio rialzista (oggi sopra, ieri sotto)
     incrocio_oggi = ultimo['MA_9'] > ultimo['MA_200'] and ultimo['MA_21'] > ultimo['MA_200']
     incrocio_ieri = penultimo['MA_9'] < penultimo['MA_200'] and penultimo['MA_21'] < penultimo['MA_200']
     incrocio = incrocio_oggi and incrocio_ieri
 
+    # RSI e decisione finale
     rsi = ultimo['RSI']
     segnale = "HOLD"
     commento = f"RSI: {round(rsi, 2)} | MA9: {round(ultimo['MA_9'], 2)} | MA21: {round(ultimo['MA_21'], 2)} | MA200: {round(ultimo['MA_200'], 2)}"
@@ -54,7 +57,7 @@ def analyze(symbol: str):
         commento += " → Incrocio rialzista + RSI basso"
     elif rsi > 70:
         segnale = "SELL"
-        commento += " → RSI alto (ipervenduto)"
+        commento += " → RSI alto (ipercomprato)"
 
     return {
         "segnale": segnale,
