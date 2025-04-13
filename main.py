@@ -27,7 +27,8 @@ def calcola_rsi(serie, periodi=14):
 @app.get("/analyze")
 def analyze(symbol: str):
     data = yf.Ticker(symbol)
-    hist = data.history(period="1d", interval="15m")
+    hist = data.history(period="10d", interval="15m")
+
 
     if hist.empty or len(hist) < 200:
         return {
