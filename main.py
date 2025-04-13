@@ -30,7 +30,11 @@ def analyze(symbol: str):
     hist = data.history(period="max")
 
     if hist.empty or len(hist) < 200:
-        return {"segnale": "ERROR", "commento": f"Dati insufficienti per {symbol.upper()}"}
+        return {
+            "segnale": "ERROR",
+            "commento": f"Dati insufficienti per {symbol.upper()}",
+            "prezzo": None
+        }
 
     # Calcolo indicatori tecnici
     hist['MA_9'] = hist['Close'].rolling(window=9).mean()
@@ -61,5 +65,6 @@ def analyze(symbol: str):
 
     return {
         "segnale": segnale,
-        "commento": commento
+        "commento": commento,
+        "prezzo": round(ultimo["Close"], 2)  # <-- ✅ Prezzo aggiunto
     }
