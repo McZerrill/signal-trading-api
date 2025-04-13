@@ -60,8 +60,10 @@ def analyze(symbol: str):
         segnale = "SELL"
         commento += f" → RSI alto + sotto MA9\n🎯 TP: {sl} | 🛡️ SL: {tp}"
 
-    return {
-        "segnale": segnale,
-        "commento": commento,
-        "prezzo": round(close, 2)
-    }
+   return {
+    "segnale": segnale,
+    "commento": commento,
+    "prezzo": round(close, 2),
+    "takeProfit": round(close * 1.02, 2),   # esempio: TP al +2%
+    "stopLoss": round(close * 0.98, 2)     # esempio: SL al -2%
+}
