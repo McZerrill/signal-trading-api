@@ -5,6 +5,7 @@ import pandas as pd
 
 app = FastAPI()
 
+# Abilita CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -12,6 +13,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Funzione RSI
 def calcola_rsi(serie, periodi=14):
     delta = serie.diff()
     gain = delta.where(delta > 0, 0)
@@ -25,10 +27,13 @@ def calcola_rsi(serie, periodi=14):
 @app.get("/analyze")
 def analyze(symbol: str):
     data = yf.Ticker(symbol)
-    hist = data.history(period="1d", interval="15m")  # ✅ dati a 15 minuti
+    hist = data.history(period="1d", interval="15m")
 
     if hist.empty or len(hist) < 200:
-        return {"segnale": "ERROR", "commento": f"Dati insufficienti per {symbol.upper()}"}
+        return {
+            "segnale": "ERROR",
+            "commento": f"Dati insufficienti per {symbol.upper()}"
+        }
 
     hist['MA_9'] = hist['Close'].rolling(window=9).mean()
     hist['MA_21'] = hist['Close'].rolling(window=21).mean()
@@ -56,16 +61,14 @@ def analyze(symbol: str):
     if incrocio and rsi < 30:
         segnale = "BUY"
         commento += f" → Incrocio rialzista + RSI basso\n🎯 TP: {tp} | 🛡️ SL: {sl}"
-    elif rsi > 70 and ultimo['Close'] < ultimo['MA_9']:
+    elif rsi > 70 and close < ultimo['MA_9']:
         segnale = "SELL"
         commento += f" → RSI alto + sotto MA9\n🎯 TP: {sl} | 🛡️ SL: {tp}"
 
-  return {
-    "segnale": segnale,
-    "commento": commento,
-    "prezzo": round(close, 2),
-    "take_profit": round(close * 1.02, 2),
-    "stop_loss": round(close * 0.98, 2)
-}
-
-
+    return {
+        "segnale": segnale,
+        "commento": commento,
+        "prezzo": round(close, 2),
+        "take_profit": tp,
+        "stop_loss": sl
+    }
