@@ -68,3 +68,4 @@ def analyze(symbol: str):
     "stop_loss": round(close * 0.98, 2)
 }
 
+
