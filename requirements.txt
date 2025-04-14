@@ -2,4 +2,6 @@ fastapi
 uvicorn
 yfinance
 pandas
+requests
+python-dotenv
 twelvedata[pandas]
