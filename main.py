@@ -53,10 +53,13 @@ def analyze(symbol: str):
         "open": data["o"]
     })
 
+    df = df.astype(float)
+    df = df.sort_index().reset_index(drop=True)
+
     if len(df) < 100:
         return {"segnale": "ERROR", "commento": f"Dati insufficienti per {symbol.upper()}"}
 
-    # Indicatori
+    # Indicatori tecnici
     df['MA_9'] = df['close'].rolling(window=9).mean()
     df['MA_21'] = df['close'].rolling(window=21).mean()
     df['MA_100'] = df['close'].rolling(window=100).mean()
@@ -81,6 +84,7 @@ def analyze(symbol: str):
     sl = round(close * 0.98, 2)
     commento = f"RSI: {round(rsi,2)} | MA9: {round(ma9,2)} | MA21: {round(ma21,2)} | MA100: {round(ma100,2)} | ATR: {round(atr,2)}"
 
+    # Segnale BUY
     if (
         penultimo['MA_9'] < penultimo['MA_21'] and
         ma9 > ma21 and ma9 > ma100 and ma21 > ma100 and
@@ -91,6 +95,7 @@ def analyze(symbol: str):
         sl = round(close - (atr + spread * 0.5), 2)
         commento += f"\n→ Incrocio rialzista + RSI basso\n🎯 TP: {tp} | 🛡️ SL: {sl}"
 
+    # Segnale SELL
     elif (
         penultimo['MA_9'] > penultimo['MA_21'] and
         ma9 < ma21 and ma9 < ma100 and ma21 < ma100 and
