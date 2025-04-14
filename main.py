@@ -60,9 +60,14 @@ def analyze(symbol: str):
     ma100 = ultimo['MA_100']
     rsi = ultimo['RSI']
     atr = ultimo['ATR']
-    spread = (ultimo['High'] - ultimo['Low']) * 0.1  # spread simulato
+    spread = (ultimo['High'] - ultimo['Low']) * 0.1
 
-    # Default
+    # Distanza media MA9/21 da MA100 per confermare tendenza
+    dist_ma9 = abs(ma9 - ma100)
+    dist_ma21 = abs(ma21 - ma100)
+    media_distanza = (dist_ma9 + dist_ma21) / 2
+    soglia_distanza = close * 0.01  # 1% del prezzo
+
     segnale = "HOLD"
     tp = round(close * 1.02, 2)
     sl = round(close * 0.98, 2)
@@ -72,31 +77,33 @@ def analyze(symbol: str):
         f"MA21: {round(ma21, 2)} | MA100: {round(ma100, 2)} | ATR: {round(atr, 2)}"
     )
 
-    # BUY più permissivo (anche con RSI < 40)
+    # BUY robusto
     if (
         penultimo['MA_9'] < penultimo['MA_21'] and
         ma9 > ma21 and
         ma9 > ma100 and
         ma21 > ma100 and
-        rsi < 40
+        rsi < 40 and
+        media_distanza > soglia_distanza
     ):
         segnale = "BUY"
         tp = round(close + (atr + spread), 2)
         sl = round(close - (atr + spread * 0.5), 2)
-        commento += f"\n→ Incrocio rialzista sopra MA100 + RSI basso\n🎯 TP: {tp} | 🛡️ SL: {sl}"
+        commento += f"\n→ Incrocio rialzista sopra MA100 con distacco + RSI basso\n🎯 TP: {tp} | 🛡️ SL: {sl}"
 
-    # SELL simmetrico con RSI > 60
+    # SELL robusto
     elif (
         penultimo['MA_9'] > penultimo['MA_21'] and
         ma9 < ma21 and
         ma9 < ma100 and
         ma21 < ma100 and
-        rsi > 60
+        rsi > 60 and
+        media_distanza > soglia_distanza
     ):
         segnale = "SELL"
         tp = round(close - (atr + spread), 2)
         sl = round(close + (atr + spread * 0.5), 2)
-        commento += f"\n→ Incrocio ribassista sotto MA100 + RSI alto\n🎯 TP: {tp} | 🛡️ SL: {sl}"
+        commento += f"\n→ Incrocio ribassista sotto MA100 con distacco + RSI alto\n🎯 TP: {tp} | 🛡️ SL: {sl}"
 
     return {
         "segnale": segnale,
