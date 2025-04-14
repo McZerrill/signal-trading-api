@@ -39,7 +39,7 @@ def calcola_atr(df, periodi=14):
 
 @app.get("/analyze")
 def analyze(symbol: str):
-    url = f"https://finnhub.io/api/v1/stock/candle?symbol={symbol}&resolution=30&count=100&token={FINNHUB_API_KEY}"
+    url = f"https://finnhub.io/api/v1/stock/candle?symbol={symbol}&resolution=60&count=100&token={FINNHUB_API_KEY}"
     response = requests.get(url)
     data = response.json()
 
