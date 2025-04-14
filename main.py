@@ -1,6 +1,5 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors 
-import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pandas as pd
 
@@ -73,31 +72,31 @@ def analyze(symbol: str):
         f"MA21: {round(ma21, 2)} | MA100: {round(ma100, 2)} | ATR: {round(atr, 2)}"
     )
 
-    # BUY
+    # BUY più permissivo (anche con RSI < 40)
     if (
         penultimo['MA_9'] < penultimo['MA_21'] and
         ma9 > ma21 and
         ma9 > ma100 and
         ma21 > ma100 and
-        rsi < 30
+        rsi < 40
     ):
         segnale = "BUY"
         tp = round(close + (atr + spread), 2)
         sl = round(close - (atr + spread * 0.5), 2)
-        commento += f" → Incrocio rialzista + RSI basso\n🎯 TP: {tp} | 🛡️ SL: {sl}"
+        commento += f"\n→ Incrocio rialzista sopra MA100 + RSI basso\n🎯 TP: {tp} | 🛡️ SL: {sl}"
 
-    # SELL
+    # SELL simmetrico con RSI > 60
     elif (
         penultimo['MA_9'] > penultimo['MA_21'] and
         ma9 < ma21 and
         ma9 < ma100 and
         ma21 < ma100 and
-        rsi > 70
+        rsi > 60
     ):
         segnale = "SELL"
         tp = round(close - (atr + spread), 2)
         sl = round(close + (atr + spread * 0.5), 2)
-        commento += f" → Incrocio ribassista + RSI alto\n🎯 TP: {tp} | 🛡️ SL: {sl}"
+        commento += f"\n→ Incrocio ribassista sotto MA100 + RSI alto\n🎯 TP: {tp} | 🛡️ SL: {sl}"
 
     return {
         "segnale": segnale,
