@@ -17,9 +17,9 @@ app.add_middleware(
 
 # Carica API key da .env
 load_dotenv()
-API_KEY = os.getenv("TWELVE_DATA_API_KEY")
+FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 
-# Calcolo RSI
+# Funzione per calcolare RSI
 def calcola_rsi(serie, periodi=14):
     delta = serie.diff()
     gain = delta.where(delta > 0, 0)
@@ -39,16 +39,19 @@ def calcola_atr(df, periodi=14):
 
 @app.get("/analyze")
 def analyze(symbol: str):
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=30min&outputsize=100&apikey={API_KEY}&format=JSON"
+    url = f"https://finnhub.io/api/v1/stock/candle?symbol={symbol}&resolution=30&count=100&token={FINNHUB_API_KEY}"
     response = requests.get(url)
     data = response.json()
 
-    if "values" not in data:
+    if data.get("s") != "ok":
         return {"segnale": "ERROR", "commento": f"Errore nel recupero dati per {symbol.upper()}"}
 
-    df = pd.DataFrame(data['values'])
-    df = df.astype({"open": float, "high": float, "low": float, "close": float})
-    df = df[::-1].reset_index(drop=True)  # Ordina cronologicamente
+    df = pd.DataFrame({
+        "close": data["c"],
+        "high": data["h"],
+        "low": data["l"],
+        "open": data["o"]
+    })
 
     if len(df) < 100:
         return {"segnale": "ERROR", "commento": f"Dati insufficienti per {symbol.upper()}"}
@@ -62,6 +65,7 @@ def analyze(symbol: str):
 
     ultimo = df.iloc[-1]
     penultimo = df.iloc[-2]
+
     close = ultimo['close']
     ma9, ma21, ma100 = ultimo['MA_9'], ultimo['MA_21'], ultimo['MA_100']
     rsi, atr = ultimo['RSI'], ultimo['ATR']
