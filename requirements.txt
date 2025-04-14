@@ -4,4 +4,4 @@ yfinance
 pandas
 requests
 python-dotenv
-twelvedata[pandas]
+finnhub-python
