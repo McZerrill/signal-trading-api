@@ -1,5 +1,6 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors 
+import CORSMiddleware
 import yfinance as yf
 import pandas as pd
 
