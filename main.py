@@ -61,10 +61,13 @@ def analyze(symbol: str):
     atr = ultimo['ATR']
     spread = (ultimo['High'] - ultimo['Low']) * 0.1
 
+    # Calcolo distanza tra medie
     dist_ma9 = abs(ma9 - ma100)
     dist_ma21 = abs(ma21 - ma100)
     media_distanza = (dist_ma9 + dist_ma21) / 2
-    soglia_distanza = close * 0.01
+
+    # Soglia combinata: massima tra soglia fissa e dinamica (ATR)
+    soglia_distanza = max(close * 0.005, atr * 0.5)
 
     segnale = "HOLD"
     tp = round(close * 1.02, 2)
