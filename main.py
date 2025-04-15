@@ -44,7 +44,6 @@ def analyze(symbol: str):
             "commento": f"Dati insufficienti per {symbol.upper()}"
         }
 
-    # Indicatori tecnici
     hist['MA_9'] = hist['Close'].rolling(window=9).mean()
     hist['MA_21'] = hist['Close'].rolling(window=21).mean()
     hist['MA_100'] = hist['Close'].rolling(window=100).mean()
@@ -62,11 +61,10 @@ def analyze(symbol: str):
     atr = ultimo['ATR']
     spread = (ultimo['High'] - ultimo['Low']) * 0.1
 
-    # Distanza media MA9/21 da MA100 per confermare tendenza
     dist_ma9 = abs(ma9 - ma100)
     dist_ma21 = abs(ma21 - ma100)
     media_distanza = (dist_ma9 + dist_ma21) / 2
-    soglia_distanza = close * 0.01  # 1% del prezzo
+    soglia_distanza = close * 0.01
 
     segnale = "HOLD"
     tp = round(close * 1.02, 2)
@@ -77,33 +75,31 @@ def analyze(symbol: str):
         f"MA21: {round(ma21, 2)} | MA100: {round(ma100, 2)} | ATR: {round(atr, 2)}"
     )
 
-    # BUY robusto
+    # BUY condizione più realistica
     if (
-        penultimo['MA_9'] < penultimo['MA_21'] and
-        ma9 > ma21 and
-        ma9 > ma100 and
-        ma21 > ma100 and
-        rsi < 40 and
+        ma9 > ma21 > ma100 and
+        rsi < 55 and
+        close > ma21 and
+        penultimo['Close'] < penultimo['MA_21'] and
         media_distanza > soglia_distanza
     ):
         segnale = "BUY"
         tp = round(close + (atr + spread), 2)
-        sl = round(close - (atr + spread * 0.5), 2)
-        commento += f"\n→ Incrocio rialzista sopra MA100 con distacco + RSI basso\n🎯 TP: {tp} | 🛡️ SL: {sl}"
+        sl = round(close - (atr * 0.8), 2)
+        commento += f"\n✅ Trend rialzista MA + breakout MA21 + RSI favorevole\n🎯 TP: {tp} | 🛡️ SL: {sl}"
 
-    # SELL robusto
+    # SELL condizione più realistica
     elif (
-        penultimo['MA_9'] > penultimo['MA_21'] and
-        ma9 < ma21 and
-        ma9 < ma100 and
-        ma21 < ma100 and
-        rsi > 60 and
+        ma9 < ma21 < ma100 and
+        rsi > 65 and
+        close < ma21 and
+        penultimo['Close'] > penultimo['MA_21'] and
         media_distanza > soglia_distanza
     ):
         segnale = "SELL"
         tp = round(close - (atr + spread), 2)
-        sl = round(close + (atr + spread * 0.5), 2)
-        commento += f"\n→ Incrocio ribassista sotto MA100 con distacco + RSI alto\n🎯 TP: {tp} | 🛡️ SL: {sl}"
+        sl = round(close + (atr * 0.8), 2)
+        commento += f"\n⚠️ Trend ribassista MA + rottura MA21 + RSI alto\n🎯 TP: {tp} | 🛡️ SL: {sl}"
 
     return {
         "segnale": segnale,
