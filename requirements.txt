@@ -5,5 +5,7 @@ pandas
 requests
 python-dotenv
 numpy
+matplotlib
+
 
 
