@@ -15,11 +15,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Carica chiavi dal .env
+# Carica chiave da .env
 load_dotenv()
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
-# Calcolo RSI
+# RSI
 def calcola_rsi(serie, periodi=14):
     delta = serie.diff()
     gain = delta.where(delta > 0, 0)
@@ -29,7 +29,7 @@ def calcola_rsi(serie, periodi=14):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
-# Calcolo ATR classico
+# ATR classico
 def calcola_atr(df, periodi=14):
     df['H-L'] = df['high'] - df['low']
     df['H-PC'] = abs(df['high'] - df['close'].shift())
@@ -39,36 +39,40 @@ def calcola_atr(df, periodi=14):
 
 @app.get("/analyze")
 def analyze(symbol: str):
-    url = f"https://apidojo-yahoo-finance-v1.p.rapidapi.com/stock/v2/get-timeseries"
+    url = "https://apidojo-yahoo-finance-v1.p.rapidapi.com/stock/v3/get-chart"
     headers = {
-        "x-rapidapi-host": "apidojo-yahoo-finance-v1.p.rapidapi.com",
-        "x-rapidapi-key": RAPIDAPI_KEY,
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": "apidojo-yahoo-finance-v1.p.rapidapi.com"
     }
     params = {
         "symbol": symbol,
-        "period1": "7d",
         "interval": "30m",
+        "range": "5d",
         "region": "US"
     }
+
     response = requests.get(url, headers=headers, params=params)
     data = response.json()
 
     try:
-        candles = data['timeseries']['timestamp']
-        values = data['timeseries']['close']
-    except:
-        return {"segnale": "ERROR", "commento": f"Errore nel recupero dati per {symbol.upper()}"}
-
-    df = pd.DataFrame(values)
-    df.columns = ['close']
-    df['close'] = df['close'].astype(float)
-    df['high'] = [row['high'] for row in values]
-    df['low'] = [row['low'] for row in values]
+        candles = data['chart']['result'][0]['indicators']['quote'][0]
+        timestamps = data['chart']['result'][0]['timestamp']
+        df = pd.DataFrame(candles)
+        df['timestamp'] = pd.to_datetime(timestamps, unit='s')
+        df = df.dropna()
+    except Exception as e:
+        return {
+            "segnale": "ERROR",
+            "commento": f"Errore nel recupero dati per {symbol.upper()}"
+        }
 
     if len(df) < 100:
-        return {"segnale": "ERROR", "commento": f"Dati insufficienti per {symbol.upper()}"}
+        return {
+            "segnale": "ERROR",
+            "commento": f"Dati insufficienti per {symbol.upper()}"
+        }
 
-    # Indicatori
+    df = df.reset_index(drop=True)
     df['MA_9'] = df['close'].rolling(window=9).mean()
     df['MA_21'] = df['close'].rolling(window=21).mean()
     df['MA_100'] = df['close'].rolling(window=100).mean()
