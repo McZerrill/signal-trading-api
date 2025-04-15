@@ -4,4 +4,6 @@ yfinance
 pandas
 requests
 python-dotenv
+numpy
+
 
