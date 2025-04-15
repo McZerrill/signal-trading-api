@@ -29,58 +29,84 @@ def calcola_atr(df, periodi=14):
     return df['TR'].rolling(window=periodi).mean()
 
 def calcola_tii(serie, periodo_ma=60, periodo_tii=30):
-    ma = serie.rolling(window=periodo_ma).mean()
+    ma = serie.ewm(span=periodo_ma).mean()
     deviazione = abs(serie - ma)
-    media_deviazione = deviazione.rolling(window=periodo_tii).mean()
+    media_deviazione = deviazione.ewm(span=periodo_tii).mean()
     return 100 - (100 / (1 + (serie - ma) / media_deviazione))
 
+def valuta_distanza(distanza):
+    if distanza < 1:
+        return "bassa"
+    elif distanza < 3:
+        return "media"
+    else:
+        return "alta"
+
 def analizza_trend(hist):
-    hist['MA_9'] = hist['Close'].rolling(window=9).mean()
-    hist['MA_21'] = hist['Close'].rolling(window=21).mean()
-    hist['MA_100'] = hist['Close'].rolling(window=100).mean()
+    hist['EMA_9'] = hist['Close'].ewm(span=9).mean()
+    hist['EMA_21'] = hist['Close'].ewm(span=21).mean()
+    hist['EMA_100'] = hist['Close'].ewm(span=100).mean()
     hist['RSI'] = calcola_rsi(hist['Close'])
     hist['ATR'] = calcola_atr(hist)
     hist['TII'] = calcola_tii(hist['Close'])
 
     ultimo = hist.iloc[-1]
-    ma9 = ultimo['MA_9']
-    ma100 = ultimo['MA_100']
-    rsi = ultimo['RSI']
-    tii = ultimo['TII']
+    ema9_now = ultimo['EMA_9']
+    ema21_now = ultimo['EMA_21']
+    ema100_now = ultimo['EMA_100']
 
-    incrocio_buy = (
-        hist['MA_9'].iloc[-4] < hist['MA_100'].iloc[-4] and
-        ma9 > ma100 and
-        (ma9 - ma100) > (hist['MA_9'].iloc[-4] - hist['MA_100'].iloc[-4])
-    )
+    ema9_past = hist['EMA_9'].iloc[-4]
+    ema21_past = hist['EMA_21'].iloc[-4]
+    ema100_past = hist['EMA_100'].iloc[-4]
 
-    incrocio_sell = (
-        hist['MA_9'].iloc[-4] > hist['MA_100'].iloc[-4] and
-        ma9 < ma100 and
-        (ma100 - ma9) > (hist['MA_100'].iloc[-4] - hist['MA_9'].iloc[-4])
-    )
+    dist_now = abs(ema9_now - ema100_now) + abs(ema21_now - ema100_now)
+    dist_past = abs(ema9_past - ema100_past) + abs(ema21_past - ema100_past)
 
-    if incrocio_buy:
-        return "BUY", hist
-    elif incrocio_sell:
-        return "SELL", hist
-    else:
-        return "HOLD", hist
+    # BUY
+    if (
+        ema9_past < ema100_past and
+        ema21_past < ema100_past and
+        ema9_now > ema100_now and
+        ema21_now > ema100_now and
+        dist_now > dist_past
+    ):
+        return "BUY", hist, dist_now
+
+    # SELL
+    elif (
+        ema9_past > ema100_past and
+        ema21_past > ema100_past and
+        ema9_now < ema100_now and
+        ema21_now < ema100_now and
+        dist_now > dist_past
+    ):
+        return "SELL", hist, dist_now
+
+    return "HOLD", hist, dist_now
 
 @app.get("/analyze")
 def analyze(symbol: str):
     data = yf.Ticker(symbol)
+    is_crypto = "-USD" in symbol.upper()
 
     try:
         hist_15m = data.history(period="7d", interval="15m")
         if hist_15m.empty or len(hist_15m) < 100:
             raise Exception("Dati insufficienti 15m")
-        segnale_15m, hist_15m = analizza_trend(hist_15m)
 
-        hist_5m = data.history(period="1d", interval="5m")
-        if hist_5m.empty or len(hist_5m) < 100:
-            raise Exception("Dati insufficienti 5m")
-        segnale_5m, hist_5m = analizza_trend(hist_5m)
+        segnale_15m, hist_15m, distanza_15m = analizza_trend(hist_15m)
+
+        try:
+            hist_5m = data.history(period="1d", interval="5m")
+            if hist_5m.empty or len(hist_5m) < 100:
+                raise Exception("Dati 5m insufficienti")
+            segnale_5m, _, _ = analizza_trend(hist_5m)
+            conferma_due_timeframe = (segnale_15m == segnale_5m and segnale_15m != "HOLD")
+            note_timeframe = ""
+        except:
+            segnale_5m = "NON DISPONIBILE"
+            conferma_due_timeframe = False
+            note_timeframe = "⚠️ Dati 5m non disponibili, analisi solo su 15m\n"
 
         ultimo = hist_15m.iloc[-1]
         close = ultimo['Close']
@@ -90,16 +116,20 @@ def analyze(symbol: str):
         sl = round(close - (atr * 0.8), 2) if segnale_15m == "BUY" else round(close + (atr * 0.8), 2)
 
         rsi = round(ultimo['RSI'], 2)
-        ma9 = round(ultimo['MA_9'], 2)
-        ma21 = round(ultimo['MA_21'], 2)
-        ma100 = round(ultimo['MA_100'], 2)
+        ema9 = round(ultimo['EMA_9'], 2)
+        ema21 = round(ultimo['EMA_21'], 2)
+        ema100 = round(ultimo['EMA_100'], 2)
         atr = round(ultimo['ATR'], 2)
         tii = round(ultimo['TII'], 2)
+        dist_level = valuta_distanza(distanza_15m)
 
-        if segnale_15m == segnale_5m and segnale_15m != "HOLD":
+        ritardo = " | ⚠️ Ritardo stimato: ~15 minuti" if not is_crypto else ""
+
+        if conferma_due_timeframe:
             commento = (
-                f"✅ {segnale_15m} confermato su 5m e 15m\n"
-                f"RSI: {rsi} | MA9: {ma9} | MA21: {ma21} | MA100: {ma100} | ATR: {atr} | TII: {tii}\n"
+                f"✅ {segnale_15m} confermato su 5m e 15m{ritardo}\n"
+                f"Distanza medie: {dist_level}\n"
+                f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100} | ATR: {atr} | TII: {tii}\n"
                 f"🎯 TP: {tp} | 🛡️ SL: {sl}"
             )
             return {
@@ -110,13 +140,15 @@ def analyze(symbol: str):
                 "stop_loss": sl
             }
 
-        # HOLD
         commento = (
-            f"Segnale non confermato: 15m={segnale_15m}, 5m={segnale_5m}\n"
-            f"RSI: {rsi} | MA9: {ma9} | MA21: {ma21} | MA100: {ma100} | ATR: {atr} | TII: {tii}"
+            f"{note_timeframe}"
+            f"Segnale non confermato: 15m={segnale_15m}, 5m={segnale_5m}{ritardo}\n"
+            f"Distanza medie: {dist_level}\n"
+            f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100} | ATR: {atr} | TII: {tii}"
         )
         tp = round(close * 1.02, 2)
         sl = round(close * 0.98, 2)
+
         return {
             "segnale": "HOLD",
             "commento": commento,
