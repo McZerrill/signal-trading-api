@@ -183,13 +183,14 @@ def analyze(symbol: str):
             segnale_15m = "HOLD"
 
         return SignalResponse(
-            segnale=segnale_15m,
-            commento=commento,
-            prezzo=round(close, 2),
-            take_profit=tp,
-            stop_loss=sl,
-            grafico_base64=grafico
-        )
+    segnale=segnale_15m,
+    commento=commento,
+    prezzo=round(close, 2),
+    take_profit=tp,
+    stop_loss=sl,
+    graficoBase64=grafico  # ✅ nome corretto!
+)
+
 
     except:
         return SignalResponse(
