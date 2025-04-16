@@ -73,6 +73,8 @@ def genera_grafico_base64(df):
         plt.close(fig)
         buf.seek(0)
         encoded = base64.b64encode(buf.read()).decode('utf-8')
+
+        print(f"✅ Lunghezza grafico base64: {len(encoded)}")
         return encoded
     except Exception as e:
         print(f"❌ Errore durante la generazione del grafico: {e}")
@@ -165,6 +167,9 @@ def analyze(symbol: str):
         dist_level = valuta_distanza(distanza_15m)
         grafico = genera_grafico_base64(hist_15m)
 
+        if not grafico:
+            print(f"❌ Grafico non generato per {symbol}")
+
         ritardo = " | ⚠️ Ritardo stimato: ~15 minuti" if not is_crypto else ""
 
         if conferma_due_timeframe:
@@ -203,7 +208,7 @@ def analyze(symbol: str):
             stop_loss=0.0
         )
 
-# Cache per hotassets (max ogni 15 min)
+# Cache per hotassets (ogni 15 minuti)
 _hot_cache = {"time": 0, "data": []}
 
 @app.get("/hotassets")
@@ -236,6 +241,16 @@ def hot_assets():
                 })
         except:
             continue
+
+    # 🔧 Aggiungiamo un asset di test forzato
+    risultati.append({
+        "symbol": "BTC-USD",
+        "segnale": "BUY",
+        "rsi": 55.0,
+        "ema9": 100.0,
+        "ema21": 101.0,
+        "ema100": 102.0
+    })
 
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati[:10]
