@@ -1,4 +1,11 @@
-from fastapi import FastAPI from fastapi.middleware.cors import CORSMiddleware from pydantic import BaseModel import yfinance as yf import pandas as pd import matplotlib.pyplot as plt import io import base64
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+import io
+import base64
 
 app = FastAPI()
 
