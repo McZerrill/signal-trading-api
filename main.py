@@ -55,21 +55,27 @@ def valuta_distanza(distanza):
         return "alta"
 
 def genera_grafico_base64(df):
-    fig, ax = plt.subplots(figsize=(6, 3))
-    ax.plot(df['Close'], label='Close', linewidth=1.5)
-    ax.plot(df['EMA_9'], label='EMA 9', linestyle='--')
-    ax.plot(df['EMA_21'], label='EMA 21', linestyle='--')
-    ax.plot(df['EMA_100'], label='EMA 100', linestyle='--')
-    ax.legend()
-    ax.set_title('Prezzo e Medie Mobili')
-    ax.grid(True)
+    try:
+        fig, ax = plt.subplots(figsize=(6, 3))
+        ax.plot(df['Close'], label='Close', linewidth=1.5)
+        ax.plot(df['EMA_9'], label='EMA 9', linestyle='--')
+        ax.plot(df['EMA_21'], label='EMA 21', linestyle='--')
+        ax.plot(df['EMA_100'], label='EMA 100', linestyle='--')
+        ax.legend()
+        ax.set_title('Prezzo e Medie Mobili')
+        ax.grid(True)
 
-    buf = io.BytesIO()
-    plt.tight_layout()
-    plt.savefig(buf, format='png')
-    plt.close(fig)
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode('utf-8')
+        buf = io.BytesIO()
+        plt.tight_layout()
+        plt.savefig(buf, format='png')
+        plt.close(fig)
+        buf.seek(0)
+        encoded = base64.b64encode(buf.read()).decode('utf-8')
+        return encoded
+    except Exception as e:
+        print(f"❌ Errore durante la generazione del grafico: {e}")
+        return None
+
 
 def analizza_trend(hist):
     hist['EMA_9'] = hist['Close'].ewm(span=9).mean()
@@ -153,6 +159,8 @@ def analyze(symbol: str):
         tii = round(ultimo['TII'], 2)
         dist_level = valuta_distanza(distanza_15m)
         grafico = genera_grafico_base64(hist_15m)
+        print(f"✅ Grafico generato per {symbol}: {len(grafico) if grafico else 'nessun dato'} caratteri")
+
 
         ritardo = " | ⚠️ Ritardo stimato: ~15 minuti" if not is_crypto else ""
 
