@@ -180,7 +180,7 @@ def analyze(symbol: str):
             prezzo=round(close, 2),
             take_profit=tp,
             stop_loss=sl,
-            graficoBase64=grafico
+            grafico_base64=grafico
         )
 
     except:
