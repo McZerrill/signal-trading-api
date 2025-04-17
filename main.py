@@ -23,7 +23,7 @@ class SignalResponse(BaseModel):
     prezzo: float
     take_profit: float
     stop_loss: float
-    graficoBase64: str | None = None
+
 
 def calcola_rsi(serie, periodi=14):
     delta = serie.diff()
@@ -76,26 +76,6 @@ def conta_candele_trend(hist, rialzista=True):
             else:
                 break
     return count
-
-def genera_grafico_base64(df):
-    try:
-        fig, ax = plt.subplots(figsize=(6, 3), dpi=200)
-        ax.plot(df['Close'], label='Close', linewidth=1.5)
-        ax.plot(df['EMA_9'], label='EMA 9', linestyle='--')
-        ax.plot(df['EMA_21'], label='EMA 21', linestyle='--')
-        ax.plot(df['EMA_100'], label='EMA 100', linestyle='--')
-        ax.legend()
-        ax.set_title('Prezzo e Medie Mobili')
-        ax.grid(True)
-        buf = io.BytesIO()
-        plt.tight_layout()
-        plt.savefig(buf, format='png', bbox_inches='tight')
-        plt.close(fig)
-        buf.seek(0)
-        encoded = base64.b64encode(buf.read()).decode('utf-8')
-        return encoded
-    except:
-        return None
 
 def analizza_trend(hist):
     hist['EMA_9'] = hist['Close'].ewm(span=9).mean()
@@ -263,8 +243,7 @@ def analyze(symbol: str):
             commento=commento,
             prezzo=close,
             take_profit=tp,
-            stop_loss=sl,
-            graficoBase64=grafico
+            stop_loss=sl
         )
 
     except Exception as e:
