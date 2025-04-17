@@ -105,26 +105,16 @@ def analizza_trend(hist):
     macd_signal = ultimo['MACD_SIGNAL']
 
     if (
-        ema9_past < ema100_past and
-        ema21_past < ema100_past and
-        ema9_now > ema100_now and
-        ema21_now > ema100_now and
-        dist_now > dist_past and
-        macd > macd_signal and
-        rsi > 55 and
-        close > ema100_now
+        ema9_past < ema100_past and ema21_past < ema100_past and
+        ema9_now > ema100_now and ema21_now > ema100_now and
+        dist_now > dist_past and macd > macd_signal and rsi > 55 and close > ema100_now
     ):
         return "BUY", hist, dist_now
 
     elif (
-        ema9_past > ema100_past and
-        ema21_past > ema100_past and
-        ema9_now < ema100_now and
-        ema21_now < ema100_now and
-        dist_now > dist_past and
-        macd < macd_signal and
-        rsi < 45 and
-        close < ema100_now
+        ema9_past > ema100_past and ema21_past > ema100_past and
+        ema9_now < ema100_now and ema21_now < ema100_now and
+        dist_now > dist_past and macd < macd_signal and rsi < 45 and close < ema100_now
     ):
         return "SELL", hist, dist_now
 
@@ -169,9 +159,6 @@ def analyze(symbol: str):
         dist_level = valuta_distanza(distanza_15m)
         grafico = genera_grafico_base64(hist_15m)
 
-        if not grafico:
-            print(f"❌ Grafico non generato per {symbol}")
-
         ritardo = " | ⚠️ Ritardo stimato: ~15 minuti" if not is_crypto else ""
 
         if conferma_due_timeframe:
@@ -210,7 +197,7 @@ def analyze(symbol: str):
             stop_loss=0.0
         )
 
-# 🔥 Endpoint titoli caldi basato su finestre mobili di 12 ore
+# 🔥 Titoli caldi basati su finestre mobili da 5 candele nelle ultime 12 ore
 _hot_cache = {"time": 0, "data": []}
 
 @app.get("/hotassets")
@@ -229,12 +216,11 @@ def hot_assets():
         try:
             ticker = yf.Ticker(symbol)
             hist = ticker.history(period="1d", interval="15m")
-
             if hist.empty or len(hist) < 100:
                 continue
 
             segnali = 0
-            for i in range(-48, -4):
+            for i in range(-48, -4):  # 12 ore = 48 candele da 15m
                 sub_hist = hist.iloc[i - 4:i + 1].copy()
                 segnale, _, _ = analizza_trend(sub_hist)
                 if segnale in ["BUY", "SELL"]:
@@ -254,15 +240,6 @@ def hot_assets():
         except Exception as e:
             print(f"Errore con {symbol}: {e}")
             continue
-
-    risultati.append({
-        "symbol": "BTC-USD",
-        "segnale": "BUY",
-        "rsi": 55.0,
-        "ema9": 100.0,
-        "ema21": 101.0,
-        "ema100": 102.0
-    })
 
     risultati_ordinati = sorted(risultati, key=lambda x: x.get("segnali", 0), reverse=True)[:10]
     _hot_cache["time"] = now
