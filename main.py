@@ -59,6 +59,24 @@ def valuta_distanza(distanza):
     else:
         return "alta"
 
+def conta_candele_trend(hist, rialzista=True):
+    count = 0
+    for i in range(-1, -21, -1):
+        ema9 = hist['EMA_9'].iloc[i]
+        ema21 = hist['EMA_21'].iloc[i]
+        ema100 = hist['EMA_100'].iloc[i]
+        if rialzista:
+            if ema9 > ema21 > ema100:
+                count += 1
+            else:
+                break
+        else:
+            if ema9 < ema21 < ema100:
+                count += 1
+            else:
+                break
+    return count
+
 def genera_grafico_base64(df):
     try:
         fig, ax = plt.subplots(figsize=(6, 3), dpi=200)
@@ -126,6 +144,12 @@ def analizza_trend(hist):
     elif macd < macd_signal and rsi < 45 and distanza_rel < 1.5:
         note = "⚠️ Segnale anticipato: MACD debole + RSI sotto 45"
 
+    candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
+    if segnale in ["BUY", "SELL"] and candele_trend >= 3:
+        note += f"\n📈 Trend attivo da {candele_trend} candele = trend forte"
+    elif segnale == "HOLD" and candele_trend <= 1:
+        note += "\n⛔️ Trend esaurito, considera chiusura posizione"
+
     return segnale, hist, dist, note, tp, sl, supporto
 
 @app.get("/analyze", response_model=SignalResponse)
@@ -171,20 +195,21 @@ def analyze(symbol: str):
             tp_pct = round(((tp - close) / close) * 100, 1)
             sl_pct = round(((sl - close) / close) * 100, 1)
             commento = (
-    f"✅ {segnale_15m} confermato su 15m{' e 5m' if conferma_due_timeframe else ''}{ritardo}\n"
-    f"{note_timeframe}Segnale operativo: {direzione}\n"
-    f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100}\n"
-    f"MACD: {macd} | Signal: {macd_signal} | ATR: {atr}\n"
-    f"Distanza medie: {dist_level}\n"
-    f"🎯 Entry stimato: {close} | TP: {tp} | 🛡️ SL: {sl}"
-)
+                f"✅ {segnale_15m} confermato su 15m{' e 5m' if conferma_due_timeframe else ''}{ritardo}\n"
+                f"{note_timeframe}Segnale operativo: {direzione}\n"
+                f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100}\n"
+                f"MACD: {macd} | Signal: {macd_signal} | ATR: {atr}\n"
+                f"Distanza medie: {dist_level}\n"
+                f"🎯 Entry stimato: {close} | TP: +{tp_pct}% | 🛡️ SL: {sl_pct}%\n"
+                f"{note.strip()}"
+            )
         else:
             commento = (
                 f"{note_timeframe}Segnale non confermato: 15m={segnale_15m}, 5m={segnale_5m}{ritardo}\n"
                 f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100}\n"
                 f"MACD: {macd} | Signal: {macd_signal} | ATR: {atr}\n"
                 f"Distanza medie: {dist_level}\n"
-                f"{note}\nSupporto rilevante: {supporto}$"
+                f"{note.strip()}\nSupporto rilevante: {supporto}$"
             )
             tp = sl = 0.0
 
@@ -206,7 +231,6 @@ def analyze(symbol: str):
             take_profit=0.0,
             stop_loss=0.0
         )
-
 # Cache per hot assets
 _hot_cache = {"time": 0, "data": []}
 
@@ -216,7 +240,6 @@ def hot_assets():
     if now - _hot_cache["time"] < 900:
         return _hot_cache["data"]
 
-    # Criptovalute attivamente scambiate su Binance con suffisso -USD per yfinance
     symbols = [
         "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD", "ADA-USD", "SOL-USD", "AVAX-USD", "DOT-USD",
         "DOGE-USD", "MATIC-USD", "LTC-USD", "SHIB-USD", "TRX-USD", "ETC-USD", "ATOM-USD",
@@ -233,13 +256,11 @@ def hot_assets():
                 print(f"{symbol}: dati insufficienti")
                 continue
 
-            # Calcolo RSI e medie se non già presenti
             hist['EMA_9'] = hist['Close'].ewm(span=9).mean()
             hist['EMA_21'] = hist['Close'].ewm(span=21).mean()
             hist['EMA_100'] = hist['Close'].ewm(span=100).mean()
             hist['RSI'] = calcola_rsi(hist['Close'])
 
-            # Escludi asset con volume molto basso
             if 'Volume' in hist.columns and hist['Volume'].iloc[-1] < 1000:
                 continue
 
@@ -256,7 +277,7 @@ def hot_assets():
 
             total_signals = buy_signals + sell_signals
             if total_signals < 2:
-                continue  # Filtra asset con poca attività
+                continue
 
             trend = "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "NEUTRO"
             ultimo = hist.iloc[-1]
