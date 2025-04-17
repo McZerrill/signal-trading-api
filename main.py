@@ -216,9 +216,12 @@ def hot_assets():
     if now - _hot_cache["time"] < 900:
         return _hot_cache["data"]
 
+    # Criptovalute attivamente scambiate su Binance con suffisso -USD per yfinance
     symbols = [
-        "BTC-USD", "ETH-USD", "BCH-USD", "LTC-USD", "XRP-USD",
-        "EOS-USD", "TRX-USD", "ETC-USD", "DASH-USD", "ZEC-USD", "QTUM-USD"
+        "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD", "ADA-USD", "SOL-USD", "AVAX-USD", "DOT-USD",
+        "DOGE-USD", "MATIC-USD", "LTC-USD", "SHIB-USD", "TRX-USD", "ETC-USD", "ATOM-USD",
+        "NEAR-USD", "INJ-USD", "RNDR-USD", "FTM-USD", "ALGO-USD", "VET-USD", "SAND-USD",
+        "EOS-USD", "CRO-USD", "HBAR-USD", "ZIL-USD", "OP-USD", "AR-USD"
     ]
 
     risultati = []
@@ -227,12 +230,23 @@ def hot_assets():
             ticker = yf.Ticker(symbol)
             hist = ticker.history(period="1d", interval="15m")
             if hist.empty or len(hist) < 100:
+                print(f"{symbol}: dati insufficienti")
+                continue
+
+            # Calcolo RSI e medie se non già presenti
+            hist['EMA_9'] = hist['Close'].ewm(span=9).mean()
+            hist['EMA_21'] = hist['Close'].ewm(span=21).mean()
+            hist['EMA_100'] = hist['Close'].ewm(span=100).mean()
+            hist['RSI'] = calcola_rsi(hist['Close'])
+
+            # Escludi asset con volume molto basso
+            if 'Volume' in hist.columns and hist['Volume'].iloc[-1] < 1000:
                 continue
 
             buy_signals = 0
             sell_signals = 0
 
-            for i in range(-48, -4):
+            for i in range(-36, -4):  # circa 9 ore
                 sub_hist = hist.iloc[i - 4:i + 1].copy()
                 segnale, _, _, _, _, _, _ = analizza_trend(sub_hist)
                 if segnale == "BUY":
@@ -241,8 +255,8 @@ def hot_assets():
                     sell_signals += 1
 
             total_signals = buy_signals + sell_signals
-            if total_signals == 0:
-                continue
+            if total_signals < 2:
+                continue  # Filtra asset con poca attività
 
             trend = "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "NEUTRO"
             ultimo = hist.iloc[-1]
@@ -260,7 +274,11 @@ def hot_assets():
             print(f"Errore con {symbol}: {e}")
             continue
 
-    risultati_ordinati = sorted(risultati, key=lambda x: x.get("segnali", 0), reverse=True)[:10]
+    risultati_ordinati = sorted(risultati, key=lambda x: x['segnali'], reverse=True)[:10]
+
+    if not risultati_ordinati:
+        print("⚠️ Nessun asset hot rilevato nelle ultime ore.")
+
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati_ordinati
     return risultati_ordinati
