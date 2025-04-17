@@ -73,7 +73,6 @@ def genera_grafico_base64(df):
         plt.close(fig)
         buf.seek(0)
         encoded = base64.b64encode(buf.read()).decode('utf-8')
-
         print(f"✅ Lunghezza grafico base64: {len(encoded)}")
         return encoded
     except Exception as e:
@@ -95,14 +94,13 @@ def analizza_trend(hist):
     ema9_now = ultimo['EMA_9']
     ema21_now = ultimo['EMA_21']
     ema100_now = ultimo['EMA_100']
-
+    rsi = ultimo['RSI']
+    close = ultimo['Close']
     ema9_past = hist['EMA_9'].iloc[-4]
     ema21_past = hist['EMA_21'].iloc[-4]
     ema100_past = hist['EMA_100'].iloc[-4]
-
     dist_now = abs(ema9_now - ema100_now) + abs(ema21_now - ema100_now)
     dist_past = abs(ema9_past - ema100_past) + abs(ema21_past - ema100_past)
-
     macd = ultimo['MACD']
     macd_signal = ultimo['MACD_SIGNAL']
 
@@ -112,7 +110,9 @@ def analizza_trend(hist):
         ema9_now > ema100_now and
         ema21_now > ema100_now and
         dist_now > dist_past and
-        macd > macd_signal
+        macd > macd_signal and
+        rsi > 55 and
+        close > ema100_now
     ):
         return "BUY", hist, dist_now
 
@@ -122,7 +122,9 @@ def analizza_trend(hist):
         ema9_now < ema100_now and
         ema21_now < ema100_now and
         dist_now > dist_past and
-        macd < macd_signal
+        macd < macd_signal and
+        rsi < 45 and
+        close < ema100_now
     ):
         return "SELL", hist, dist_now
 
@@ -208,7 +210,7 @@ def analyze(symbol: str):
             stop_loss=0.0
         )
 
-# Cache per hotassets (ogni 15 minuti)
+# 🔥 Endpoint titoli caldi basato su finestre mobili di 12 ore
 _hot_cache = {"time": 0, "data": []}
 
 @app.get("/hotassets")
@@ -225,24 +227,34 @@ def hot_assets():
     risultati = []
     for symbol in symbols:
         try:
-            hist = yf.Ticker(symbol).history(period="2d", interval="15m")
+            ticker = yf.Ticker(symbol)
+            hist = ticker.history(period="1d", interval="15m")
+
             if hist.empty or len(hist) < 100:
                 continue
-            segnale, _, _ = analizza_trend(hist)
-            if segnale in ["BUY", "SELL"]:
+
+            segnali = 0
+            for i in range(-48, -4):
+                sub_hist = hist.iloc[i - 4:i + 1].copy()
+                segnale, _, _ = analizza_trend(sub_hist)
+                if segnale in ["BUY", "SELL"]:
+                    segnali += 1
+
+            if segnali > 0:
                 ultimo = hist.iloc[-1]
                 risultati.append({
                     "symbol": symbol,
-                    "segnale": segnale,
+                    "segnali": segnali,
                     "rsi": round(ultimo['RSI'], 2),
                     "ema9": round(ultimo['EMA_9'], 2),
                     "ema21": round(ultimo['EMA_21'], 2),
                     "ema100": round(ultimo['EMA_100'], 2),
                 })
-        except:
+
+        except Exception as e:
+            print(f"Errore con {symbol}: {e}")
             continue
 
-    # 🔧 Aggiungiamo un asset di test forzato
     risultati.append({
         "symbol": "BTC-USD",
         "segnale": "BUY",
@@ -252,6 +264,7 @@ def hot_assets():
         "ema100": 102.0
     })
 
+    risultati_ordinati = sorted(risultati, key=lambda x: x.get("segnali", 0), reverse=True)[:10]
     _hot_cache["time"] = now
-    _hot_cache["data"] = risultati[:10]
-    return risultati[:10]
+    _hot_cache["data"] = risultati_ordinati
+    return risultati_ordinati
