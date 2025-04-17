@@ -135,12 +135,20 @@ def analizza_trend(hist):
 
     if ema9 > ema21 and (ema9 > ema100 or (ema21 - ema100) / ema100 < 0.01) and rsi > 50 and macd > macd_signal and filtro_volume:
         segnale = "BUY"
-        tp = round(close + atr * 1.5, 4)
-        sl = round(close - atr * 1.2, 4)
+        resistenza = hist['High'].tail(20).max()
+        tp_raw = close + atr * 1.5
+        sl_raw = close - atr * 1.2
+        tp = round(min(tp_raw, resistenza), 4)
+        sl = round(sl_raw, 4)
+
     elif ema9 < ema21 and (ema9 < ema100 or (ema21 - ema100) / ema100 < 0.01) and rsi < 50 and macd < macd_signal and filtro_volume:
         segnale = "SELL"
-        tp = round(close - atr * 1.5, 4)
-        sl = round(close + atr * 1.2, 4)
+        supporto = calcola_supporto(hist)
+        tp_raw = close - atr * 1.5
+        sl_raw = close + atr * 1.2
+        tp = round(max(tp_raw, supporto), 4)
+        sl = round(sl_raw, 4)
+
     elif macd < macd_signal and rsi < 45 and distanza_rel < 1.5:
         note = "⚠️ Segnale anticipato: MACD debole + RSI sotto 45"
 
@@ -159,24 +167,51 @@ def analyze(symbol: str):
 
     try:
         hist_15m = data.history(period="7d", interval="15m")
+        hist_30m = data.history(period="14d", interval="30m")
+
         if hist_15m.empty or len(hist_15m) < 100:
             raise Exception("Dati insufficienti 15m")
+        if hist_30m.empty or len(hist_30m) < 100:
+            raise Exception("Dati insufficienti 30m")
 
-        segnale_15m, hist_15m, distanza_15m, note, tp, sl, supporto = analizza_trend(hist_15m)
+        # Analizza entrambi i timeframe
+        segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(hist_15m)
+        segnale_30m, h30, dist_30m, note30, tp30, sl30, supporto30 = analizza_trend(hist_30m)
 
+        # Conta candele con trend attivo
+        def conta_trend_attivo(hist):
+            count = 0
+            for i in range(-10, 0):
+                sub = hist.iloc[i]
+                if sub['EMA_9'] > sub['EMA_21'] > sub['EMA_100'] or sub['EMA_9'] < sub['EMA_21'] < sub['EMA_100']:
+                    count += 1
+            return count
+
+        trend_15m = conta_trend_attivo(h15)
+        trend_30m = conta_trend_attivo(h30)
+
+        # Scegli timeframe con trend più forte
+        if trend_30m > trend_15m:
+            timeframe = "30m"
+            segnale, hist, distanza, note, tp, sl, supporto = segnale_30m, h30, dist_30m, note30, tp30, sl30, supporto30
+        else:
+            timeframe = "15m"
+            segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
+
+        # Prova anche ad analizzare il 5m per conferma
         try:
             hist_5m = data.history(period="1d", interval="5m")
             if hist_5m.empty or len(hist_5m) < 100:
                 raise Exception("Dati 5m insufficienti")
             segnale_5m, _, _, _, _, _, _ = analizza_trend(hist_5m)
-            conferma_due_timeframe = (segnale_15m == segnale_5m and segnale_15m != "HOLD")
+            conferma_due_timeframe = (segnale == segnale_5m and segnale != "HOLD")
             note_timeframe = ""
         except:
             segnale_5m = "NON DISPONIBILE"
             conferma_due_timeframe = False
-            note_timeframe = "⚠️ Dati 5m non disponibili, analisi solo su 15m\n"
+            note_timeframe = "⚠️ Dati 5m non disponibili, analisi solo su " + timeframe + "\n"
 
-        ultimo = hist_15m.iloc[-1]
+        ultimo = hist.iloc[-1]
         close = round(ultimo['Close'], 4)
         rsi = round(ultimo['RSI'], 2)
         ema9 = round(ultimo['EMA_9'], 2)
@@ -185,36 +220,46 @@ def analyze(symbol: str):
         atr = round(ultimo['ATR'], 2)
         macd = round(ultimo['MACD'], 4)
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
-        dist_level = valuta_distanza(distanza_15m)
-        grafico = genera_grafico_base64(hist_15m)
+        dist_level = valuta_distanza(distanza)
+        grafico = genera_grafico_base64(hist)
 
         ritardo = " | ⚠️ Ritardo stimato: ~15 minuti" if not is_crypto else ""
 
-        if segnale_15m in ["BUY", "SELL"]:
-            direzione = "LONG" if segnale_15m == "BUY" else "SHORT"
+        if segnale in ["BUY", "SELL"]:
+            direzione = "LONG" if segnale == "BUY" else "SHORT"
             tp_pct = round(((tp - close) / close) * 100, 1)
             sl_pct = round(((sl - close) / close) * 100, 1)
+
+            trend_msg = ""
+            if (ema9 > ema21 > ema100) or (ema9 < ema21 < ema100):
+                trend_attivo = conta_trend_attivo(hist)
+                if trend_attivo >= 3:
+                    trend_msg = f"\n📈 Trend attivo da {trend_attivo} candele → forza trend alta"
+                elif trend_attivo == 2:
+                    trend_msg = "\n📉 Trend attivo moderato"
+                else:
+                    trend_msg = "\n⛔ Trend debole o in esaurimento, valuta chiusura"
+
             commento = (
-                f"✅ {segnale_15m} confermato su 15m{' e 5m' if conferma_due_timeframe else ''}{ritardo}\n"
+                f"✅ {segnale} confermato su {timeframe}{' e 5m' if conferma_due_timeframe else ''}{ritardo}\n"
                 f"{note_timeframe}Segnale operativo: {direzione}\n"
                 f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100}\n"
                 f"MACD: {macd} | Signal: {macd_signal} | ATR: {atr}\n"
                 f"Distanza medie: {dist_level}\n"
-                f"🎯 Entry stimato: {close} | TP: +{tp_pct}% | 🛡️ SL: {sl_pct}%\n"
-                f"{note.strip()}"
+                f"🎯 Entry stimato: {close} | TP: {tp_pct}% | 🛡️ SL: {sl_pct}%{trend_msg}"
             )
         else:
             commento = (
-                f"{note_timeframe}Segnale non confermato: 15m={segnale_15m}, 5m={segnale_5m}{ritardo}\n"
+                f"{note_timeframe}Segnale non confermato: {timeframe}={segnale}, 5m={segnale_5m}{ritardo}\n"
                 f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100}\n"
                 f"MACD: {macd} | Signal: {macd_signal} | ATR: {atr}\n"
                 f"Distanza medie: {dist_level}\n"
-                f"{note.strip()}\nSupporto rilevante: {supporto}$"
+                f"{note}\nSupporto rilevante: {supporto}$"
             )
             tp = sl = 0.0
 
         return SignalResponse(
-            segnale=segnale_15m,
+            segnale=segnale,
             commento=commento,
             prezzo=close,
             take_profit=tp,
