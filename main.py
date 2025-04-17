@@ -79,6 +79,13 @@ def genera_grafico_base64(df):
         print(f"❌ Errore durante la generazione del grafico: {e}")
         return None
 
+# Funzioni per individuare l'incrocio esatto
+def ha_incrociato_sopra(serie_a, serie_b):
+    return serie_a.iloc[-2] < serie_b.iloc[-2] and serie_a.iloc[-1] > serie_b.iloc[-1]
+
+def ha_incrociato_sotto(serie_a, serie_b):
+    return serie_a.iloc[-2] > serie_b.iloc[-2] and serie_a.iloc[-1] < serie_b.iloc[-1]
+
 def analizza_trend(hist):
     hist['EMA_9'] = hist['Close'].ewm(span=9).mean()
     hist['EMA_21'] = hist['Close'].ewm(span=21).mean()
@@ -86,7 +93,8 @@ def analizza_trend(hist):
     hist['RSI'] = calcola_rsi(hist['Close'])
     hist['ATR'] = calcola_atr(hist)
     hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['Close'])
-
+    
+    # Se il dataset è troppo piccolo, restituisci HOLD
     if len(hist) < 5:
         return "HOLD", hist, 0.0
 
@@ -96,26 +104,45 @@ def analizza_trend(hist):
     ema100_now = ultimo['EMA_100']
     rsi = ultimo['RSI']
     close = ultimo['Close']
+
+    # Valori precedenti per il controllo incrocio
     ema9_past = hist['EMA_9'].iloc[-4]
     ema21_past = hist['EMA_21'].iloc[-4]
     ema100_past = hist['EMA_100'].iloc[-4]
+
+    # Distanza attuale tra medie (somma delle differenze)
     dist_now = abs(ema9_now - ema100_now) + abs(ema21_now - ema100_now)
-    dist_past = abs(ema9_past - ema100_past) + abs(ema21_past - ema100_past)
+    # Calcolo della distanza relativa, in percentuale rispetto alla EMA 100
+    distanza_relativa = abs((ema21_now - ema100_now) / ema100_now) * 100
+
     macd = ultimo['MACD']
     macd_signal = ultimo['MACD_SIGNAL']
 
-    if (
-        ema9_past < ema100_past and ema21_past < ema100_past and
-        ema9_now > ema100_now and ema21_now > ema100_now and
-        dist_now > dist_past and macd > macd_signal and rsi > 55 and close > ema100_now
-    ):
-        return "BUY", hist, dist_now
+    # Controllo volume: volume medio delle ultime 20 candele e volume corrente
+    if 'Volume' in hist.columns and len(hist['Volume']) >= 20:
+        volume_medio = hist['Volume'].rolling(window=20).mean().iloc[-1]
+        volume_corrente = hist['Volume'].iloc[-1]
+    else:
+        volume_medio = 0
+        volume_corrente = 0
 
-    elif (
-        ema9_past > ema100_past and ema21_past > ema100_past and
-        ema9_now < ema100_now and ema21_now < ema100_now and
-        dist_now > dist_past and macd < macd_signal and rsi < 45 and close < ema100_now
-    ):
+    # Controllo preciso dell'incrocio
+    incrocio_rialzista = (
+        ha_incrociato_sopra(hist['EMA_9'], hist['EMA_100']) and
+        ha_incrociato_sopra(hist['EMA_21'], hist['EMA_100'])
+    )
+    incrocio_ribassista = (
+        ha_incrociato_sotto(hist['EMA_9'], hist['EMA_100']) and
+        ha_incrociato_sotto(hist['EMA_21'], hist['EMA_100'])
+    )
+
+    # Filtro sul volume: si accetta il segnale solo se il volume corrente supera il volume medio
+    filtro_volume = (volume_corrente > volume_medio) if volume_medio > 0 else True
+
+    # Condizioni per BUY o SELL, includendo il controllo volume e la conferma degli indicatori
+    if incrocio_rialzista and filtro_volume and macd > macd_signal and rsi > 55 and close > ema100_now:
+        return "BUY", hist, dist_now
+    elif incrocio_ribassista and filtro_volume and macd < macd_signal and rsi < 45 and close < ema100_now:
         return "SELL", hist, dist_now
 
     return "HOLD", hist, dist_now
@@ -139,7 +166,7 @@ def analyze(symbol: str):
             segnale_5m, _, _ = analizza_trend(hist_5m)
             conferma_due_timeframe = (segnale_15m == segnale_5m and segnale_15m != "HOLD")
             note_timeframe = ""
-        except:
+        except Exception as e:
             segnale_5m = "NON DISPONIBILE"
             conferma_due_timeframe = False
             note_timeframe = "⚠️ Dati 5m non disponibili, analisi solo su 15m\n"
@@ -147,9 +174,19 @@ def analyze(symbol: str):
         ultimo = hist_15m.iloc[-1]
         close = ultimo['Close']
         atr = ultimo['ATR']
-        spread = (ultimo['High'] - ultimo['Low']) * 0.1
-        tp = round(close + (atr + spread), 2) if segnale_15m == "BUY" else round(close - (atr + spread), 2)
-        sl = round(close - (atr * 0.8), 2) if segnale_15m == "BUY" else round(close + (atr * 0.8), 2)
+        # Calcolo dinamico dell'entry price, TP e SL
+        if segnale_15m == "BUY":
+            entry_price = round(close + 0.002, 4)
+            tp = round(entry_price + (atr * 1.5), 4)
+            sl = round(entry_price - (atr * 1.2), 4)
+        elif segnale_15m == "SELL":
+            entry_price = round(close - 0.002, 4)
+            tp = round(entry_price - (atr * 1.5), 4)
+            sl = round(entry_price + (atr * 1.2), 4)
+        else:
+            entry_price = round(close, 4)
+            tp = round(close * 1.02, 4)
+            sl = round(close * 0.98, 4)
 
         rsi = round(ultimo['RSI'], 2)
         ema9 = round(ultimo['EMA_9'], 2)
@@ -166,29 +203,30 @@ def analyze(symbol: str):
                 f"✅ {segnale_15m} confermato su 5m e 15m{ritardo}\n"
                 f"Distanza medie: {dist_level}\n"
                 f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100} | ATR: {atr}\n"
-                f"🎯 TP: {tp} | 🛡️ SL: {sl}"
+                f"🎯 Entry: {entry_price} | TP: {tp} | 🛡️ SL: {sl}"
             )
         else:
             commento = (
                 f"{note_timeframe}"
                 f"Segnale non confermato: 15m={segnale_15m}, 5m={segnale_5m}{ritardo}\n"
                 f"Distanza medie: {dist_level}\n"
-                f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100} | ATR: {atr}"
+                f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100} | ATR: {atr}\n"
+                f"🎯 Entry stimato: {entry_price} | TP: {tp} | 🛡️ SL: {sl}"
             )
-            tp = round(close * 1.02, 2)
-            sl = round(close * 0.98, 2)
+            # Se il segnale non è confermato, applica livelli standard (questo può essere ulteriormente personalizzato)
             segnale_15m = "HOLD"
 
         return SignalResponse(
             segnale=segnale_15m,
             commento=commento,
-            prezzo=round(close, 2),
+            prezzo=round(close, 4),
             take_profit=tp,
             stop_loss=sl,
             graficoBase64=grafico
         )
 
-    except:
+    except Exception as e:
+        print(f"Errore in analyze: {e}")
         return SignalResponse(
             segnale="ERROR",
             commento=f"Dati insufficienti per {symbol.upper()}",
