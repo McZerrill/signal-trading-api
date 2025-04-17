@@ -48,6 +48,9 @@ def calcola_atr(df, periodi=14):
     df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
     return df['TR'].rolling(window=periodi).mean()
 
+def calcola_supporto(df, lookback=20):
+    return round(df['Low'].tail(lookback).min(), 2)
+
 def valuta_distanza(distanza):
     if distanza < 1:
         return "bassa"
@@ -76,13 +79,6 @@ def genera_grafico_base64(df):
     except:
         return None
 
-# Funzioni per rilevare incroci tra medie
-def ha_incrociato_sopra(serie_a, serie_b):
-    return serie_a.iloc[-2] < serie_b.iloc[-2] and serie_a.iloc[-1] > serie_b.iloc[-1]
-
-def ha_incrociato_sotto(serie_a, serie_b):
-    return serie_a.iloc[-2] > serie_b.iloc[-2] and serie_a.iloc[-1] < serie_b.iloc[-1]
-
 def analizza_trend(hist):
     hist['EMA_9'] = hist['Close'].ewm(span=9).mean()
     hist['EMA_21'] = hist['Close'].ewm(span=21).mean()
@@ -92,20 +88,22 @@ def analizza_trend(hist):
     hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['Close'])
 
     if len(hist) < 5:
-        return "HOLD", hist, 0.0, "", 0.0, 0.0
+        return "HOLD", hist, 0.0, "", 0.0, 0.0, 0.0
 
     ultimo = hist.iloc[-1]
-    ema9, ema21, ema100 = ultimo['EMA_9'], ultimo['EMA_21'], ultimo['EMA_100']
+    ema9 = ultimo['EMA_9']
+    ema21 = ultimo['EMA_21']
+    ema100 = ultimo['EMA_100']
     rsi = ultimo['RSI']
     macd = ultimo['MACD']
     macd_signal = ultimo['MACD_SIGNAL']
     close = ultimo['Close']
     atr = ultimo['ATR']
+    supporto = calcola_supporto(hist)
 
     dist = abs(ema9 - ema100) + abs(ema21 - ema100)
     distanza_rel = abs((ema21 - ema100) / ema100) * 100
 
-    # Filtro volume opzionale
     try:
         volume = ultimo['Volume']
         vol_media = hist['Volume'].rolling(window=20).mean().iloc[-1]
@@ -117,21 +115,35 @@ def analizza_trend(hist):
     segnale = "HOLD"
     tp = sl = 0.0
 
-    # Logica flessibile per BUY
-    if ema9 > ema21 and (ema9 > ema100 or ema21 > ema100) and rsi > 50 and macd > macd_signal and filtro_volume:
+    # BUY realistico con tolleranza su EMA21
+    if (
+        ema9 > ema21 and
+        (ema9 > ema100 or (ema21 - ema100) / ema100 < 0.01) and
+        rsi > 50 and
+        macd > macd_signal and
+        filtro_volume
+    ):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
         sl = round(close - atr * 1.2, 4)
-    # Logica flessibile per SELL
-    elif ema9 < ema21 and (ema9 < ema100 or ema21 < ema100) and rsi < 50 and macd < macd_signal and filtro_volume:
+
+    # SELL realistico con tolleranza
+    elif (
+        ema9 < ema21 and
+        (ema9 < ema100 or (ema21 - ema100) / ema100 < 0.01) and
+        rsi < 50 and
+        macd < macd_signal and
+        filtro_volume
+    ):
         segnale = "SELL"
         tp = round(close - atr * 1.5, 4)
         sl = round(close + atr * 1.2, 4)
-    # Segnale anticipato
-    elif distanza_rel < 1.5 and 48 < rsi < 52:
-        note = "⚠️ Segnale anticipato: EMA convergenti, possibile movimento."
 
-    return segnale, hist, dist, note, tp, sl
+    # Early SELL se RSI < 45 e MACD molto debole
+    elif macd < macd_signal and rsi < 45 and distanza_rel < 1.5:
+        note = "⚠️ Segnale anticipato: MACD debole + RSI sotto 45"
+
+    return segnale, hist, dist, note, tp, sl, supporto
 
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
@@ -143,13 +155,13 @@ def analyze(symbol: str):
         if hist_15m.empty or len(hist_15m) < 100:
             raise Exception("Dati insufficienti 15m")
 
-        segnale_15m, hist_15m, distanza_15m, note, tp, sl = analizza_trend(hist_15m)
+        segnale_15m, hist_15m, distanza_15m, note, tp, sl, supporto = analizza_trend(hist_15m)
 
         try:
             hist_5m = data.history(period="1d", interval="5m")
             if hist_5m.empty or len(hist_5m) < 100:
                 raise Exception("Dati 5m insufficienti")
-            segnale_5m, _, _, _, _, _ = analizza_trend(hist_5m)
+            segnale_5m, _, _, _, _, _, _ = analizza_trend(hist_5m)
             conferma_due_timeframe = (segnale_15m == segnale_5m and segnale_15m != "HOLD")
             note_timeframe = ""
         except:
@@ -182,6 +194,9 @@ def analyze(symbol: str):
                 f"Distanza medie: {dist_level}\n"
                 f"🎯 Entry stimato: {close} | TP: {tp} | 🛡️ SL: {sl}"
             )
+            if segnale_15m == "SELL":
+                commento += f"\nSupporto rilevante: {supporto}$"
+
         else:
             commento = (
                 f"{note_timeframe}"
@@ -189,7 +204,8 @@ def analyze(symbol: str):
                 f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100}\n"
                 f"MACD: {macd} | Signal: {macd_signal} | ATR: {atr}\n"
                 f"Distanza medie: {dist_level}\n"
-                f"{note}"
+                f"{note}\n"
+                f"Supporto rilevante: {supporto}$"
             )
             tp = sl = 0.0
 
@@ -231,31 +247,46 @@ def hot_assets():
             ticker = yf.Ticker(symbol)
             hist = ticker.history(period="1d", interval="15m")
             if hist.empty or len(hist) < 100:
+                print(f"{symbol}: Dati insufficienti.")
                 continue
 
-            segnali = 0
-            for i in range(-48, -4):
-                sub_hist = hist.iloc[i - 4:i + 1].copy()
-                segnale, _, _, _, _, _ = analizza_trend(sub_hist)
-                if segnale in ["BUY", "SELL"]:
-                    segnali += 1
+            buy_signals = 0
+            sell_signals = 0
 
-            if segnali > 0:
-                ultimo = hist.iloc[-1]
-                risultati.append({
-                    "symbol": symbol,
-                    "segnali": segnali,
-                    "rsi": round(ultimo['RSI'], 2),
-                    "ema9": round(ultimo['EMA_9'], 2),
-                    "ema21": round(ultimo['EMA_21'], 2),
-                    "ema100": round(ultimo['EMA_100'], 2),
-                })
+            for i in range(-48, -4):  # Ultime 12 ore con finestre mobili da 5 candele
+                sub_hist = hist.iloc[i - 4:i + 1].copy()
+                segnale, _, _, _, _, _, _ = analizza_trend(sub_hist)
+                if segnale == "BUY":
+                    buy_signals += 1
+                elif segnale == "SELL":
+                    sell_signals += 1
+
+            total_signals = buy_signals + sell_signals
+            if total_signals == 0:
+                continue
+
+            trend = "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "NEUTRO"
+
+            ultimo = hist.iloc[-1]
+            risultati.append({
+                "symbol": symbol,
+                "segnali": total_signals,
+                "trend": trend,
+                "rsi": round(ultimo['RSI'], 2),
+                "ema9": round(ultimo['EMA_9'], 2),
+                "ema21": round(ultimo['EMA_21'], 2),
+                "ema100": round(ultimo['EMA_100'], 2),
+            })
 
         except Exception as e:
             print(f"Errore con {symbol}: {e}")
             continue
 
     risultati_ordinati = sorted(risultati, key=lambda x: x.get("segnali", 0), reverse=True)[:10]
+
+    if not risultati_ordinati:
+        print("⚠️ Nessun hot asset rilevato nelle ultime 12 ore.")
+
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati_ordinati
     return risultati_ordinati
