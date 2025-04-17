@@ -171,15 +171,13 @@ def analyze(symbol: str):
             tp_pct = round(((tp - close) / close) * 100, 1)
             sl_pct = round(((sl - close) / close) * 100, 1)
             commento = (
-                f"✅ {segnale_15m} confermato su 15m{' e 5m' if conferma_due_timeframe else ''}{ritardo}\n"
-                f"{note_timeframe}Segnale operativo: {direzione}\n"
-                f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100}\n"
-                f"MACD: {macd} | Signal: {macd_signal} | ATR: {atr}\n"
-                f"Distanza medie: {dist_level}\n"
-                f"🎯 Entry: {close} | TP: {tp_pct}% | 🛡️ SL: {sl_pct}%"
-            )
-            if segnale_15m == "SELL":
-                commento += f"\nSupporto rilevante: {supporto}$"
+    f"✅ {segnale_15m} confermato su 15m{' e 5m' if conferma_due_timeframe else ''}{ritardo}\n"
+    f"{note_timeframe}Segnale operativo: {direzione}\n"
+    f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100}\n"
+    f"MACD: {macd} | Signal: {macd_signal} | ATR: {atr}\n"
+    f"Distanza medie: {dist_level}\n"
+    f"🎯 Entry stimato: {close} | TP: {tp} | 🛡️ SL: {sl}"
+)
         else:
             commento = (
                 f"{note_timeframe}Segnale non confermato: 15m={segnale_15m}, 5m={segnale_5m}{ritardo}\n"
