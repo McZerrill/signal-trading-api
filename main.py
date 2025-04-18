@@ -201,7 +201,7 @@ def analyze(symbol: str):
         macd = round(ultimo['MACD'], 4)
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
         dist_level = valuta_distanza(distanza)
-        grafico = genera_grafico_base64(hist)
+       
 
         ritardo = " | ⚠️ Ritardo stimato: ~15 minuti" if not is_crypto else ""
 
