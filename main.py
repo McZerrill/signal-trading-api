@@ -154,11 +154,9 @@ def analyze(symbol: str):
         if hist_30m.empty or len(hist_30m) < 100:
             raise Exception("Dati insufficienti 30m")
 
-        # Analizza entrambi i timeframe
         segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(hist_15m)
         segnale_30m, h30, dist_30m, note30, tp30, sl30, supporto30 = analizza_trend(hist_30m)
 
-        # Conta candele con trend attivo
         def conta_trend_attivo(hist):
             count = 0
             for i in range(-10, 0):
@@ -170,7 +168,6 @@ def analyze(symbol: str):
         trend_15m = conta_trend_attivo(h15)
         trend_30m = conta_trend_attivo(h30)
 
-        # Scegli timeframe con trend più forte
         if trend_30m > trend_15m:
             timeframe = "30m"
             segnale, hist, distanza, note, tp, sl, supporto = segnale_30m, h30, dist_30m, note30, tp30, sl30, supporto30
@@ -178,7 +175,6 @@ def analyze(symbol: str):
             timeframe = "15m"
             segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
 
-        # Prova anche ad analizzare il 5m per conferma
         try:
             hist_5m = data.history(period="1d", interval="5m")
             if hist_5m.empty or len(hist_5m) < 100:
@@ -201,40 +197,31 @@ def analyze(symbol: str):
         macd = round(ultimo['MACD'], 4)
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
         dist_level = valuta_distanza(distanza)
-       
 
         ritardo = " | ⚠️ Ritardo stimato: ~15 minuti" if not is_crypto else ""
 
         if segnale in ["BUY", "SELL"]:
-            direzione = "LONG" if segnale == "BUY" else "SHORT"
             tp_pct = round(((tp - close) / close) * 100, 1)
             sl_pct = round(((sl - close) / close) * 100, 1)
-
-            trend_msg = ""
-            if (ema9 > ema21 > ema100) or (ema9 < ema21 < ema100):
-                trend_attivo = conta_trend_attivo(hist)
-                if trend_attivo >= 3:
-                    trend_msg = f"\n📈 Trend attivo da {trend_attivo} candele → forza trend alta"
-                elif trend_attivo == 2:
-                    trend_msg = "\n📉 Trend attivo moderato"
-                else:
-                    trend_msg = "\n⛔ Trend debole o in esaurimento, valuta chiusura"
+            trend_attivo = conta_trend_attivo(hist)
+            trend_msg = f"Attivo da {trend_attivo} candele" if trend_attivo >= 2 else "Debole"
 
             commento = (
-                f"✅ {segnale} confermato su {timeframe}{' e 5m' if conferma_due_timeframe else ''}{ritardo}\n"
-                f"{note_timeframe}Segnale operativo: {direzione}\n"
-                f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100}\n"
-                f"MACD: {macd} | Signal: {macd_signal} | ATR: {atr}\n"
-                f"Distanza medie: {dist_level}\n"
-                f"🎯 Entry stimato: {close} | TP: {tp_pct}% | 🛡️ SL: {sl_pct}%{trend_msg}"
+                f"{'🟢 BUY' if segnale == 'BUY' else '🔴 SELL'} | {symbol.upper()} @ {close}$\n"
+                f"🎯 Target: {tp} ({tp_pct}%)\n"
+                f"🛡 Stop: {sl} ({sl_pct}%)\n"
+                f"RSI: {rsi} | EMA(9/21/100): {ema9}/{ema21}/{ema100}\n"
+                f"MACD: {macd}/{macd_signal} | ATR: {atr}\n"
+                f"Trend: {trend_msg} | {dist_level} distanza tra medie\n"
+                f"{note_timeframe.strip()}{ritardo}"
             )
         else:
             commento = (
                 f"{note_timeframe}Segnale non confermato: {timeframe}={segnale}, 5m={segnale_5m}{ritardo}\n"
-                f"RSI: {rsi} | EMA9: {ema9} | EMA21: {ema21} | EMA100: {ema100}\n"
-                f"MACD: {macd} | Signal: {macd_signal} | ATR: {atr}\n"
+                f"RSI: {rsi} | EMA(9/21/100): {ema9}/{ema21}/{ema100}\n"
+                f"MACD: {macd}/{macd_signal} | ATR: {atr}\n"
                 f"Distanza medie: {dist_level}\n"
-                f"{note}\nSupporto rilevante: {supporto}$"
+                f"{note}\nSupporto: {supporto}$"
             )
             tp = sl = 0.0
 
@@ -255,6 +242,7 @@ def analyze(symbol: str):
             take_profit=0.0,
             stop_loss=0.0
         )
+
 # Cache per hot assets
 _hot_cache = {"time": 0, "data": []}
 
