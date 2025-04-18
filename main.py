@@ -3,9 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import yfinance as yf
 import pandas as pd
-import matplotlib.pyplot as plt
-import io
-import base64
 import time
 
 app = FastAPI()
@@ -23,7 +20,14 @@ class SignalResponse(BaseModel):
     prezzo: float
     take_profit: float
     stop_loss: float
-
+    rsi: float = 0.0
+    macd: float = 0.0
+    macd_signal: float = 0.0
+    atr: float = 0.0
+    ema9: float = 0.0
+    ema21: float = 0.0
+    ema100: float = 0.0
+    timeframe: str = ""
 
 def calcola_rsi(serie, periodi=14):
     delta = serie.diff()
@@ -101,7 +105,6 @@ def analizza_trend(hist):
 
     dist = abs(ema9 - ema100) + abs(ema21 - ema100)
     distanza_rel = abs((ema21 - ema100) / ema100) * 100
-
     try:
         volume = ultimo['Volume']
         vol_media = hist['Volume'].rolling(window=20).mean().iloc[-1]
@@ -113,7 +116,24 @@ def analizza_trend(hist):
     segnale = "HOLD"
     tp = sl = 0.0
 
-    if ema9 > ema21 and (ema9 > ema100 or (ema21 - ema100) / ema100 < 0.01) and rsi > 50 and macd > macd_signal and filtro_volume:
+    # Nuova logica: EMA9 incrocia EMA21, poi EMA21 incrocia EMA100, e si distanziano
+    condizione_buy = (
+        hist['EMA_9'].iloc[-4] < hist['EMA_21'].iloc[-4] and
+        hist['EMA_9'].iloc[-2] > hist['EMA_21'].iloc[-2] and
+        hist['EMA_21'].iloc[-1] > hist['EMA_100'].iloc[-1] and
+        hist['EMA_9'].iloc[-1] > hist['EMA_21'].iloc[-1] and
+        (hist['EMA_9'].iloc[-1] - hist['EMA_21'].iloc[-1]) > 0.05
+    )
+
+    condizione_sell = (
+        hist['EMA_9'].iloc[-4] > hist['EMA_21'].iloc[-4] and
+        hist['EMA_9'].iloc[-2] < hist['EMA_21'].iloc[-2] and
+        hist['EMA_21'].iloc[-1] < hist['EMA_100'].iloc[-1] and
+        hist['EMA_9'].iloc[-1] < hist['EMA_21'].iloc[-1] and
+        (hist['EMA_21'].iloc[-1] - hist['EMA_9'].iloc[-1]) > 0.05
+    )
+
+    if condizione_buy:
         segnale = "BUY"
         resistenza = hist['High'].tail(20).max()
         tp_raw = close + atr * 1.5
@@ -121,9 +141,8 @@ def analizza_trend(hist):
         tp = round(min(tp_raw, resistenza), 4)
         sl = round(sl_raw, 4)
 
-    elif ema9 < ema21 and (ema9 < ema100 or (ema21 - ema100) / ema100 < 0.01) and rsi < 50 and macd < macd_signal and filtro_volume:
+    elif condizione_sell:
         segnale = "SELL"
-        supporto = calcola_supporto(hist)
         tp_raw = close - atr * 1.5
         sl_raw = close + atr * 1.2
         tp = round(max(tp_raw, supporto), 4)
@@ -134,12 +153,11 @@ def analizza_trend(hist):
 
     candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
     if segnale in ["BUY", "SELL"] and candele_trend >= 3:
-        note += f"\n📈 Trend attivo da {candele_trend} candele = trend forte"
+        note += f"\\n📈 Trend attivo da {candele_trend} candele = trend forte"
     elif segnale == "HOLD" and candele_trend <= 1:
-        note += "\n⛔️ Trend esaurito, considera chiusura posizione"
+        note += "\\n⛔️ Trend esaurito, considera chiusura posizione"
 
     return segnale, hist, dist, note, tp, sl, supporto
-
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     data = yf.Ticker(symbol)
@@ -185,8 +203,7 @@ def analyze(symbol: str):
         except:
             segnale_5m = "NON DISPONIBILE"
             conferma_due_timeframe = False
-            note_timeframe = "⚠️ Dati 5m non disponibili, analisi solo su " + timeframe + "\n"
-
+            note_timeframe = "⚠️ Dati 5m non disponibili, analisi solo su " + timeframe + "\\n"
         ultimo = hist.iloc[-1]
         close = round(ultimo['Close'], 4)
         rsi = round(ultimo['RSI'], 2)
@@ -230,7 +247,15 @@ def analyze(symbol: str):
             commento=commento,
             prezzo=close,
             take_profit=tp,
-            stop_loss=sl
+            stop_loss=sl,
+            rsi=rsi,
+            macd=macd,
+            macd_signal=macd_signal,
+            atr=atr,
+            ema9=ema9,
+            ema21=ema21,
+            ema100=ema100,
+            timeframe=timeframe
         )
 
     except Exception as e:
@@ -279,7 +304,7 @@ def hot_assets():
             buy_signals = 0
             sell_signals = 0
 
-            for i in range(-36, -4):  # circa 9 ore
+            for i in range(-36, -4):
                 sub_hist = hist.iloc[i - 4:i + 1].copy()
                 segnale, _, _, _, _, _, _ = analizza_trend(sub_hist)
                 if segnale == "BUY":
