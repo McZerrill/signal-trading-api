@@ -305,7 +305,7 @@ def hot_assets():
             buy_signals = 0
             sell_signals = 0
 
-            for i in range(-36, -4):
+            for i in range(-60, -4):
                 sub_hist = hist.iloc[i - 4:i + 1].copy()
                 segnale, _, _, _, _, _, _ = analizza_trend(sub_hist)
                 if segnale == "BUY":
@@ -314,7 +314,7 @@ def hot_assets():
                     sell_signals += 1
 
             total_signals = buy_signals + sell_signals
-            if total_signals < 2:
+            if total_signals < 1:
                 continue
 
             trend = "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "NEUTRO"
