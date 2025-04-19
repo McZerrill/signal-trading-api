@@ -14,6 +14,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+def read_root():
+    return {"status": "API Segnali di Borsa attiva"}
+
 class SignalResponse(BaseModel):
     segnale: str
     commento: str
