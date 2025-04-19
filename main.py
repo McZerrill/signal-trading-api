@@ -285,13 +285,21 @@ def hot_assets():
         "EOS-USD", "CRO-USD", "HBAR-USD", "ZIL-USD", "OP-USD", "AR-USD"
     ]
 
+    def calcola_rsi(serie, periodi=14):
+        delta = serie.diff()
+        gain = delta.where(delta > 0, 0)
+        loss = -delta.where(delta < 0, 0)
+        avg_gain = gain.rolling(window=periodi).mean()
+        avg_loss = loss.rolling(window=periodi).mean()
+        rs = avg_gain / avg_loss
+        return 100 - (100 / (1 + rs))
+
     risultati = []
     for symbol in symbols:
         try:
             ticker = yf.Ticker(symbol)
             hist = ticker.history(period="1d", interval="1m")
             if hist.empty or len(hist) < 100:
-                print(f"{symbol}: dati insufficienti")
                 continue
 
             hist['EMA_9'] = hist['Close'].ewm(span=9).mean()
@@ -299,36 +307,50 @@ def hot_assets():
             hist['EMA_100'] = hist['Close'].ewm(span=100).mean()
             hist['RSI'] = calcola_rsi(hist['Close'])
 
-            ema_diff = abs(hist['EMA_9'].iloc[-1] - hist['EMA_21'].iloc[-1]) + abs(hist['EMA_21'].iloc[-1] - hist['EMA_100'].iloc[-1])
-            if ema_diff < 1:
-                continue
+            # ATR (volatilità)
+            hist['H-L'] = hist['High'] - hist['Low']
+            hist['H-PC'] = abs(hist['High'] - hist['Close'].shift())
+            hist['L-PC'] = abs(hist['Low'] - hist['Close'].shift())
+            hist['TR'] = hist[['H-L', 'H-PC', 'L-PC']].max(axis=1)
+            hist['ATR'] = hist['TR'].rolling(window=14).mean()
+
+            atr = hist['ATR'].iloc[-1]
+            dist_medie = abs(hist['EMA_9'].iloc[-1] - hist['EMA_21'].iloc[-1]) + abs(hist['EMA_21'].iloc[-1] - hist['EMA_100'].iloc[-1])
 
             buy_signals = 0
             sell_signals = 0
 
             for i in range(-40, -4):
                 sub_hist = hist.iloc[i - 4:i + 1].copy()
-                segnale, _, _, _, _, _, _ = analizza_trend(sub_hist)
-                if segnale == "BUY":
+                sub_hist['EMA_9'] = sub_hist['Close'].ewm(span=9).mean()
+                sub_hist['EMA_21'] = sub_hist['Close'].ewm(span=21).mean()
+                sub_hist['EMA_100'] = sub_hist['Close'].ewm(span=100).mean()
+                sub_hist['RSI'] = calcola_rsi(sub_hist['Close'])
+
+                e9 = sub_hist['EMA_9'].iloc[-1]
+                e21 = sub_hist['EMA_21'].iloc[-1]
+                e100 = sub_hist['EMA_100'].iloc[-1]
+                rsi = sub_hist['RSI'].iloc[-1]
+
+                if e9 > e21 > e100 and rsi > 50:
                     buy_signals += 1
-                elif segnale == "SELL":
+                elif e9 < e21 < e100 and rsi < 50:
                     sell_signals += 1
 
             total_signals = buy_signals + sell_signals
-            if total_signals < 1:
-                continue
 
-            trend = "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "NEUTRO"
-            ultimo = hist.iloc[-1]
-            risultati.append({
-                "symbol": symbol,
-                "segnali": total_signals,
-                "trend": trend,
-                "rsi": round(ultimo['RSI'], 2),
-                "ema9": round(ultimo['EMA_9'], 2),
-                "ema21": round(ultimo['EMA_21'], 2),
-                "ema100": round(ultimo['EMA_100'], 2),
-            })
+            if total_signals >= 1 or (atr > 0.5 and dist_medie > 1):
+                trend = "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "NEUTRO"
+                ultimo = hist.iloc[-1]
+                risultati.append({
+                    "symbol": symbol,
+                    "segnali": total_signals,
+                    "trend": trend,
+                    "rsi": round(ultimo['RSI'], 2),
+                    "ema9": round(ultimo['EMA_9'], 2),
+                    "ema21": round(ultimo['EMA_21'], 2),
+                    "ema100": round(ultimo['EMA_100'], 2),
+                })
 
         except Exception as e:
             print(f"Errore con {symbol}: {e}")
@@ -337,7 +359,7 @@ def hot_assets():
     risultati_ordinati = sorted(risultati, key=lambda x: x['segnali'], reverse=True)[:10]
 
     if not risultati_ordinati:
-        print("⚠️ Nessun asset hot rilevato nelle ultime ore.")
+        print("⚠️ Nessun asset hot rilevato.")
 
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati_ordinati
