@@ -275,7 +275,7 @@ _hot_cache = {"time": 0, "data": []}
 @app.get("/hotassets")
 def hot_assets():
     now = time.time()
-    if now - _hot_cache["time"] < 900:
+    if now - _hot_cache["time"] < 60:
         return _hot_cache["data"]
 
     symbols = [
@@ -289,8 +289,9 @@ def hot_assets():
     for symbol in symbols:
         try:
             ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="1d", interval="15m")
+            hist = ticker.history(period="1d", interval="1m")
             if hist.empty or len(hist) < 100:
+                print(f"{symbol}: dati insufficienti")
                 continue
 
             hist['EMA_9'] = hist['Close'].ewm(span=9).mean()
@@ -298,28 +299,27 @@ def hot_assets():
             hist['EMA_100'] = hist['Close'].ewm(span=100).mean()
             hist['RSI'] = calcola_rsi(hist['Close'])
 
+            ema_diff = abs(hist['EMA_9'].iloc[-1] - hist['EMA_21'].iloc[-1]) + abs(hist['EMA_21'].iloc[-1] - hist['EMA_100'].iloc[-1])
+            if ema_diff < 1:
+                continue
+
             buy_signals = 0
             sell_signals = 0
 
-            # Finestra di 60 candele per intercettare più segnali (≈ 15 ore)
-            for i in range(-60, -4):
+            for i in range(-40, -4):
                 sub_hist = hist.iloc[i - 4:i + 1].copy()
                 segnale, _, _, _, _, _, _ = analizza_trend(sub_hist)
-
                 if segnale == "BUY":
                     buy_signals += 1
                 elif segnale == "SELL":
                     sell_signals += 1
 
             total_signals = buy_signals + sell_signals
-
-            # Nuovo filtro: accetta anche 1 solo segnale BUY o SELL
-            if total_signals == 0:
+            if total_signals < 1:
                 continue
 
             trend = "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "NEUTRO"
             ultimo = hist.iloc[-1]
-
             risultati.append({
                 "symbol": symbol,
                 "segnali": total_signals,
@@ -335,6 +335,9 @@ def hot_assets():
             continue
 
     risultati_ordinati = sorted(risultati, key=lambda x: x['segnali'], reverse=True)[:10]
+
+    if not risultati_ordinati:
+        print("⚠️ Nessun asset hot rilevato nelle ultime ore.")
 
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati_ordinati
