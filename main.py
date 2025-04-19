@@ -298,25 +298,14 @@ def hot_assets():
             hist['EMA_100'] = hist['Close'].ewm(span=100).mean()
             hist['RSI'] = calcola_rsi(hist['Close'])
 
-            macd, macd_signal = calcola_macd(hist['Close'])
-            hist['MACD'] = macd
-            hist['MACD_SIGNAL'] = macd_signal
-
-            ultimo = hist.iloc[-1]
-            ema9 = ultimo['EMA_9']
-            ema100 = ultimo['EMA_100']
-            rsi = ultimo['RSI']
-            macd_val = ultimo['MACD']
-            macd_sig = ultimo['MACD_SIGNAL']
-            scostamento = abs(ema9 - ema100)
-
-            # Requisiti minimi flessibili: segnali o pattern tecnici evidenti
             buy_signals = 0
             sell_signals = 0
 
-            for i in range(-36, -4):
+            # Finestra di 60 candele per intercettare più segnali (≈ 15 ore)
+            for i in range(-60, -4):
                 sub_hist = hist.iloc[i - 4:i + 1].copy()
-                segnale, *_ = analizza_trend(sub_hist)
+                segnale, _, _, _, _, _, _ = analizza_trend(sub_hist)
+
                 if segnale == "BUY":
                     buy_signals += 1
                 elif segnale == "SELL":
@@ -324,22 +313,25 @@ def hot_assets():
 
             total_signals = buy_signals + sell_signals
 
-            if total_signals < 1 and scostamento < 0.5 and not (rsi > 70 or rsi < 30) and abs(macd_val - macd_sig) < 0.3:
+            # Nuovo filtro: accetta anche 1 solo segnale BUY o SELL
+            if total_signals == 0:
                 continue
 
             trend = "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "NEUTRO"
+            ultimo = hist.iloc[-1]
 
             risultati.append({
                 "symbol": symbol,
                 "segnali": total_signals,
                 "trend": trend,
-                "rsi": round(rsi, 2),
-                "ema9": round(ema9, 2),
+                "rsi": round(ultimo['RSI'], 2),
+                "ema9": round(ultimo['EMA_9'], 2),
                 "ema21": round(ultimo['EMA_21'], 2),
-                "ema100": round(ema100, 2),
+                "ema100": round(ultimo['EMA_100'], 2),
             })
 
-        except Exception:
+        except Exception as e:
+            print(f"Errore con {symbol}: {e}")
             continue
 
     risultati_ordinati = sorted(risultati, key=lambda x: x['segnali'], reverse=True)[:10]
