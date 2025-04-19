@@ -93,47 +93,40 @@ def analizza_trend(hist):
         return "HOLD", hist, 0.0, "", 0.0, 0.0, 0.0
 
     ultimo = hist.iloc[-1]
-    ema9 = ultimo['EMA_9']
-    ema21 = ultimo['EMA_21']
-    ema100 = ultimo['EMA_100']
+    penultimo = hist.iloc[-2]
+    ema9, ema21, ema100 = ultimo['EMA_9'], ultimo['EMA_21'], ultimo['EMA_100']
+    close = ultimo['Close']
     rsi = ultimo['RSI']
+    atr = ultimo['ATR']
     macd = ultimo['MACD']
     macd_signal = ultimo['MACD_SIGNAL']
-    close = ultimo['Close']
-    atr = ultimo['ATR']
     supporto = calcola_supporto(hist)
 
-    dist = abs(ema9 - ema100) + abs(ema21 - ema100)
-    distanza_rel = abs((ema21 - ema100) / ema100) * 100
-    try:
-        volume = ultimo['Volume']
-        vol_media = hist['Volume'].rolling(window=20).mean().iloc[-1]
-        filtro_volume = volume > vol_media
-    except:
-        filtro_volume = True
+    dist_attuale = abs(ema9 - ema21) + abs(ema21 - ema100)
+    dist_precedente = abs(penultimo['EMA_9'] - penultimo['EMA_21']) + abs(penultimo['EMA_21'] - penultimo['EMA_100'])
+    dist_diff = dist_attuale - dist_precedente
+    dist_level = valuta_distanza(dist_attuale)
 
     note = ""
     segnale = "HOLD"
     tp = sl = 0.0
 
-    # Nuova logica: EMA9 incrocia EMA21, poi EMA21 incrocia EMA100, e si distanziano
-    condizione_buy = (
-        hist['EMA_9'].iloc[-4] < hist['EMA_21'].iloc[-4] and
-        hist['EMA_9'].iloc[-2] > hist['EMA_21'].iloc[-2] and
-        hist['EMA_21'].iloc[-1] > hist['EMA_100'].iloc[-1] and
-        hist['EMA_9'].iloc[-1] > hist['EMA_21'].iloc[-1] and
-        (hist['EMA_9'].iloc[-1] - hist['EMA_21'].iloc[-1]) > 0.05
-    )
+    trend_strength = ""
+    if ema9 > ema21 > ema100:
+        if dist_diff > 0:
+            trend_strength = "📈 Trend forte in espansione"
+        elif dist_diff < -0.1:
+            trend_strength = "⚠️ Trend in indebolimento"
+        else:
+            trend_strength = "➖ Trend stabile"
+    elif ema9 < ema21 and ema21 > ema100 and ema9 > ema100:
+        trend_strength = "⛔️ Trend in esaurimento"
+    elif ema9 < ema21 < ema100:
+        trend_strength = "⛔️ Trend concluso o inversione in corso"
+    elif ema9 > ema21 and penultimo['EMA_9'] < penultimo['EMA_21']:
+        trend_strength = "🔁 Trend ripreso"
 
-    condizione_sell = (
-        hist['EMA_9'].iloc[-4] > hist['EMA_21'].iloc[-4] and
-        hist['EMA_9'].iloc[-2] < hist['EMA_21'].iloc[-2] and
-        hist['EMA_21'].iloc[-1] < hist['EMA_100'].iloc[-1] and
-        hist['EMA_9'].iloc[-1] < hist['EMA_21'].iloc[-1] and
-        (hist['EMA_21'].iloc[-1] - hist['EMA_9'].iloc[-1]) > 0.05
-    )
-
-    if condizione_buy:
+    if ema9 > ema21 and (ema9 > ema100 or (ema21 - ema100) / ema100 < 0.01) and rsi > 50 and macd > macd_signal:
         segnale = "BUY"
         resistenza = hist['High'].tail(20).max()
         tp_raw = close + atr * 1.5
@@ -141,23 +134,27 @@ def analizza_trend(hist):
         tp = round(min(tp_raw, resistenza), 4)
         sl = round(sl_raw, 4)
 
-    elif condizione_sell:
+    elif ema9 < ema21 and (ema9 < ema100 or (ema21 - ema100) / ema100 < 0.01) and rsi < 50 and macd < macd_signal:
         segnale = "SELL"
         tp_raw = close - atr * 1.5
         sl_raw = close + atr * 1.2
         tp = round(max(tp_raw, supporto), 4)
         sl = round(sl_raw, 4)
 
-    elif macd < macd_signal and rsi < 45 and distanza_rel < 1.5:
+    elif macd < macd_signal and rsi < 45 and dist_attuale < 1.5:
         note = "⚠️ Segnale anticipato: MACD debole + RSI sotto 45"
 
     candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
     if segnale in ["BUY", "SELL"] and candele_trend >= 3:
-        note += f"\\n📈 Trend attivo da {candele_trend} candele = trend forte"
+        note += f"\n📊 Attivo da {candele_trend} candele | {dist_level} distanza tra medie"
     elif segnale == "HOLD" and candele_trend <= 1:
-        note += "\\n⛔️ Trend esaurito, considera chiusura posizione"
+        note += "\n⛔️ Trend esaurito, considera chiusura posizione"
 
-    return segnale, hist, dist, note, tp, sl, supporto
+    note = trend_strength + ("\n" + note if note else "")
+
+    return segnale, hist, dist_attuale, note, tp, sl, supporto
+
+    
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     data = yf.Ticker(symbol)
