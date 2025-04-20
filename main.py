@@ -226,12 +226,14 @@ def analyze(symbol: str):
             conferma_due_timeframe = False
             note_timeframe = f"⚠️ Dati 5m non disponibili, analisi solo su {timeframe}\n"
 
-        ultima_candela = hist.index[-1]
+        # 🔧 Calcolo del ritardo con fix timezone
+        ultima_candela = hist.index[-1].to_pydatetime().replace(tzinfo=None)
         ora_corrente = datetime.utcnow()
         ritardo_minuti = int((ora_corrente - ultima_candela).total_seconds() / 60)
         ritardo_stimato = f"⏱️ Ritardo stimato: ~{ritardo_minuti} minuti"
         ritardo = f"\n{ritardo_stimato}" if not is_crypto else ""
 
+        # 🔎 Estrazione dati
         ultimo = hist.iloc[-1]
         close = round(ultimo['Close'], 4)
         rsi = round(ultimo['RSI'], 2)
@@ -243,6 +245,7 @@ def analyze(symbol: str):
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
         dist_level = valuta_distanza(distanza)
 
+        # 🔔 Commento finale
         if segnale in ["BUY", "SELL"]:
             tp_pct = round(((tp - close) / close) * 100, 1)
             sl_pct = round(((sl - close) / close) * 100, 1)
@@ -288,7 +291,7 @@ def analyze(symbol: str):
         print(f"Errore: {e}")
         return SignalResponse(
             segnale="ERROR",
-            commento=f"Errore durante l'analisi di {symbol.upper()}:\n{str(e)}",
+            commento=f"Errore durante l'analisi di {symbol.upper()}: {e}",
             prezzo=0.0,
             take_profit=0.0,
             stop_loss=0.0
