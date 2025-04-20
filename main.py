@@ -231,7 +231,7 @@ def analyze(symbol: str):
         ora_corrente = datetime.utcnow()
         ritardo_minuti = int((ora_corrente - ultima_candela).total_seconds() / 60)
         ritardo_stimato = f"⏱️ Ritardo stimato: ~{ritardo_minuti} minuti"
-        ritardo = f"\n{ritardo_stimato}" if not is_crypto else ""
+        ritardo = f"\n{ritardo_stimato}"
 
         # 🔎 Estrazione dati
         ultimo = hist.iloc[-1]
