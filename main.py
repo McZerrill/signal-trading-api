@@ -162,7 +162,7 @@ if segnale == "HOLD":
     if segnale in ["BUY", "SELL"] and candele_trend >= 3:
         note += f"\n📊 Attivo da {candele_trend} candele | {dist_level} distanza tra medie"
     elif segnale == "HOLD":
-    if candele_trend <= 1 and not (ema9 > ema21 > ema100):
+        if candele_trend <= 1 and not (ema9 > ema21 > ema100):
         note += "\n⛔️ Trend esaurito, considera chiusura posizione"
     elif ema9 > ema21 > ema100:
         note += "\n➖ Trend ancora attivo ma debole"
