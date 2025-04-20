@@ -146,7 +146,7 @@ def analizza_trend(hist):
         sl = round(sl_raw, 4)
 
     elif macd < macd_signal and rsi < 45 and dist_attuale < 1.5:
-    note = "⚠️ Segnale anticipato: MACD debole + RSI sotto 45"
+        note = "⚠️ Segnale anticipato: MACD debole + RSI sotto 45"
 
 # NUOVA LOGICA PER PRESEGNALI
 if segnale == "HOLD":
