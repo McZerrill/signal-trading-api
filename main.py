@@ -288,7 +288,7 @@ def analyze(symbol: str):
         print(f"Errore: {e}")
         return SignalResponse(
             segnale="ERROR",
-            commento=f"Errore durante l'analisi di {symbol.upper()}",
+            commento=f"Errore durante l'analisi di {symbol.upper()}:\n{str(e)}",
             prezzo=0.0,
             take_profit=0.0,
             stop_loss=0.0
