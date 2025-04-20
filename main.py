@@ -1,3 +1,5 @@
+# FILE 1/5 - avvio e modelli
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -32,6 +34,7 @@ class SignalResponse(BaseModel):
     ema21: float = 0.0
     ema100: float = 0.0
     timeframe: str = ""
+# FILE 2/5 - Funzioni tecniche
 
 def calcola_rsi(serie, periodi=14):
     delta = serie.diff()
@@ -84,6 +87,7 @@ def conta_candele_trend(hist, rialzista=True):
             else:
                 break
     return count
+# FILE 3/5 - Funzione principale di analisi del trend
 
 def analizza_trend(hist):
     hist['EMA_9'] = hist['Close'].ewm(span=9).mean()
@@ -98,6 +102,7 @@ def analizza_trend(hist):
 
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
+
     ema9, ema21, ema100 = ultimo['EMA_9'], ultimo['EMA_21'], ultimo['EMA_100']
     close = ultimo['Close']
     rsi = ultimo['RSI']
@@ -115,20 +120,21 @@ def analizza_trend(hist):
     segnale = "HOLD"
     tp = sl = 0.0
 
-    trend_strength = ""
     if ema9 > ema21 > ema100:
         if dist_diff > 0:
-            trend_strength = "📈 Trend forte in espansione"
+            trend_strength = "\U0001F4C8 Trend forte in espansione"
         elif dist_diff < -0.1:
-            trend_strength = "⚠️ Trend in indebolimento"
+            trend_strength = "\u26A0\uFE0F Trend in indebolimento"
         else:
-            trend_strength = "➖ Trend stabile"
+            trend_strength = "\u2796 Trend stabile"
     elif ema9 < ema21 and ema21 > ema100 and ema9 > ema100:
-        trend_strength = "⛔️ Trend in esaurimento"
+        trend_strength = "\u26D4\uFE0F Trend in esaurimento"
     elif ema9 < ema21 < ema100:
-        trend_strength = "⛔️ Trend concluso o inversione in corso"
+        trend_strength = "\u26D4\uFE0F Trend concluso o inversione in corso"
     elif ema9 > ema21 and penultimo['EMA_9'] < penultimo['EMA_21']:
-        trend_strength = "🔁 Trend ripreso"
+        trend_strength = "\U0001F501 Trend ripreso"
+    else:
+        trend_strength = ""
 
     if ema9 > ema21 and (ema9 > ema100 or (ema21 - ema100) / ema100 < 0.01) and rsi > 50 and macd > macd_signal:
         segnale = "BUY"
@@ -146,30 +152,33 @@ def analizza_trend(hist):
         sl = round(sl_raw, 4)
 
     elif macd < macd_signal and rsi < 45 and dist_attuale < 1.5:
-        note = "⚠️ Segnale anticipato: MACD debole + RSI sotto 45"
+        note = "\u26A0\uFE0F Segnale anticipato: MACD debole + RSI sotto 45"
 
     if segnale == "HOLD":
         if penultimo['EMA_9'] < penultimo['EMA_21'] and ema9 > ema21:
             if (ema21 < ema100 and abs(ema9 - ema100) / ema100 < 0.01) and rsi > 50:
-                note += "\n📡 Presegnale: EMA9 ha incrociato EMA21 e si avvicina a EMA100 (BUY anticipato)"
+                note += "\n\U0001F4E1 Presegnale: EMA9 ha incrociato EMA21 e si avvicina a EMA100 (BUY anticipato)"
         elif penultimo['EMA_9'] > penultimo['EMA_21'] and ema9 < ema21:
             if (ema21 > ema100 and abs(ema9 - ema100) / ema100 < 0.01) and rsi < 50:
-                note += "\n📡 Presegnale: EMA9 ha incrociato EMA21 al ribasso e si avvicina a EMA100 (SELL anticipato)"
+                note += "\n\U0001F4E1 Presegnale: EMA9 ha incrociato EMA21 al ribasso e si avvicina a EMA100 (SELL anticipato)"
 
     candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
+
     if segnale in ["BUY", "SELL"] and candele_trend >= 3:
-        note += f"\n📊 Attivo da {candele_trend} candele | {dist_level} distanza tra medie"
+        note += f"\n\U0001F4CA Attivo da {candele_trend} candele | {dist_level} distanza tra medie"
     elif segnale == "HOLD":
         if candele_trend <= 1 and not (ema9 > ema21 > ema100):
-            note += "\n⛔️ Trend esaurito, considera chiusura posizione"
+            note += "\n\u26D4\uFE0F Trend esaurito, considera chiusura posizione"
         elif ema9 > ema21 > ema100:
-            note += "\n➖ Trend ancora attivo ma debole"
+            note += "\n\u2796 Trend ancora attivo ma debole"
 
     note = trend_strength + ("\n" + note if note else "")
 
     return segnale, hist, dist_attuale, note, tp, sl, supporto
+# FILE 4/5 - Endpoint /analyze
 
-    
+from datetime import datetime
+
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     data = yf.Ticker(symbol)
@@ -212,25 +221,18 @@ def analyze(symbol: str):
             segnale_5m, _, _, _, _, _, _ = analizza_trend(hist_5m)
             conferma_due_timeframe = (segnale == segnale_5m and segnale != "HOLD")
             note_timeframe = ""
-        except Exception as e:
+        except:
             segnale_5m = "NON DISPONIBILE"
             conferma_due_timeframe = False
-            note_timeframe = "⚠️ Dati 5m non disponibili, analisi solo su " + timeframe + "\n"
+            note_timeframe = f"⚠️ Dati 5m non disponibili, analisi solo su {timeframe}\n"
 
-        from datetime import datetime
         ultima_candela = hist.index[-1]
         ora_corrente = datetime.utcnow()
         ritardo_minuti = int((ora_corrente - ultima_candela).total_seconds() / 60)
         ritardo_stimato = f"⏱️ Ritardo stimato: ~{ritardo_minuti} minuti"
         ritardo = f"\n{ritardo_stimato}" if not is_crypto else ""
 
-
-# Calcola ritardo dati
-ultima_candela = hist.index[-1]
-ora_corrente = datetime.utcnow()
-ritardo_minuti = int((ora_corrente - ultima_candela).total_seconds() / 60)
-ritardo_stimato = f"⏱️ Ritardo stimato: ~{ritardo_minuti} minuti"
-
+        ultimo = hist.iloc[-1]
         close = round(ultimo['Close'], 4)
         rsi = round(ultimo['RSI'], 2)
         ema9 = round(ultimo['EMA_9'], 2)
@@ -240,8 +242,6 @@ ritardo_stimato = f"⏱️ Ritardo stimato: ~{ritardo_minuti} minuti"
         macd = round(ultimo['MACD'], 4)
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
         dist_level = valuta_distanza(distanza)
-
-        ritardo = f"\n{ritardo_stimato}" if not is_crypto else ""
 
         if segnale in ["BUY", "SELL"]:
             tp_pct = round(((tp - close) / close) * 100, 1)
@@ -293,8 +293,8 @@ ritardo_stimato = f"⏱️ Ritardo stimato: ~{ritardo_minuti} minuti"
             take_profit=0.0,
             stop_loss=0.0
         )
+# FILE 5/5 - Endpoint /hotassets
 
-# Cache per hot assets
 _hot_cache = {"time": 0, "data": []}
 
 @app.get("/hotassets")
@@ -310,16 +310,8 @@ def hot_assets():
         "EOS-USD", "CRO-USD", "HBAR-USD", "ZIL-USD", "OP-USD", "AR-USD"
     ]
 
-    def calcola_rsi(serie, periodi=14):
-        delta = serie.diff()
-        gain = delta.where(delta > 0, 0)
-        loss = -delta.where(delta < 0, 0)
-        avg_gain = gain.rolling(window=periodi).mean()
-        avg_loss = loss.rolling(window=periodi).mean()
-        rs = avg_gain / avg_loss
-        return 100 - (100 / (1 + rs))
-
     risultati = []
+
     for symbol in symbols:
         try:
             ticker = yf.Ticker(symbol)
@@ -332,7 +324,6 @@ def hot_assets():
             hist['EMA_100'] = hist['Close'].ewm(span=100).mean()
             hist['RSI'] = calcola_rsi(hist['Close'])
 
-            # ATR (volatilità)
             hist['H-L'] = hist['High'] - hist['Low']
             hist['H-PC'] = abs(hist['High'] - hist['Close'].shift())
             hist['L-PC'] = abs(hist['Low'] - hist['Close'].shift())
@@ -363,7 +354,6 @@ def hot_assets():
                     sell_signals += 1
 
             total_signals = buy_signals + sell_signals
-
             if total_signals >= 1 or (atr > 0.5 and dist_medie > 1):
                 trend = "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "NEUTRO"
                 ultimo = hist.iloc[-1]
@@ -382,7 +372,6 @@ def hot_assets():
             continue
 
     risultati_ordinati = sorted(risultati, key=lambda x: x['segnali'], reverse=True)[:10]
-
     if not risultati_ordinati:
         print("⚠️ Nessun asset hot rilevato.")
 
