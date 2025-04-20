@@ -175,18 +175,27 @@ def analizza_trend(hist):
     note = trend_strength + ("\n" + note if note else "")
 
     return segnale, hist, dist_attuale, note, tp, sl, supporto
-# FILE 4/5 - Endpoint /analyze
+
+
+from datetime import datetime
 
 from datetime import datetime
 
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
-    data = yf.Ticker(symbol)
+    ticker = yf.Ticker(symbol)
     is_crypto = "-USD" in symbol.upper()
 
     try:
-        hist_15m = data.history(period="7d", interval="15m")
-        hist_30m = data.history(period="14d", interval="30m")
+        # ✅ Recupero variazione 24h
+        try:
+            info = ticker.info
+            change_pct_24h = info.get("regularMarketChangePercent", 0.0)
+        except:
+            change_pct_24h = 0.0
+
+        hist_15m = ticker.history(period="7d", interval="15m")
+        hist_30m = ticker.history(period="14d", interval="30m")
 
         if hist_15m.empty or len(hist_15m) < 100:
             raise Exception("Dati insufficienti 15m")
@@ -215,7 +224,7 @@ def analyze(symbol: str):
             segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
 
         try:
-            hist_5m = data.history(period="1d", interval="5m")
+            hist_5m = ticker.history(period="1d", interval="5m")
             if hist_5m.empty or len(hist_5m) < 100:
                 raise Exception("Dati 5m insufficienti")
             segnale_5m, _, _, _, _, _, _ = analizza_trend(hist_5m)
@@ -226,7 +235,7 @@ def analyze(symbol: str):
             conferma_due_timeframe = False
             note_timeframe = f"⚠️ Dati 5m non disponibili, analisi solo su {timeframe}\n"
 
-        # 🔧 Calcolo del ritardo con fix timezone
+        # 🔧 Calcolo ritardo
         ultima_candela = hist.index[-1].to_pydatetime().replace(tzinfo=None)
         ora_corrente = datetime.utcnow()
         ritardo_minuti = int((ora_corrente - ultima_candela).total_seconds() / 60)
@@ -244,6 +253,7 @@ def analyze(symbol: str):
         macd = round(ultimo['MACD'], 4)
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
         dist_level = valuta_distanza(distanza)
+        change_pct = round(change_pct_24h, 2)
 
         # 🔔 Commento finale
         if segnale in ["BUY", "SELL"]:
@@ -254,6 +264,7 @@ def analyze(symbol: str):
 
             commento = (
                 f"{'🟢 BUY' if segnale == 'BUY' else '🔴 SELL'} | {symbol.upper()} @ {close}$\n"
+                f"📊 24h Change: {change_pct}%\n"
                 f"🎯 Target: {tp} ({tp_pct}%)\n"
                 f"🛡 Stop: {sl} ({sl_pct}%)\n"
                 f"RSI: {rsi} | EMA(9/21/100): {ema9}/{ema21}/{ema100}\n"
@@ -264,6 +275,7 @@ def analyze(symbol: str):
         else:
             commento = (
                 f"{note_timeframe}Segnale non confermato: {timeframe}={segnale}, 5m={segnale_5m}{ritardo}\n"
+                f"📊 24h Change: {change_pct}%\n"
                 f"RSI: {rsi} | EMA(9/21/100): {ema9}/{ema21}/{ema100}\n"
                 f"MACD: {macd}/{macd_signal} | ATR: {atr}\n"
                 f"Distanza medie: {dist_level}\n"
