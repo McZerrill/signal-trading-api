@@ -146,13 +146,27 @@ def analizza_trend(hist):
         sl = round(sl_raw, 4)
 
     elif macd < macd_signal and rsi < 45 and dist_attuale < 1.5:
-        note = "⚠️ Segnale anticipato: MACD debole + RSI sotto 45"
+    note = "⚠️ Segnale anticipato: MACD debole + RSI sotto 45"
+
+# NUOVA LOGICA PER PRESEGNALI
+if segnale == "HOLD":
+    if penultimo['EMA_9'] < penultimo['EMA_21'] and ema9 > ema21:
+        if (ema21 < ema100 and abs(ema9 - ema100) / ema100 < 0.01) and rsi > 50:
+            note += "\n📡 Presegnale: EMA9 ha incrociato EMA21 e si avvicina a EMA100 (BUY anticipato)"
+    elif penultimo['EMA_9'] > penultimo['EMA_21'] and ema9 < ema21:
+        if (ema21 > ema100 and abs(ema9 - ema100) / ema100 < 0.01) and rsi < 50:
+            note += "\n📡 Presegnale: EMA9 ha incrociato EMA21 al ribasso e si avvicina a EMA100 (SELL anticipato)"
+
 
     candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
     if segnale in ["BUY", "SELL"] and candele_trend >= 3:
         note += f"\n📊 Attivo da {candele_trend} candele | {dist_level} distanza tra medie"
-    elif segnale == "HOLD" and candele_trend <= 1:
+    elif segnale == "HOLD":
+    if candele_trend <= 1 and not (ema9 > ema21 > ema100):
         note += "\n⛔️ Trend esaurito, considera chiusura posizione"
+    elif ema9 > ema21 > ema100:
+        note += "\n➖ Trend ancora attivo ma debole"
+
 
     note = trend_strength + ("\n" + note if note else "")
 
