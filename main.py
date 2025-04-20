@@ -205,7 +205,7 @@ def analyze(symbol: str):
             timeframe = "15m"
             segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
 
-        try:
+try:
     hist_5m = data.history(period="1d", interval="5m")
     if hist_5m.empty or len(hist_5m) < 100:
         raise Exception("Dati 5m insufficienti")
@@ -217,7 +217,6 @@ except Exception as e:
     conferma_due_timeframe = False
     note_timeframe = "⚠️ Dati 5m non disponibili, analisi solo su " + timeframe + "\n"
 
-# Calcolo ritardo stimato dopo il try/except
 from datetime import datetime
 ultima_candela = hist.index[-1]
 ora_corrente = datetime.utcnow()
