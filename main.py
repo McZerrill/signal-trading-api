@@ -220,6 +220,14 @@ def analyze(symbol: str):
             conferma_due_timeframe = False
             note_timeframe = "⚠️ Dati 5m non disponibili, analisi solo su " + timeframe + "\\n"
         ultimo = hist.iloc[-1]
+        from datetime import datetime
+
+# Calcola ritardo dati
+ultima_candela = hist.index[-1]
+ora_corrente = datetime.utcnow()
+ritardo_minuti = int((ora_corrente - ultima_candela).total_seconds() / 60)
+ritardo_stimato = f"⏱️ Ritardo stimato: ~{ritardo_minuti} minuti"
+
         close = round(ultimo['Close'], 4)
         rsi = round(ultimo['RSI'], 2)
         ema9 = round(ultimo['EMA_9'], 2)
@@ -230,7 +238,7 @@ def analyze(symbol: str):
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
         dist_level = valuta_distanza(distanza)
 
-        ritardo = " | ⚠️ Ritardo stimato: ~15 minuti" if not is_crypto else ""
+        ritardo = f"\n{ritardo_stimato}" if not is_crypto else ""
 
         if segnale in ["BUY", "SELL"]:
             tp_pct = round(((tp - close) / close) * 100, 1)
