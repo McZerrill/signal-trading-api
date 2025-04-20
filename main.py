@@ -256,6 +256,8 @@ def analyze(symbol: str):
         change_pct = round(change_pct_24h, 2)
 
         # 🔔 Commento finale
+        orario_candela = ultima_candela.strftime("%H:%M UTC (%d/%m)")
+
         if segnale in ["BUY", "SELL"]:
             tp_pct = round(((tp - close) / close) * 100, 1)
             sl_pct = round(((sl - close) / close) * 100, 1)
@@ -264,22 +266,22 @@ def analyze(symbol: str):
 
             commento = (
                 f"{'🟢 BUY' if segnale == 'BUY' else '🔴 SELL'} | {symbol.upper()} @ {close}$\n"
-                f"📊 24h Change: {change_pct}%\n"
                 f"🎯 Target: {tp} ({tp_pct}%)\n"
                 f"🛡 Stop: {sl} ({sl_pct}%)\n"
                 f"RSI: {rsi} | EMA(9/21/100): {ema9}/{ema21}/{ema100}\n"
                 f"MACD: {macd}/{macd_signal} | ATR: {atr}\n"
                 f"Trend: {trend_msg} | {dist_level} distanza tra medie\n"
-                f"{note_timeframe.strip()}{ritardo}"
+                f"{note_timeframe.strip()}{ritardo}\n"
+                f"🕒 Prezzo rilevato alle: {orario_candela}"
             )
         else:
             commento = (
                 f"{note_timeframe}Segnale non confermato: {timeframe}={segnale}, 5m={segnale_5m}{ritardo}\n"
-                f"📊 24h Change: {change_pct}%\n"
                 f"RSI: {rsi} | EMA(9/21/100): {ema9}/{ema21}/{ema100}\n"
                 f"MACD: {macd}/{macd_signal} | ATR: {atr}\n"
                 f"Distanza medie: {dist_level}\n"
-                f"{note}\nSupporto: {supporto}$"
+                f"{note}\nSupporto: {supporto}$\n"
+                f"🕒 Prezzo rilevato alle: {orario_candela}"
             )
             tp = sl = 0.0
 
