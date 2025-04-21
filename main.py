@@ -193,14 +193,15 @@ def analizza_trend(hist):
     if segnale in ["BUY", "SELL"] and candele_trend >= 3:
         note += f"\n\U0001F4CA Attivo da {candele_trend} candele | {dist_level} distanza tra medie"
     elif segnale == "HOLD":
-        if candele_trend <= 1 and not (ema9 > ema21 > ema100):
-            note += "\n\u26D4\uFE0F Trend esaurito, considera chiusura posizione"
-        elif ema9 > ema21 > ema100:
-            note += "\n\u2796 Trend ancora attivo ma debole"
-
+        if "esaurimento" not in trend_strength.lower() and candele_trend <= 1 and not (ema9 > ema21 > ema100):
+            note += "\n⛔️ Trend esaurito, considera chiusura posizione"
+        elif "attivo" not in trend_strength.lower() and ema9 > ema21 > ema100:
+            note += "\n➖ Trend ancora attivo ma debole"
+        
     note = trend_strength + ("\n" + note if note else "")
 
     return segnale, hist, dist_attuale, note, tp, sl, supporto
+    
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
@@ -241,9 +242,9 @@ def analyze(symbol: str):
             conferma_due_timeframe = False
             note_timeframe = f"⚠️ Dati 5m non disponibili, analisi solo su {timeframe}\n"
 
-        ultima_candela = hist.index[-1].to_pydatetime().replace(tzinfo=None)
+        ultima_candela = hist.index[-2].to_pydatetime().replace(tzinfo=None)
         ora_corrente = datetime.utcnow()
-        ritardo_minuti = int((ora_corrente - ultima_candela).total_seconds() / 60)
+        ritardo_minuti = max(0, int((ora_corrente - ultima_candela).total_seconds() / 60))
         ritardo_stimato = f"⏱️ Ritardo stimato: ~{ritardo_minuti} minuti"
         ritardo = f"\n{ritardo_stimato}"
 
