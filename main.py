@@ -139,6 +139,7 @@ def analizza_trend(hist):
     segnale = "HOLD"
     tp = sl = 0.0
 
+    # Analisi forza del trend
     if ema9 > ema21 > ema100:
         if dist_diff > 0:
             trend_strength = "\U0001F4C8 Trend forte in espansione"
@@ -155,7 +156,12 @@ def analizza_trend(hist):
     else:
         trend_strength = ""
 
-    if ema9 > ema21 and (ema9 > ema100 or (ema21 - ema100) / ema100 < 0.01) and rsi > 50 and macd > macd_signal:
+    # Verifica coerenza ultime 3 candele
+    recent_trend_up = all(hist['EMA_9'].iloc[-i] > hist['EMA_21'].iloc[-i] for i in range(1, 4))
+    recent_trend_down = all(hist['EMA_9'].iloc[-i] < hist['EMA_21'].iloc[-i] for i in range(1, 4))
+
+    # BUY realistico
+    if ema9 > ema21 > ema100 and rsi > 50 and macd > macd_signal and recent_trend_up:
         segnale = "BUY"
         resistenza = hist['high'].tail(20).max()
         tp_raw = close + atr * 1.5
@@ -163,7 +169,8 @@ def analizza_trend(hist):
         tp = round(min(tp_raw, resistenza), 4)
         sl = round(sl_raw, 4)
 
-    elif ema9 < ema21 and (ema9 < ema100 or (ema21 - ema100) / ema100 < 0.01) and rsi < 50 and macd < macd_signal:
+    # SELL realistico
+    elif ema9 < ema21 < ema100 and rsi < 50 and macd < macd_signal and recent_trend_down:
         segnale = "SELL"
         tp_raw = close - atr * 1.5
         sl_raw = close + atr * 1.2
@@ -197,7 +204,8 @@ def analizza_trend(hist):
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
-        df_15m = get_binance_df(symbol, "15m", 300)
+        end_time = int(time.time() * 1000) - 60_000  # sottrai 1 minuto per escludere la candela in corso
+        df_15m = get_binance_df(symbol, "15m", 300)  # modifica la funzione se vuoi passare end_time
         df_30m = get_binance_df(symbol, "30m", 300)
 
         segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(df_15m)
