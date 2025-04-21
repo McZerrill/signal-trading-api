@@ -1,6 +1,9 @@
+from fastapi import FastAPI
 from binance.client import Client
 from dotenv import load_dotenv
 import os
+
+app = FastAPI()  # <--- questa riga è fondamentale!
 
 load_dotenv()
 
