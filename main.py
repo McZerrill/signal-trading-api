@@ -42,8 +42,17 @@ BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
 client = Client(api_key=BINANCE_API_KEY, api_secret=BINANCE_API_SECRET)
 
 # Funzione helper per ottenere un DataFrame da Binance
-def get_binance_df(symbol: str, interval: str, limit: int = 500):
-    klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None):
+    params = {
+        "symbol": symbol,
+        "interval": interval,
+        "limit": limit
+    }
+    if end_time is not None:
+        params["endTime"] = end_time
+
+    klines = client.get_klines(**params)
+
     df = pd.DataFrame(klines, columns=[
         "timestamp", "open", "high", "low", "close", "volume",
         "close_time", "quote_asset_volume", "trades",
@@ -53,6 +62,7 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500):
     df.set_index("timestamp", inplace=True)
     df = df[["open", "high", "low", "close", "volume"]].astype(float)
     return df
+
 # --- Funzioni tecniche ---
 
 def calcola_rsi(serie, periodi=14):
@@ -206,8 +216,8 @@ def analizza_trend(hist):
 def analyze(symbol: str):
     try:
         end_time = int(time.time() * 1000) - 60_000  # sottrai 1 minuto per escludere la candela in corso
-        df_15m = get_binance_df(symbol, "15m", 300)  # modifica la funzione se vuoi passare end_time
-        df_30m = get_binance_df(symbol, "30m", 300)
+        df_15m = get_binance_df(symbol, "15m", 300, end_time=end_time)
+        df_30m = get_binance_df(symbol, "30m", 300, end_time=end_time)
 
         segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(df_15m)
         segnale_30m, h30, dist_30m, note30, tp30, sl30, supporto30 = analizza_trend(df_30m)
