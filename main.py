@@ -1,3 +1,4 @@
+import requests
 from pytz import timezone
 from typing import Optional
 from fastapi import FastAPI
@@ -342,6 +343,33 @@ def analyze(symbol: str):
             take_profit=0.0,
             stop_loss=0.0
         )
+        _symbol_cache = {"time": 0, "data": []}
+
+def get_best_symbols(limit=25):
+    now = time.time()
+    if now - _symbol_cache["time"] < 900:  # 15 minuti di cache
+        return _symbol_cache["data"]
+
+    try:
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+
+        usdt_pairs = [d for d in data if d["symbol"].endswith("USDT") and not any(x in d["symbol"] for x in ["UP", "DOWN", "BULL", "BEAR"])]
+        sorted_pairs = sorted(usdt_pairs, key=lambda x: float(x["quoteVolume"]), reverse=True)
+
+        top_symbols = [d["symbol"] for d in sorted_pairs[:limit]]
+        _symbol_cache["time"] = now
+        _symbol_cache["data"] = top_symbols
+        return top_symbols
+
+    except Exception as e:
+        print("Errore nel recupero dei simboli dinamici:", e)
+        return [
+            "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "SOLUSDT",
+            "AVAXUSDT", "DOTUSDT", "DOGEUSDT", "MATICUSDT"
+        ]
+
 _hot_cache = {"time": 0, "data": []}
 
 @app.get("/hotassets")
@@ -350,13 +378,7 @@ def hot_assets():
     if now - _hot_cache["time"] < 60:
         return _hot_cache["data"]
 
-    symbols = [
-        "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "SOLUSDT", "AVAXUSDT", "DOTUSDT",
-        "DOGEUSDT", "MATICUSDT", "LTCUSDT", "SHIBUSDT", "TRXUSDT", "ETCUSDT", "ATOMUSDT",
-        "NEARUSDT", "INJUSDT", "RNDRUSDT", "FTMUSDT", "ALGOUSDT", "VETUSDT", "SANDUSDT",
-        "EOSUSDT", "HBARUSDT", "ZILUSDT", "OPUSDT", "ARUSDT"
-    ]
-
+    symbols = get_best_symbols(limit=25)
     risultati = []
 
     for symbol in symbols:
@@ -379,9 +401,8 @@ def hot_assets():
             atr = df['ATR'].iloc[-1]
             dist_medie = abs(df['EMA_9'].iloc[-1] - df['EMA_21'].iloc[-1]) + abs(df['EMA_21'].iloc[-1] - df['EMA_100'].iloc[-1])
 
-            buy_signals = 0
-            sell_signals = 0
-
+            # Nuova logica segnali
+            sub_signals = []
             for i in range(-40, -4):
                 sub_df = df.iloc[i - 4:i + 1].copy()
                 sub_df['EMA_9'] = sub_df['close'].ewm(span=9).mean()
@@ -395,22 +416,27 @@ def hot_assets():
                 rsi = sub_df['RSI'].iloc[-1]
 
                 if e9 > e21 > e100 and rsi > 50:
-                    buy_signals += 1
+                    sub_signals.append("BUY")
                 elif e9 < e21 < e100 and rsi < 50:
-                    sell_signals += 1
+                    sub_signals.append("SELL")
 
-            total_signals = buy_signals + sell_signals
-            if total_signals >= 1 or (atr > 0.5 and dist_medie > 1):
+            buy_signals = sub_signals.count("BUY")
+            sell_signals = sub_signals.count("SELL")
+
+            candele_attive = conta_candele_trend(df, rialzista=(buy_signals > sell_signals))
+
+            if (buy_signals + sell_signals >= 1 and candele_attive >= 3) or (atr > 0.5 and dist_medie > 1):
                 trend = "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "NEUTRO"
                 ultimo = df.iloc[-1]
                 risultati.append({
                     "symbol": symbol,
-                    "segnali": total_signals,
+                    "segnali": buy_signals + sell_signals,
                     "trend": trend,
                     "rsi": round(ultimo['RSI'], 2),
                     "ema9": round(ultimo['EMA_9'], 2),
                     "ema21": round(ultimo['EMA_21'], 2),
                     "ema100": round(ultimo['EMA_100'], 2),
+                    "candele_trend": candele_attive
                 })
 
         except Exception as e:
