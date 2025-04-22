@@ -192,24 +192,32 @@ def analizza_trend(hist):
         note = "\u26A0\uFE0F Segnale anticipato: MACD debole + RSI sotto 45"
 
     if segnale == "HOLD":
+        # Possibile presegnale BUY
         if penultimo['EMA_9'] < penultimo['EMA_21'] and ema9 > ema21:
-            if (ema21 < ema100 and abs(ema9 - ema100) / ema100 < 0.01) and rsi > 50:
-                note += "\n\U0001F4E1 Presegnale: EMA9 ha incrociato EMA21 e si avvicina a EMA100 (BUY anticipato)"
+            if (ema21 < ema100 and abs(ema9 - ema100) / ema100 < 0.01) and rsi > 50 and macd > macd_signal:
+                note += "\n📡 Presegnale: incrocio EMA9↑EMA21 vicino a EMA100 (BUY anticipato)"
+
+        # Possibile presegnale SELL
         elif penultimo['EMA_9'] > penultimo['EMA_21'] and ema9 < ema21:
-            if (ema21 > ema100 and abs(ema9 - ema100) / ema100 < 0.01) and rsi < 50:
-                note += "\n\U0001F4E1 Presegnale: EMA9 ha incrociato EMA21 al ribasso e si avvicina a EMA100 (SELL anticipato)"
+            if (ema21 > ema100 and abs(ema9 - ema100) / ema100 < 0.01) and rsi < 50 and macd < macd_signal:
+                note += "\n📡 Presegnale: incrocio EMA9↓EMA21 vicino a EMA100 (SELL anticipato)"
 
     candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
 
-    if segnale in ["BUY", "SELL"] and candele_trend >= 3:
-        note += f"\n\U0001F4CA Attivo da {candele_trend} candele | {dist_level} distanza tra medie"
+    if segnale in ["BUY", "SELL"]:
+        if candele_trend >= 3:
+            note += f"\n📈 Attivo da {candele_trend} candele"
+        else:
+            note += f"\n📉 Segnale nuovo o recente"
+        note += f" | {dist_level} distanza tra medie"
     elif segnale == "HOLD":
-        if trend_strength == "\u26D4\uFE0F Trend in esaurimento" and candele_trend <= 1:
-            note += "\n\u26D4\uFE0F Trend esaurito, considera chiusura posizione"
-        elif ema9 > ema21 > ema100:
-            note += "\n\u2796 Trend ancora attivo ma debole"
+        if candele_trend <= 1 and not (ema9 > ema21 > ema100):
+            note += "\n⛔️ Trend esaurito, considera chiusura posizione"
+        elif ema9 > ema21 > ema100 and candele_trend <= 2:
+            note += "\n➖ Trend ancora attivo ma debole"
         
-    note = trend_strength + ("\n" + note if note else "")
+    if trend_strength not in note:
+        note = trend_strength + ("\n" + note if note else "")
 
     return segnale, hist, dist_attuale, note, tp, sl, supporto
     
@@ -242,7 +250,7 @@ def analyze(symbol: str):
             segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
 
         try:
-            df_5m = get_binance_df(symbol, "5m", 300)
+            df_5m = get_binance_df(symbol, "5m", 300, end_time=end_time)
             if df_5m.empty or len(df_5m) < 100:
                 raise Exception("Dati 5m insufficienti")
             segnale_5m, *_ = analizza_trend(df_5m)
@@ -253,11 +261,11 @@ def analyze(symbol: str):
             conferma_due_timeframe = False
             note_timeframe = f"⚠️ Dati 5m non disponibili, analisi solo su {timeframe}\n"
 
-        ora_corrente = datetime.utcnow().replace(second=0, microsecond=0)
         ultima_candela = hist.index[-1].to_pydatetime().replace(second=0, microsecond=0)
-        ritardo_minuti = max(0, int((ora_corrente - ultima_candela).total_seconds() / 60))
-        ritardo_stimato = f"⏱️ Ritardo stimato: ~{ritardo_minuti} minuti"
+        orario_candela = ultima_candela.strftime("%H:%M UTC (%d/%m)")
+        ritardo_stimato = "⏱️ Ultima candela completata"
         ritardo = f"\n{ritardo_stimato}"
+
 
 
         ultimo = hist.iloc[-1]
@@ -281,25 +289,25 @@ def analyze(symbol: str):
 
             commento = (
                 f"{'🟢 BUY' if segnale == 'BUY' else '🔴 SELL'} | {symbol.upper()} @ {close}$\n"
-                f"🎯 Target: {tp} ({tp_pct}%)\n"
-                f"🛡 Stop: {sl} ({sl_pct}%)\n"
-                f"RSI: {rsi} | EMA(9/21/100): {ema9}/{ema21}/{ema100}\n"
-                f"MACD: {macd}/{macd_signal} | ATR: {atr}\n"
-                f"Trend: {trend_msg} | {dist_level} distanza tra medie\n"
-                f"{note_timeframe.strip()}{ritardo}\n"
-                f"🕒 Prezzo rilevato alle: {orario_candela}"
+                f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
+                f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
+                f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
+                f"Trend: {trend_msg} | Distanza tra medie: {dist_level}\n"
+                f"{note}\n🕒 {orario_candela} {ritardo.strip()}"
             )
         else:
             commento = (
-                f"{note_timeframe}Segnale non confermato: {timeframe}={segnale}, 5m={segnale_5m}{ritardo}\n"
-                f"RSI: {rsi} | EMA(9/21/100): {ema9}/{ema21}/{ema100}\n"
-                f"MACD: {macd}/{macd_signal} | ATR: {atr}\n"
-                f"Distanza medie: {dist_level}\n"
-                f"{note}\nSupporto: {supporto}$\n"
-                f"🕒 Prezzo rilevato alle: {orario_candela}"
+                f"{note_timeframe}⚠️ Segnale non confermato: {timeframe}={segnale}, 5m={segnale_5m}{ritardo}\n"
+                f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
+                f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
+                f"Distanza tra medie: {dist_level}  |  Supporto: {supporto}$\n"
+                f"{note}\n🕒 {orario_candela}"
             )
             tp = sl = 0.0
 
+        # ⬇️ Aggiungi subito prima del return
+        commento = "\n".join([riga.strip() for riga in commento.splitlines() if riga.strip()])
+        
         return SignalResponse(
             segnale=segnale,
             commento=commento,
