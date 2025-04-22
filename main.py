@@ -176,8 +176,6 @@ def analizza_trend(hist):
     recent_trend_up = all(hist['EMA_9'].iloc[-i] > hist['EMA_21'].iloc[-i] for i in range(1, 4))
     recent_trend_down = all(hist['EMA_9'].iloc[-i] < hist['EMA_21'].iloc[-i] for i in range(1, 4))
 
- 
-
     # BUY
     if ema9 > ema21 > ema100 and rsi > 50 and macd > macd_signal and recent_trend_up:
         segnale = "BUY"
@@ -214,11 +212,17 @@ def analizza_trend(hist):
         note.insert(0, trend_msg)
         if forza_trend:
             note.insert(1, forza_trend)
+
+        # ✅ Nuovo messaggio di conferma ingresso
+        if candele_trend >= 3:
+            note.append("✅ Trend confermato da 3+ candele, possibile ingresso.")
+        elif candele_trend == 2:
+            note.append("🔄 Trend in formazione, attendere conferma.")
+
     elif segnale == "HOLD":
         if forza_trend:
             note.insert(0, forza_trend)
 
-        # Evita messaggi ridondanti
         if not presegnale:
             if candele_trend <= 1 and not (ema9 > ema21 > ema100):
                 note.append("⛔️ Trend esaurito, considera chiusura posizione")
