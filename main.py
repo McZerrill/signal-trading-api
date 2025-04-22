@@ -151,80 +151,74 @@ def analizza_trend(hist):
     dist_diff = dist_attuale - dist_precedente
     dist_level = valuta_distanza(dist_attuale)
 
-    note = ""
     segnale = "HOLD"
     tp = sl = 0.0
+    note = []
 
-    # Analisi forza del trend
+    # Forza del trend
     if ema9 > ema21 > ema100:
         if dist_diff > 0:
-            trend_strength = "\U0001F4C8 Trend forte in espansione"
+            forza_trend = "📈 Trend forte in espansione"
         elif dist_diff < -0.1:
-            trend_strength = "\u26A0\uFE0F Trend in indebolimento"
+            forza_trend = "⚠️ Trend in indebolimento"
         else:
-            trend_strength = "\u2796 Trend stabile"
+            forza_trend = "➖ Trend stabile"
     elif ema9 < ema21 and ema21 > ema100 and ema9 > ema100:
-        trend_strength = "\u26D4\uFE0F Trend in esaurimento"
+        forza_trend = "⛔️ Trend in esaurimento"
     elif ema9 < ema21 < ema100:
-        trend_strength = "\u26D4\uFE0F Trend concluso o inversione in corso"
+        forza_trend = "⛔️ Trend concluso o inversione in corso"
     elif ema9 > ema21 and penultimo['EMA_9'] < penultimo['EMA_21']:
-        trend_strength = "\U0001F501 Trend ripreso"
+        forza_trend = "🔁 Trend ripreso"
     else:
-        trend_strength = ""
+        forza_trend = ""
 
     # Verifica coerenza ultime 3 candele
     recent_trend_up = all(hist['EMA_9'].iloc[-i] > hist['EMA_21'].iloc[-i] for i in range(1, 4))
     recent_trend_down = all(hist['EMA_9'].iloc[-i] < hist['EMA_21'].iloc[-i] for i in range(1, 4))
 
-    # BUY realistico
+    # BUY
     if ema9 > ema21 > ema100 and rsi > 50 and macd > macd_signal and recent_trend_up:
         segnale = "BUY"
         resistenza = hist['high'].tail(20).max()
-        tp_raw = close + atr * 1.5
-        sl_raw = close - atr * 1.2
-        tp = round(min(tp_raw, resistenza), 4)
-        sl = round(sl_raw, 4)
+        tp = round(min(close + atr * 1.5, resistenza), 4)
+        sl = round(close - atr * 1.2, 4)
 
-    # SELL realistico
+    # SELL
     elif ema9 < ema21 < ema100 and rsi < 50 and macd < macd_signal and recent_trend_down:
         segnale = "SELL"
-        tp_raw = close - atr * 1.5
-        sl_raw = close + atr * 1.2
-        tp = round(max(tp_raw, supporto), 4)
-        sl = round(sl_raw, 4)
+        tp = round(max(close - atr * 1.5, supporto), 4)
+        sl = round(close + atr * 1.2, 4)
 
     elif macd < macd_signal and rsi < 45 and dist_attuale < 1.5:
-        note = "\u26A0\uFE0F Segnale anticipato: MACD debole + RSI sotto 45"
+        note.append("⚠️ Segnale anticipato: MACD debole + RSI sotto 45")
 
+    # Presegnali in caso di HOLD
     if segnale == "HOLD":
-        # Possibile presegnale BUY
         if penultimo['EMA_9'] < penultimo['EMA_21'] and ema9 > ema21:
             if (ema21 < ema100 and abs(ema9 - ema100) / ema100 < 0.01) and rsi > 50 and macd > macd_signal:
-                note += "\n📡 Presegnale: incrocio EMA9↑EMA21 vicino a EMA100 (BUY anticipato)"
-
-        # Possibile presegnale SELL
+                note.append("📡 Presegnale: incrocio EMA9↑EMA21 vicino a EMA100 (BUY anticipato)")
         elif penultimo['EMA_9'] > penultimo['EMA_21'] and ema9 < ema21:
             if (ema21 > ema100 and abs(ema9 - ema100) / ema100 < 0.01) and rsi < 50 and macd < macd_signal:
-                note += "\n📡 Presegnale: incrocio EMA9↓EMA21 vicino a EMA100 (SELL anticipato)"
+                note.append("📡 Presegnale: incrocio EMA9↓EMA21 vicino a EMA100 (SELL anticipato)")
 
+    # Conteggio trend attivo
     candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
 
     if segnale in ["BUY", "SELL"]:
-        if candele_trend >= 3:
-            note += f"\n📈 Attivo da {candele_trend} candele"
-        else:
-            note += f"\n📉 Segnale nuovo o recente"
-        note += f" | {dist_level} distanza tra medie"
+        trend_msg = f"📊 Trend: Attivo da {candele_trend} candele | Distanza tra medie: {dist_level}"
+        note.insert(0, trend_msg)
+        if forza_trend:
+            note.insert(1, forza_trend)
     elif segnale == "HOLD":
+        if forza_trend:
+            note.insert(0, forza_trend)
         if candele_trend <= 1 and not (ema9 > ema21 > ema100):
-            note += "\n⛔️ Trend esaurito, considera chiusura posizione"
+            note.append("⛔️ Trend esaurito, considera chiusura posizione")
         elif ema9 > ema21 > ema100 and candele_trend <= 2:
-            note += "\n➖ Trend ancora attivo ma debole"
-        
-    if trend_strength not in note:
-        note = trend_strength + ("\n" + note if note else "")
+            note.append("➖ Trend ancora attivo ma debole")
 
-    return segnale, hist, dist_attuale, note, tp, sl, supporto
+    commento = "\n".join(note).strip()
+    return segnale, hist, dist_attuale, commento, tp, sl, supporto
     
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
@@ -294,15 +288,13 @@ def analyze(symbol: str):
         if segnale in ["BUY", "SELL"]:
             tp_pct = round(((tp - close) / close) * 100, 1)
             sl_pct = round(((sl - close) / close) * 100, 1)
-            trend_attivo = conta_trend_attivo(hist)
-            trend_msg = f"Attivo da {trend_attivo} candele" if trend_attivo >= 2 else "Debole"
+            
 
             commento = (
                 f"{'🟢 BUY' if segnale == 'BUY' else '🔴 SELL'} | {symbol.upper()} @ {close}$\n"
                 f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
                 f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
                 f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
-                f"Trend: {trend_msg} | Distanza tra medie: {dist_level}\n"
                 f"{note}\n{ritardo}"
             )
         else:
@@ -310,7 +302,7 @@ def analyze(symbol: str):
                 f"{note_timeframe}⚠️ Segnale non confermato: {timeframe}={segnale}, 5m={segnale_5m}{ritardo}\n"
                 f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
                 f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
-                f"Distanza tra medie: {dist_level}  |  Supporto: {supporto}$\n"
+                f"📉 Supporto: {supporto}$\n"
                 f"{note}\n{ritardo}"
             )
             tp = sl = 0.0
