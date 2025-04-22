@@ -8,6 +8,9 @@ import pandas as pd
 import time
 from datetime import datetime
 import os
+from datetime import timezone as dt_timezone
+utc = dt_timezone.utc
+
 
 app = FastAPI()
 
