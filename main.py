@@ -1,3 +1,4 @@
+from pytz import timezone
 from typing import Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -265,10 +266,12 @@ def analyze(symbol: str):
             conferma_due_timeframe = False
             note_timeframe = f"⚠️ Dati 5m non disponibili, analisi solo su {timeframe}\n"
 
-        ultima_candela = hist.index[-1].to_pydatetime().replace(second=0, microsecond=0)
-        orario_candela = ultima_candela.strftime("%H:%M UTC (%d/%m)")
-        ora_attuale = datetime.utcnow().strftime("%H:%M:%S")
-        ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_candela}\n🔄 Ultimo aggiornamento ricevuto alle {ora_attuale}"
+        ultima_candela = hist.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
+        orario_utc = ultima_candela.strftime("%H:%M UTC")
+        orario_roma = ultima_candela.astimezone(timezone("Europe/Rome")).strftime("%H:%M ora italiana")
+        data_candela = ultima_candela.strftime("(%d/%m)")
+
+        ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data_candela}"
 
 
         ultimo = hist.iloc[-1]
@@ -296,7 +299,7 @@ def analyze(symbol: str):
                 f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
                 f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
                 f"Trend: {trend_msg} | Distanza tra medie: {dist_level}\n"
-                f"{note}\n🕒 {orario_candela} {ritardo.strip()}"
+                f"{note}\n{ritardo}"
             )
         else:
             commento = (
@@ -304,7 +307,7 @@ def analyze(symbol: str):
                 f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
                 f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
                 f"Distanza tra medie: {dist_level}  |  Supporto: {supporto}$\n"
-                f"{note}\n🕒 {orario_candela}"
+                f"{note}\n{ritardo}"
             )
             tp = sl = 0.0
 
