@@ -425,7 +425,7 @@ def hot_assets():
 
             candele_attive = conta_candele_trend(df, rialzista=(buy_signals > sell_signals))
 
-            if (buy_signals + sell_signals >= 1 and candele_attive >= 3) or (atr > 0.5 and dist_medie > 1):
+            if (buy_signals + sell_signals >= 1 and candele_attive >= 2) or (atr > 0.3 and dist_medie > 0.8):
                 trend = "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "NEUTRO"
                 ultimo = df.iloc[-1]
                 risultati.append({
