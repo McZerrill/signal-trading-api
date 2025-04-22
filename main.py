@@ -176,6 +176,8 @@ def analizza_trend(hist):
     recent_trend_up = all(hist['EMA_9'].iloc[-i] > hist['EMA_21'].iloc[-i] for i in range(1, 4))
     recent_trend_down = all(hist['EMA_9'].iloc[-i] < hist['EMA_21'].iloc[-i] for i in range(1, 4))
 
+ 
+
     # BUY
     if ema9 > ema21 > ema100 and rsi > 50 and macd > macd_signal and recent_trend_up:
         segnale = "BUY"
@@ -193,13 +195,16 @@ def analizza_trend(hist):
         note.append("⚠️ Segnale anticipato: MACD debole + RSI sotto 45")
 
     # Presegnali in caso di HOLD
+    presegnale = ""
     if segnale == "HOLD":
         if penultimo['EMA_9'] < penultimo['EMA_21'] and ema9 > ema21:
             if (ema21 < ema100 and abs(ema9 - ema100) / ema100 < 0.01) and rsi > 50 and macd > macd_signal:
-                note.append("📡 Presegnale: incrocio EMA9↑EMA21 vicino a EMA100 (BUY anticipato)")
+                presegnale = "📡 Presegnale: incrocio EMA9↑EMA21 vicino a EMA100 (BUY anticipato)"
         elif penultimo['EMA_9'] > penultimo['EMA_21'] and ema9 < ema21:
             if (ema21 > ema100 and abs(ema9 - ema100) / ema100 < 0.01) and rsi < 50 and macd < macd_signal:
-                note.append("📡 Presegnale: incrocio EMA9↓EMA21 vicino a EMA100 (SELL anticipato)")
+                presegnale = "📡 Presegnale: incrocio EMA9↓EMA21 vicino a EMA100 (SELL anticipato)"
+        if presegnale:
+            note.append(presegnale)
 
     # Conteggio trend attivo
     candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
@@ -212,13 +217,17 @@ def analizza_trend(hist):
     elif segnale == "HOLD":
         if forza_trend:
             note.insert(0, forza_trend)
-        if candele_trend <= 1 and not (ema9 > ema21 > ema100):
-            note.append("⛔️ Trend esaurito, considera chiusura posizione")
-        elif ema9 > ema21 > ema100 and candele_trend <= 2:
-            note.append("➖ Trend ancora attivo ma debole")
+
+        # Evita messaggi ridondanti
+        if not presegnale:
+            if candele_trend <= 1 and not (ema9 > ema21 > ema100):
+                note.append("⛔️ Trend esaurito, considera chiusura posizione")
+            elif ema9 > ema21 > ema100 and candele_trend <= 2 and "Trend in indebolimento" not in forza_trend:
+                note.append("➖ Trend ancora attivo ma debole")
 
     commento = "\n".join(note).strip()
     return segnale, hist, dist_attuale, commento, tp, sl, supporto
+
     
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
@@ -288,7 +297,6 @@ def analyze(symbol: str):
         if segnale in ["BUY", "SELL"]:
             tp_pct = round(((tp - close) / close) * 100, 1)
             sl_pct = round(((sl - close) / close) * 100, 1)
-            
 
             commento = (
                 f"{'🟢 BUY' if segnale == 'BUY' else '🔴 SELL'} | {symbol.upper()} @ {close}$\n"
@@ -299,17 +307,20 @@ def analyze(symbol: str):
             )
         else:
             commento = (
-                f"{note_timeframe}⚠️ Segnale non confermato: {timeframe}={segnale}, 5m={segnale_5m}{ritardo}\n"
+                f"{note_timeframe}⚠️ Segnale non confermato: {timeframe}={segnale}, 5m={segnale_5m}\n"
                 f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
                 f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
                 f"📉 Supporto: {supporto}$\n"
-                f"{note}\n{ritardo}"
+                f"{note}"
             )
-            tp = sl = 0.0
 
-        # ⬇️ Aggiungi subito prima del return
+        # Evita duplicazioni del messaggio 'ritardo'
+        if ritardo not in commento:
+            commento += f"\n{ritardo}"
+
+        # Pulizia spazi vuoti
         commento = "\n".join([riga.strip() for riga in commento.splitlines() if riga.strip()])
-        
+
         return SignalResponse(
             segnale=segnale,
             commento=commento,
@@ -417,8 +428,16 @@ def hot_assets():
 
             candele_attive = conta_candele_trend(df, rialzista=(buy_signals > sell_signals))
 
+            # Determinazione del trend con messaggio unico
+            if buy_signals > sell_signals:
+                trend = "BUY"
+            elif sell_signals > buy_signals:
+                trend = "SELL"
+            else:
+                trend = "NEUTRO"
+
+            # Salva risultato se almeno 1 segnale significativo
             if (buy_signals + sell_signals >= 1) or (atr > 0.5 and dist_medie > 1):
-                trend = "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "NEUTRO"
                 ultimo = df.iloc[-1]
                 risultati.append({
                     "symbol": symbol,
