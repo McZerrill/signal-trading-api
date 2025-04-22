@@ -224,7 +224,10 @@ def analizza_trend(hist):
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
-        end_time = int(time.time() * 1000) - 60_000  # sottrai 1 minuto per escludere la candela in corso
+        now = int(time.time() * 1000)
+        # Calcola il timestamp esatto dell'ultima candela completata (multiplo di 15 minuti)
+        end_time = now - (now % (15 * 60 * 1000)) - 1
+
         df_15m = get_binance_df(symbol, "15m", 300, end_time=end_time)
         df_30m = get_binance_df(symbol, "30m", 300, end_time=end_time)
 
@@ -250,7 +253,8 @@ def analyze(symbol: str):
             segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
 
         try:
-            df_5m = get_binance_df(symbol, "5m", 300, end_time=end_time)
+            end_time_5m = now - (now % (5 * 60 * 1000)) - 1
+            df_5m = get_binance_df(symbol, "5m", 300, end_time=end_time_5m)
             if df_5m.empty or len(df_5m) < 100:
                 raise Exception("Dati 5m insufficienti")
             segnale_5m, *_ = analizza_trend(df_5m)
@@ -263,9 +267,8 @@ def analyze(symbol: str):
 
         ultima_candela = hist.index[-1].to_pydatetime().replace(second=0, microsecond=0)
         orario_candela = ultima_candela.strftime("%H:%M UTC (%d/%m)")
-        ritardo_stimato = "⏱️ Ultima candela completata"
-        ritardo = f"\n{ritardo_stimato}"
-
+        ora_attuale = datetime.utcnow().strftime("%H:%M:%S")
+        ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_candela}\n🔄 Ultimo aggiornamento ricevuto alle {ora_attuale}"
 
 
         ultimo = hist.iloc[-1]
