@@ -343,7 +343,7 @@ def analyze(symbol: str):
             take_profit=0.0,
             stop_loss=0.0
         )
-        _symbol_cache = {"time": 0, "data": []}
+_symbol_cache = {"time": 0, "data": []}
 
 def get_best_symbols(limit=25):
     now = time.time()
