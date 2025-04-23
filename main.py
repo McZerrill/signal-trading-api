@@ -10,11 +10,10 @@ import time
 from datetime import datetime
 import os
 from datetime import timezone as dt_timezone
+
 utc = dt_timezone.utc
 
-
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,11 +21,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def read_root():
-    return {"status": "API Segnali di Borsa attiva"}
+# --- Binance Setup ---
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
+client = Client(api_key=BINANCE_API_KEY, api_secret=BINANCE_API_SECRET)
 
-# Classe di risposta identica per compatibilità con l'app
+# --- Modello di risposta standard ---
 class SignalResponse(BaseModel):
     segnale: str
     commento: str
@@ -42,27 +42,16 @@ class SignalResponse(BaseModel):
     ema100: float = 0.0
     timeframe: str = ""
 
-# Inizializza il client Binance con variabili ambiente
-BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
-BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
-client = Client(api_key=BINANCE_API_KEY, api_secret=BINANCE_API_SECRET)
-
-# Funzione helper per ottenere un DataFrame da Binance
+# --- Funzioni tecniche comuni ---
 def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None):
-    params = {
-        "symbol": symbol,
-        "interval": interval,
-        "limit": limit
-    }
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
     if end_time is not None:
         params["endTime"] = end_time
-
     try:
         klines = client.get_klines(**params)
     except Exception as e:
         print(f"❌ Errore nel caricamento candela {symbol}-{interval}: {e}")
         return pd.DataFrame()
-
     df = pd.DataFrame(klines, columns=[
         "timestamp", "open", "high", "low", "close", "volume",
         "close_time", "quote_asset_volume", "trades",
@@ -70,10 +59,7 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
     ])
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
     df.set_index("timestamp", inplace=True)
-    df = df[["open", "high", "low", "close", "volume"]].astype(float)
-    return df
-
-# --- Funzioni tecniche ---
+    return df[["open", "high", "low", "close", "volume"]].astype(float)
 
 def calcola_rsi(serie, periodi=14):
     delta = serie.diff()
@@ -98,59 +84,58 @@ def calcola_atr(df, periodi=14):
     df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
     return df['TR'].rolling(window=periodi).mean()
 
+def valuta_distanza(distanza):
+    if distanza < 1:
+        return "📏 Distanza tra medie: bassa"
+    elif distanza < 3:
+        return "📏 Distanza tra medie: media"
+    else:
+        return "📏 Distanza tra medie: alta"
+
 def calcola_supporto(df, lookback=20):
     return round(df['low'].tail(lookback).min(), 2)
 
-def valuta_distanza(distanza):
-    if distanza < 1:
-        return "bassa"
-    elif distanza < 3:
-        return "media"
-    else:
-        return "alta"
-
-def conta_candele_trend(hist, rialzista=True):
+def conta_candele_trend(hist, rialzista=True, max_candele=20):
     count = 0
-    for i in range(-1, -21, -1):
-        ema9 = hist['EMA_9'].iloc[i]
-        ema21 = hist['EMA_21'].iloc[i]
-        ema100 = hist['EMA_100'].iloc[i]
+    for i in range(-1, -max_candele-1, -1):
+        e9 = hist['EMA_9'].iloc[i]
+        e21 = hist['EMA_21'].iloc[i]
+        e100 = hist['EMA_100'].iloc[i]
         if rialzista:
-            if ema9 > ema21 > ema100:
+            if e9 > e21 > e100:
                 count += 1
             else:
                 break
         else:
-            if ema9 < ema21 < ema100:
+            if e9 < e21 < e100:
                 count += 1
             else:
                 break
     return count
 
-    
 def riconosci_pattern_candela(df):
-    c = df.iloc[-1]  # ultima candela
+    if df.empty:
+        return ""
+    c = df.iloc[-1]
     o, h, l, close = c['open'], c['high'], c['low'], c['close']
     corpo = abs(close - o)
     ombra_sup = h - max(o, close)
     ombra_inf = min(o, close) - l
-
     if corpo == 0:
         return ""
-
-    # Hammer (BUY)
     if corpo > 0 and ombra_inf >= 2 * corpo and ombra_sup <= corpo * 0.3:
-        return "🪓 Hammer rilevato (BUY)"
-    
-    # Shooting Star (SELL)
+        return "🪓 Hammer"
     if corpo > 0 and ombra_sup >= 2 * corpo and ombra_inf <= corpo * 0.3:
-        return "🌠 Shooting Star rilevato (SELL)"
-    
+        return "🌠 Shooting Star"
+    if abs(close - o) < (h - l) * 0.1:
+        return "➖ Doji"
+    if close > o and close > df['open'].iloc[-2] and o < df['close'].iloc[-2]:
+        return "⬆️ Bullish Engulfing"
+    if close < o and close < df['open'].iloc[-2] and o > df['close'].iloc[-2]:
+        return "⬇️ Bearish Engulfing"
     return ""
-
-# --- Analisi trend principale ---
-
 def analizza_trend(hist):
+    # Calcolo indicatori
     hist['EMA_9'] = hist['close'].ewm(span=9).mean()
     hist['EMA_21'] = hist['close'].ewm(span=21).mean()
     hist['EMA_100'] = hist['close'].ewm(span=100).mean()
@@ -218,7 +203,7 @@ def analizza_trend(hist):
     elif macd < macd_signal and rsi < 45 and dist_attuale < 1.5:
         note.append("⚠️ Segnale anticipato: MACD debole + RSI sotto 45")
 
-    # Presegnali in caso di HOLD
+    # Presegnali
     presegnale = ""
     if segnale == "HOLD":
         if penultimo['EMA_9'] < penultimo['EMA_21'] and ema9 > ema21:
@@ -234,22 +219,18 @@ def analizza_trend(hist):
     candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
 
     if segnale in ["BUY", "SELL"]:
-        trend_msg = f"📊 Trend: Attivo da {candele_trend} candele | Distanza tra medie: {dist_level}"
+        trend_msg = f"📊 Trend: Attivo da {candele_trend} candele | {dist_level}"
         note.insert(0, trend_msg)
         if forza_trend:
             note.insert(1, forza_trend)
-
-        # Verifica figura candlestick
         pattern = riconosci_pattern_candela(hist)
         if candele_trend >= 3 and pattern:
             note.append(f"✅ {pattern} + trend confermato da 3+ candele, possibile ingresso.")
         elif candele_trend == 2:
             note.append("🔄 Trend in formazione, attendere conferma.")
-
     elif segnale == "HOLD":
         if forza_trend:
             note.insert(0, forza_trend)
-
         if not presegnale:
             if candele_trend <= 1 and not (ema9 > ema21 > ema100):
                 note.append("⛔️ Trend esaurito, considera chiusura posizione")
@@ -258,28 +239,25 @@ def analizza_trend(hist):
 
     commento = "\n".join(note).strip()
     return segnale, hist, dist_attuale, commento, tp, sl, supporto
-
-    
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
-        # Ottieni i dati più recenti senza forzare end_time
-        df_1m = get_binance_df(symbol, "1m", 300)
-        df_5m = get_binance_df(symbol, "5m", 300)
+        now = int(time.time() * 1000)
+
+        end_time_1m = now - (now % (60 * 1000)) - 1
+        end_time_5m = now - (now % (5 * 60 * 1000)) - 1
+
+        df_1m = get_binance_df(symbol, "1m", 300, end_time=end_time_1m)
+        df_5m = get_binance_df(symbol, "5m", 300, end_time=end_time_5m)
+
+        if df_1m.empty or df_5m.empty:
+            raise ValueError("Dati insufficienti per l'analisi")
 
         segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1 = analizza_trend(df_1m)
         segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5 = analizza_trend(df_5m)
 
-        def conta_trend_attivo(hist):
-            count = 0
-            for i in range(-10, 0):
-                sub = hist.iloc[i]
-                if sub['EMA_9'] > sub['EMA_21'] > sub['EMA_100'] or sub['EMA_9'] < sub['EMA_21'] < sub['EMA_100']:
-                    count += 1
-            return count
-
-        trend_1m = conta_trend_attivo(h1)
-        trend_5m = conta_trend_attivo(h5)
+        trend_1m = conta_candele_trend(h1, rialzista=(segnale_1m == "BUY"))
+        trend_5m = conta_candele_trend(h5, rialzista=(segnale_5m == "BUY"))
 
         if trend_5m > trend_1m:
             timeframe = "5m"
@@ -292,7 +270,6 @@ def analyze(symbol: str):
         orario_utc = ultima_candela.strftime("%H:%M UTC")
         orario_roma = ultima_candela.astimezone(timezone("Europe/Rome")).strftime("%H:%M ora italiana")
         data_candela = ultima_candela.strftime("(%d/%m)")
-
         ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data_candela}"
 
         ultimo = hist.iloc[-1]
@@ -304,7 +281,6 @@ def analyze(symbol: str):
         atr = round(ultimo['ATR'], 2)
         macd = round(ultimo['MACD'], 4)
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
-        dist_level = valuta_distanza(distanza)
 
         if segnale in ["BUY", "SELL"]:
             tp_pct = round(((tp - close) / close) * 100, 1)
@@ -326,8 +302,7 @@ def analyze(symbol: str):
                 f"{note}\n{ritardo}"
             )
 
-        # Pulizia spazi vuoti
-        commento = "\n".join([riga.strip() for riga in commento.splitlines() if riga.strip()])
+        commento = "\n".join([r.strip() for r in commento.splitlines() if r.strip()])
 
         return SignalResponse(
             segnale=segnale,
@@ -354,33 +329,6 @@ def analyze(symbol: str):
             take_profit=0.0,
             stop_loss=0.0
         )
-_symbol_cache = {"time": 0, "data": []}
-
-def get_best_symbols(limit=25):
-    now = time.time()
-    if now - _symbol_cache["time"] < 900:  # 15 minuti di cache
-        return _symbol_cache["data"]
-
-    try:
-        url = "https://api.binance.com/api/v3/ticker/24hr"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-
-        usdt_pairs = [d for d in data if d["symbol"].endswith("USDT") and not any(x in d["symbol"] for x in ["UP", "DOWN", "BULL", "BEAR"])]
-        sorted_pairs = sorted(usdt_pairs, key=lambda x: float(x["quoteVolume"]), reverse=True)
-
-        top_symbols = [d["symbol"] for d in sorted_pairs[:limit]]
-        _symbol_cache["time"] = now
-        _symbol_cache["data"] = top_symbols
-        return top_symbols
-
-    except Exception as e:
-        print("Errore nel recupero dei simboli dinamici:", e)
-        return [
-            "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "SOLUSDT",
-            "AVAXUSDT", "DOTUSDT", "DOGEUSDT", "MATICUSDT"
-        ]
-
 _hot_cache = {"time": 0, "data": []}
 
 @app.get("/hotassets")
@@ -402,17 +350,9 @@ def hot_assets():
             df['EMA_21'] = df['close'].ewm(span=21).mean()
             df['EMA_100'] = df['close'].ewm(span=100).mean()
             df['RSI'] = calcola_rsi(df['close'])
+            df['ATR'] = calcola_atr(df)
 
-            df['H-L'] = df['high'] - df['low']
-            df['H-PC'] = abs(df['high'] - df['close'].shift())
-            df['L-PC'] = abs(df['low'] - df['close'].shift())
-            df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
-            df['ATR'] = df['TR'].rolling(window=14).mean()
-
-            atr = df['ATR'].iloc[-1]
-            dist_medie = abs(df['EMA_9'].iloc[-1] - df['EMA_21'].iloc[-1]) + abs(df['EMA_21'].iloc[-1] - df['EMA_100'].iloc[-1])
-
-            # Nuova logica segnali
+            # Conteggio segnali in finestre mobili
             sub_signals = []
             for i in range(-40, -4):
                 sub_df = df.iloc[i - 4:i + 1].copy()
@@ -434,18 +374,15 @@ def hot_assets():
             buy_signals = sub_signals.count("BUY")
             sell_signals = sub_signals.count("SELL")
 
-            candele_attive = conta_candele_trend(df, rialzista=(buy_signals > sell_signals))
-
-            # Determinazione del trend con messaggio unico
+            trend = "NEUTRO"
             if buy_signals > sell_signals:
                 trend = "BUY"
             elif sell_signals > buy_signals:
                 trend = "SELL"
-            else:
-                trend = "NEUTRO"
 
-            # Salva risultato se almeno 1 segnale significativo
-            if (buy_signals + sell_signals >= 1) or (atr > 0.5 and dist_medie > 1):
+            candele_attive = conta_candele_trend(df, rialzista=(trend == "BUY"))
+
+            if (buy_signals + sell_signals >= 1) or (df['ATR'].iloc[-1] > 0.5):
                 ultimo = df.iloc[-1]
                 risultati.append({
                     "symbol": symbol,
