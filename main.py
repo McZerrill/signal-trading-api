@@ -57,7 +57,7 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
     if end_time is not None:
         params["endTime"] = end_time
 
-        try:
+    try:
         klines = client.get_klines(**params)
     except Exception as e:
         print(f"❌ Errore nel caricamento candela {symbol}-{interval}: {e}")
