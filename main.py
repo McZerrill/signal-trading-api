@@ -122,6 +122,28 @@ def conta_candele_trend(hist, rialzista=True):
             else:
                 break
     return count
+
+    
+    def riconosci_pattern_candela(df):
+    c = df.iloc[-1]  # ultima candela
+    o, h, l, close = c['open'], c['high'], c['low'], c['close']
+    corpo = abs(close - o)
+    ombra_sup = h - max(o, close)
+    ombra_inf = min(o, close) - l
+
+    if corpo == 0:
+        return ""
+
+    # Hammer (BUY)
+    if corpo > 0 and ombra_inf >= 2 * corpo and ombra_sup <= corpo * 0.3:
+        return "🪓 Hammer rilevato (BUY)"
+    
+    # Shooting Star (SELL)
+    if corpo > 0 and ombra_sup >= 2 * corpo and ombra_inf <= corpo * 0.3:
+        return "🌠 Shooting Star rilevato (SELL)"
+    
+    return ""
+
 # --- Analisi trend principale ---
 
 def analizza_trend(hist):
@@ -213,9 +235,10 @@ def analizza_trend(hist):
         if forza_trend:
             note.insert(1, forza_trend)
 
-        # ✅ Nuovo messaggio di conferma ingresso
-        if candele_trend >= 3:
-            note.append("✅ Trend confermato da 3+ candele, possibile ingresso.")
+        # Verifica figura candlestick
+        pattern = riconosci_pattern_candela(hist)
+        if candele_trend >= 3 and pattern:
+            note.append(f"✅ {pattern} + trend confermato da 3+ candele, possibile ingresso.")
         elif candele_trend == 2:
             note.append("🔄 Trend in formazione, attendere conferma.")
 
