@@ -263,65 +263,86 @@ def analizza_trend(hist):
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
-        now = int(time.time() * 1000)
+        # Ottieni i dati più recenti senza forzare end_time
+        df_1m = get_binance_df(symbol, "1m", 300)
+        df_5m = get_binance_df(symbol, "5m", 300)
 
-        end_time_1m = now - (now % (60 * 1000)) - 1
-        df_1m = get_binance_df(symbol, "1m", 300, end_time=end_time_1m)
+        segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1 = analizza_trend(df_1m)
+        segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5 = analizza_trend(df_5m)
 
-        end_time_5m = now - (now % (5 * 60 * 1000)) - 1
-        df_5m = get_binance_df(symbol, "5m", 300, end_time=end_time_5m)
+        def conta_trend_attivo(hist):
+            count = 0
+            for i in range(-10, 0):
+                sub = hist.iloc[i]
+                if sub['EMA_9'] > sub['EMA_21'] > sub['EMA_100'] or sub['EMA_9'] < sub['EMA_21'] < sub['EMA_100']:
+                    count += 1
+            return count
 
-        def analizza_breve(df):
-            df['EMA_9'] = df['close'].ewm(span=9).mean()
-            df['EMA_21'] = df['close'].ewm(span=21).mean()
-            df['EMA_100'] = df['close'].ewm(span=100).mean()
-            e9 = df['EMA_9'].iloc[-1]
-            e21 = df['EMA_21'].iloc[-1]
-            e100 = df['EMA_100'].iloc[-1]
-            if e9 > e21 > e100:
-                return "BUY"
-            elif e9 < e21 < e100:
-                return "SELL"
-            return "HOLD"
+        trend_1m = conta_trend_attivo(h1)
+        trend_5m = conta_trend_attivo(h5)
 
-        segnale_1m = analizza_breve(df_1m)
-        segnale_5m = analizza_breve(df_5m)
+        if trend_5m > trend_1m:
+            timeframe = "5m"
+            segnale, hist, distanza, note, tp, sl, supporto = segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5
+        else:
+            timeframe = "1m"
+            segnale, hist, distanza, note, tp, sl, supporto = segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1
 
-        close = round(df_1m['close'].iloc[-1], 4)
-        ema9 = round(df_1m['EMA_9'].iloc[-1], 2)
-        ema21 = round(df_1m['EMA_21'].iloc[-1], 2)
-        ema100 = round(df_1m['EMA_100'].iloc[-1], 2)
+        ultima_candela = hist.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
+        orario_utc = ultima_candela.strftime("%H:%M UTC")
+        orario_roma = ultima_candela.astimezone(timezone("Europe/Rome")).strftime("%H:%M ora italiana")
+        data_candela = ultima_candela.strftime("(%d/%m)")
 
-        ultima = df_1m.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
-        orario_utc = ultima.strftime("%H:%M UTC")
-        orario_roma = ultima.astimezone(timezone("Europe/Rome")).strftime("%H:%M ora italiana")
-        data = ultima.strftime("(%d/%m)")
-        ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data}"
+        ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data_candela}"
 
-        commento = (
-           f"⏱️ Timeframe 1m e 5m\n"
-           f"1m: {segnale_1m} | 5m: {segnale_5m}\n"
-           f"EMA: {ema9}/{ema21}/{ema100}\n"
-           f"{ritardo}"
-         )
+        ultimo = hist.iloc[-1]
+        close = round(ultimo['close'], 4)
+        rsi = round(ultimo['RSI'], 2)
+        ema9 = round(ultimo['EMA_9'], 2)
+        ema21 = round(ultimo['EMA_21'], 2)
+        ema100 = round(ultimo['EMA_100'], 2)
+        atr = round(ultimo['ATR'], 2)
+        macd = round(ultimo['MACD'], 4)
+        macd_signal = round(ultimo['MACD_SIGNAL'], 4)
+        dist_level = valuta_distanza(distanza)
 
+        if segnale in ["BUY", "SELL"]:
+            tp_pct = round(((tp - close) / close) * 100, 1)
+            sl_pct = round(((sl - close) / close) * 100, 1)
 
-        commento = "\n".join([r.strip() for r in commento.splitlines() if r.strip()])
+            commento = (
+                f"{'🟢 BUY' if segnale == 'BUY' else '🔴 SELL'} | {symbol.upper()} @ {close}$\n"
+                f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
+                f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
+                f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
+                f"{note}\n{ritardo}"
+            )
+        else:
+            commento = (
+                f"⚠️ Nessun segnale confermato tra timeframe 1m e 5m\n"
+                f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
+                f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
+                f"📉 Supporto: {supporto}$\n"
+                f"{note}\n{ritardo}"
+            )
+
+        # Pulizia spazi vuoti
+        commento = "\n".join([riga.strip() for riga in commento.splitlines() if riga.strip()])
 
         return SignalResponse(
-            segnale=segnale_1m,
+            segnale=segnale,
             commento=commento,
             prezzo=close,
-            take_profit=0.0,
-            stop_loss=0.0,
-            rsi=0.0,
-            macd=0.0,
-            macd_signal=0.0,
-            atr=0.0,
+            take_profit=tp,
+            stop_loss=sl,
+            rsi=rsi,
+            macd=macd,
+            macd_signal=macd_signal,
+            atr=atr,
             ema9=ema9,
             ema21=ema21,
             ema100=ema100,
-            timeframe="1m"
+            timeframe=timeframe
         )
 
     except Exception as e:
