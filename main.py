@@ -267,35 +267,38 @@ def analyze(symbol: str):
         df_5m = get_binance_df(symbol, "5m", 300)
         df_15m = get_binance_df(symbol, "15m", 300)
 
-        # Analisi principale con EMA 9/21/100 sul 15m
-        segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(df_15m)
-
-        # Timeframe di breve: 1m e 5m con EMA 7/25/99
+        # Analisi principale su 1m e 5m con EMA 7, 25, 99
         def analizza_breve(df):
             df['EMA_7'] = df['close'].ewm(span=7).mean()
             df['EMA_25'] = df['close'].ewm(span=25).mean()
             df['EMA_99'] = df['close'].ewm(span=99).mean()
-            e7, e25, e99 = df['EMA_7'].iloc[-1], df['EMA_25'].iloc[-1], df['EMA_99'].iloc[-1]
+            e7 = df['EMA_7'].iloc[-1]
+            e25 = df['EMA_25'].iloc[-1]
+            e99 = df['EMA_99'].iloc[-1]
             if e7 > e25 > e99:
                 return "BUY"
             elif e7 < e25 < e99:
                 return "SELL"
             return "HOLD"
 
-        breve_1m = analizza_breve(df_1m)
-        breve_5m = analizza_breve(df_5m)
+        segnale_1m = analizza_breve(df_1m)
+        segnale_5m = analizza_breve(df_5m)
 
-        conferma_breve = (breve_1m == breve_5m and breve_1m == segnale_15m)
+        # Analisi tecnica dettagliata su 15m (EMA 9, 21, 100)
+        segnale_15m, hist_15m, distanza, note15, tp, sl, supporto = analizza_trend(df_15m)
 
-        ultima = h15.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
-        close = round(h15['close'].iloc[-1], 4)
-        rsi = round(h15['RSI'].iloc[-1], 2)
-        ema9 = round(h15['EMA_9'].iloc[-1], 2)
-        ema21 = round(h15['EMA_21'].iloc[-1], 2)
-        ema100 = round(h15['EMA_100'].iloc[-1], 2)
-        atr = round(h15['ATR'].iloc[-1], 2)
-        macd = round(h15['MACD'].iloc[-1], 4)
-        macd_signal = round(h15['MACD_SIGNAL'].iloc[-1], 4)
+        # Conferma se tutti allineati
+        conferma = (segnale_1m == segnale_5m == segnale_15m and segnale_15m != "HOLD")
+
+        ultima = hist_15m.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
+        close = round(hist_15m['close'].iloc[-1], 4)
+        rsi = round(hist_15m['RSI'].iloc[-1], 2)
+        ema9 = round(hist_15m['EMA_9'].iloc[-1], 2)
+        ema21 = round(hist_15m['EMA_21'].iloc[-1], 2)
+        ema100 = round(hist_15m['EMA_100'].iloc[-1], 2)
+        atr = round(hist_15m['ATR'].iloc[-1], 2)
+        macd = round(hist_15m['MACD'].iloc[-1], 4)
+        macd_signal = round(hist_15m['MACD_SIGNAL'].iloc[-1], 4)
 
         orario_utc = ultima.strftime("%H:%M UTC")
         orario_roma = ultima.astimezone(timezone("Europe/Rome")).strftime("%H:%M ora italiana")
@@ -303,23 +306,25 @@ def analyze(symbol: str):
         ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data}"
 
         if segnale_15m in ["BUY", "SELL"]:
-            tp_pct = round(((tp15 - close) / close) * 100, 1)
-            sl_pct = round(((sl15 - close) / close) * 100, 1)
+            tp_pct = round(((tp - close) / close) * 100, 1)
+            sl_pct = round(((sl - close) / close) * 100, 1)
             commento = (
                 f"{'🟢 BUY' if segnale_15m == 'BUY' else '🔴 SELL'} | {symbol.upper()} @ {close}$\n"
-                f"🎯 {tp15} ({tp_pct}%)   🛡 {sl15} ({sl_pct}%)\n"
+                f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
                 f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
                 f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
-                f"{'✅ Conferma anche su 1m/5m' if conferma_breve else '⚠️ Trend principale confermato solo su 15m'}\n"
-                f"{note15}\n{ritardo}"
+                f"{note15}\n"
+                f"{'✅ Conferma su 1m e 5m' if conferma else '⚠️ Trend 15m, ma 1m/5m non confermano'}\n"
+                f"{ritardo}"
             )
         else:
             commento = (
-                f"⚠️ Nessun segnale confermato su timeframe 15m\n"
+                f"⚠️ Nessun segnale confermato su 15m\n"
                 f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
                 f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
-                f"📉 Supporto: {supporto15}$\n"
-                f"{note15}\n{ritardo}"
+                f"📉 Supporto: {supporto}$\n"
+                f"{note15}\n"
+                f"{ritardo}"
             )
 
         commento = "\n".join([r.strip() for r in commento.splitlines() if r.strip()])
@@ -328,8 +333,8 @@ def analyze(symbol: str):
             segnale=segnale_15m,
             commento=commento,
             prezzo=close,
-            take_profit=tp15,
-            stop_loss=sl15,
+            take_profit=tp,
+            stop_loss=sl,
             rsi=rsi,
             macd=macd,
             macd_signal=macd_signal,
