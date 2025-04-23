@@ -124,7 +124,7 @@ def conta_candele_trend(hist, rialzista=True):
     return count
 
     
-    def riconosci_pattern_candela(df):
+def riconosci_pattern_candela(df):
     c = df.iloc[-1]  # ultima candela
     o, h, l, close = c['open'], c['high'], c['low'], c['close']
     corpo = abs(close - o)
