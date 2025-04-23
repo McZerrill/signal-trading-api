@@ -270,7 +270,7 @@ def analyze(symbol: str):
 
         df_1m = get_binance_df(symbol, "1m", 300)  # aggiornamento live
         df_5m = get_binance_df(symbol, "5m", 300)  # aggiornamento live
-        df_15m = get_binance_df(symbol, "15m", 300, end_time=end_time_15m)
+        df_15m = get_binance_df(symbol, "15m", 100)
 
         # Analisi principale su 1m e 5m con EMA 7, 25, 99
         def analizza_breve(df):
