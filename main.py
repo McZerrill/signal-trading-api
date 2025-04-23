@@ -57,7 +57,12 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
     if end_time is not None:
         params["endTime"] = end_time
 
-    klines = client.get_klines(**params)
+        try:
+        klines = client.get_klines(**params)
+    except Exception as e:
+        print(f"❌ Errore nel caricamento candela {symbol}-{interval}: {e}")
+        return pd.DataFrame()
+
 
     df = pd.DataFrame(klines, columns=[
         "timestamp", "open", "high", "low", "close", "volume",
@@ -259,15 +264,12 @@ def analizza_trend(hist):
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
-        now = int(time.time() * 1000)
-        # Calcola il timestamp esatto dell'ultima candela completata (multiplo di 15 minuti)
-        end_time = now - (now % (15 * 60 * 1000)) - 1
+        # Ottieni i dati più recenti senza forzare end_time
+        df_1m = get_binance_df(symbol, "1m", 300)
+        df_5m = get_binance_df(symbol, "5m", 300)
 
-        df_15m = get_binance_df(symbol, "15m", 300, end_time=end_time)
-        df_30m = get_binance_df(symbol, "30m", 300, end_time=end_time)
-
-        segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(df_15m)
-        segnale_30m, h30, dist_30m, note30, tp30, sl30, supporto30 = analizza_trend(df_30m)
+        segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1 = analizza_trend(df_1m)
+        segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5 = analizza_trend(df_5m)
 
         def conta_trend_attivo(hist):
             count = 0
@@ -277,28 +279,15 @@ def analyze(symbol: str):
                     count += 1
             return count
 
-        trend_15m = conta_trend_attivo(h15)
-        trend_30m = conta_trend_attivo(h30)
+        trend_1m = conta_trend_attivo(h1)
+        trend_5m = conta_trend_attivo(h5)
 
-        if trend_30m > trend_15m:
-            timeframe = "30m"
-            segnale, hist, distanza, note, tp, sl, supporto = segnale_30m, h30, dist_30m, note30, tp30, sl30, supporto30
+        if trend_5m > trend_1m:
+            timeframe = "5m"
+            segnale, hist, distanza, note, tp, sl, supporto = segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5
         else:
-            timeframe = "15m"
-            segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
-
-        try:
-            end_time_5m = now - (now % (5 * 60 * 1000)) - 1
-            df_5m = get_binance_df(symbol, "5m", 300, end_time=end_time_5m)
-            if df_5m.empty or len(df_5m) < 100:
-                raise Exception("Dati 5m insufficienti")
-            segnale_5m, *_ = analizza_trend(df_5m)
-            conferma_due_timeframe = (segnale == segnale_5m and segnale != "HOLD")
-            note_timeframe = ""
-        except:
-            segnale_5m = "NON DISPONIBILE"
-            conferma_due_timeframe = False
-            note_timeframe = f"⚠️ Dati 5m non disponibili, analisi solo su {timeframe}\n"
+            timeframe = "1m"
+            segnale, hist, distanza, note, tp, sl, supporto = segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1
 
         ultima_candela = hist.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
         orario_utc = ultima_candela.strftime("%H:%M UTC")
@@ -306,7 +295,6 @@ def analyze(symbol: str):
         data_candela = ultima_candela.strftime("(%d/%m)")
 
         ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data_candela}"
-
 
         ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
@@ -318,8 +306,6 @@ def analyze(symbol: str):
         macd = round(ultimo['MACD'], 4)
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
         dist_level = valuta_distanza(distanza)
-
-        orario_candela = ultima_candela.strftime("%H:%M UTC (%d/%m)")
 
         if segnale in ["BUY", "SELL"]:
             tp_pct = round(((tp - close) / close) * 100, 1)
@@ -334,16 +320,12 @@ def analyze(symbol: str):
             )
         else:
             commento = (
-                f"{note_timeframe}⚠️ Segnale non confermato: {timeframe}={segnale}, 5m={segnale_5m}\n"
+                f"⚠️ Nessun segnale confermato tra timeframe 1m e 5m\n"
                 f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
                 f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
                 f"📉 Supporto: {supporto}$\n"
-                f"{note}"
+                f"{note}\n{ritardo}"
             )
-
-        # Evita duplicazioni del messaggio 'ritardo'
-        if ritardo not in commento:
-            commento += f"\n{ritardo}"
 
         # Pulizia spazi vuoti
         commento = "\n".join([riga.strip() for riga in commento.splitlines() if riga.strip()])
