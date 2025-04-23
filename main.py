@@ -263,9 +263,16 @@ def analizza_trend(hist):
 @app.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
-        df_1m = get_binance_df(symbol, "1m", 300)
-        df_5m = get_binance_df(symbol, "5m", 300)
-        df_15m = get_binance_df(symbol, "15m", 300)
+        now = int(time.time() * 1000)
+
+        # Calcola end_time per l'ultima candela chiusa
+        end_time_1m = now - (now % (60 * 1000)) - 1
+        end_time_5m = now - (now % (5 * 60 * 1000)) - 1
+        end_time_15m = now - (now % (15 * 60 * 1000)) - 1
+
+        df_1m = get_binance_df(symbol, "1m", 300, end_time=end_time_1m)
+        df_5m = get_binance_df(symbol, "5m", 300, end_time=end_time_5m)
+        df_15m = get_binance_df(symbol, "15m", 300, end_time=end_time_15m)
 
         # Analisi principale su 1m e 5m con EMA 7, 25, 99
         def analizza_breve(df):
