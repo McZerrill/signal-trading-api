@@ -291,7 +291,13 @@ def analyze(symbol: str):
         segnale_1m = analizza_breve(df_1m)
         segnale_5m = analizza_breve(df_5m)
 
-        # Analisi tecnica dettagliata su 15m (EMA 9, 21, 100)
+        # Analisi tecnica dettagliata su 15m con EMA 7, 25, 99
+        df_15m['EMA_7'] = df_15m['close'].ewm(span=7).mean()
+        df_15m['EMA_25'] = df_15m['close'].ewm(span=25).mean()
+        df_15m['EMA_99'] = df_15m['close'].ewm(span=99).mean()
+        df_15m['EMA_9'] = df_15m['EMA_7']  # per compatibilità
+        df_15m['EMA_21'] = df_15m['EMA_25']
+        df_15m['EMA_100'] = df_15m['EMA_99']
         segnale_15m, hist_15m, distanza, note15, tp, sl, supporto = analizza_trend(df_15m)
 
         # Conferma se tutti allineati
