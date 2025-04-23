@@ -299,14 +299,12 @@ def analyze(symbol: str):
         ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data}"
 
         commento = (
-            f"⏱️ Timeframe 1m e 5m
-"
-            f"1m: {segnale_1m} | 5m: {segnale_5m}
-"
-            f"EMA: {ema9}/{ema21}/{ema100}
-"
-            f"{ritardo}"
-        )
+           f"⏱️ Timeframe 1m e 5m\n"
+           f"1m: {segnale_1m} | 5m: {segnale_5m}\n"
+           f"EMA: {ema9}/{ema21}/{ema100}\n"
+           f"{ritardo}"
+         )
+
 
         commento = "\n".join([r.strip() for r in commento.splitlines() if r.strip()])
 
