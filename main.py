@@ -405,7 +405,7 @@ _hot_cache = {"time": 0, "data": []}
 @app.get("/hotassets")
 def hot_assets():
     now = time.time()
-    if now - _hot_cache["time"] < 60:
+    if now - _hot_cache["time"] < 30:
         return _hot_cache["data"]
 
     symbols = get_best_symbols(limit=25)
