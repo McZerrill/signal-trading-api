@@ -63,7 +63,6 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
         print(f"❌ Errore nel caricamento candela {symbol}-{interval}: {e}")
         return pd.DataFrame()
 
-
     df = pd.DataFrame(klines, columns=[
         "timestamp", "open", "high", "low", "close", "volume",
         "close_time", "quote_asset_volume", "trades",
