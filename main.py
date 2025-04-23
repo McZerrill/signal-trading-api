@@ -268,9 +268,11 @@ def analyze(symbol: str):
         # Calcola end_time SOLO per 15m per analisi stabile
         end_time_15m = now - (now % (15 * 60 * 1000)) - 1
 
-        df_1m = get_binance_df(symbol, "1m", 300)  # aggiornamento live
-        df_5m = get_binance_df(symbol, "5m", 300)  # aggiornamento live
-        df_15m = get_binance_df(symbol, "15m", 100)
+        end_time_1m = now - (now % (60 * 1000)) - 1
+        df_1m = get_binance_df(symbol, "1m", 300, end_time=end_time_1m)  # aggiornamento live
+        end_time_5m = now - (now % (5 * 60 * 1000)) - 1
+        df_5m = get_binance_df(symbol, "5m", 300, end_time=end_time_5m)  # aggiornamento live
+        df_15m = get_binance_df(symbol, "15m", 100, end_time=end_time_15m)
 
         # Analisi principale su 1m e 5m con EMA 7, 25, 99
         def analizza_breve(df):
