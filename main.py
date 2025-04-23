@@ -299,12 +299,9 @@ def analyze(symbol: str):
         ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data}"
 
         commento = (
-            f"⏱️ Timeframe 1m e 5m
-"
-            f"1m: {segnale_1m} | 5m: {segnale_5m}
-"
-            f"EMA: {ema9}/{ema21}/{ema100}
-"
+            f"⏱️ Timeframe 1m e 5m"
+            f"1m: {segnale_1m} | 5m: {segnale_5m}"
+            f"EMA: {ema9}/{ema21}/{ema100}"
             f"{ritardo}"
         )
 
