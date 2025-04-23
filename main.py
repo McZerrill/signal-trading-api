@@ -265,97 +265,65 @@ def analyze(symbol: str):
     try:
         now = int(time.time() * 1000)
 
-        # Calcola end_time SOLO per 15m per analisi stabile
-        end_time_15m = now - (now % (15 * 60 * 1000)) - 1
-
         end_time_1m = now - (now % (60 * 1000)) - 1
-        df_1m = get_binance_df(symbol, "1m", 300, end_time=end_time_1m)  # aggiornamento live
-        end_time_5m = now - (now % (5 * 60 * 1000)) - 1
-        df_5m = get_binance_df(symbol, "5m", 300, end_time=end_time_5m)  # aggiornamento live
-        df_15m = get_binance_df(symbol, "15m", 100, end_time=end_time_15m)
+        df_1m = get_binance_df(symbol, "1m", 300, end_time=end_time_1m)
 
-        # Analisi principale su 1m e 5m con EMA 7, 25, 99
+        end_time_5m = now - (now % (5 * 60 * 1000)) - 1
+        df_5m = get_binance_df(symbol, "5m", 300, end_time=end_time_5m)
+
         def analizza_breve(df):
-            df['EMA_7'] = df['close'].ewm(span=7).mean()
-            df['EMA_25'] = df['close'].ewm(span=25).mean()
-            df['EMA_99'] = df['close'].ewm(span=99).mean()
-            e7 = df['EMA_7'].iloc[-1]
-            e25 = df['EMA_25'].iloc[-1]
-            e99 = df['EMA_99'].iloc[-1]
-            if e7 > e25 > e99:
+            df['EMA_9'] = df['close'].ewm(span=9).mean()
+            df['EMA_21'] = df['close'].ewm(span=21).mean()
+            df['EMA_100'] = df['close'].ewm(span=100).mean()
+            e9 = df['EMA_9'].iloc[-1]
+            e21 = df['EMA_21'].iloc[-1]
+            e100 = df['EMA_100'].iloc[-1]
+            if e9 > e21 > e100:
                 return "BUY"
-            elif e7 < e25 < e99:
+            elif e9 < e21 < e100:
                 return "SELL"
             return "HOLD"
 
         segnale_1m = analizza_breve(df_1m)
         segnale_5m = analizza_breve(df_5m)
 
-        # Analisi tecnica dettagliata su 15m con EMA 7, 25, 99
-        df_15m['EMA_7'] = df_15m['close'].ewm(span=7).mean()
-        df_15m['EMA_25'] = df_15m['close'].ewm(span=25).mean()
-        df_15m['EMA_99'] = df_15m['close'].ewm(span=99).mean()
-        df_15m['EMA_9'] = df_15m['EMA_7']  # per compatibilità
-        df_15m['EMA_21'] = df_15m['EMA_25']
-        df_15m['EMA_100'] = df_15m['EMA_99']
-        segnale_15m, hist_15m, distanza, note15, tp, sl, supporto = analizza_trend(df_15m)
+        close = round(df_1m['close'].iloc[-1], 4)
+        ema9 = round(df_1m['EMA_9'].iloc[-1], 2)
+        ema21 = round(df_1m['EMA_21'].iloc[-1], 2)
+        ema100 = round(df_1m['EMA_100'].iloc[-1], 2)
 
-        # Conferma se tutti allineati
-        conferma = (segnale_1m == segnale_5m == segnale_15m and segnale_15m != "HOLD")
-
-        ultima = hist_15m.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
-        close = round(hist_15m['close'].iloc[-1], 4)
-        rsi = round(hist_15m['RSI'].iloc[-1], 2)
-        ema9 = round(hist_15m['EMA_9'].iloc[-1], 2)
-        ema21 = round(hist_15m['EMA_21'].iloc[-1], 2)
-        ema100 = round(hist_15m['EMA_100'].iloc[-1], 2)
-        atr = round(hist_15m['ATR'].iloc[-1], 2)
-        macd = round(hist_15m['MACD'].iloc[-1], 4)
-        macd_signal = round(hist_15m['MACD_SIGNAL'].iloc[-1], 4)
-
+        ultima = df_1m.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
         orario_utc = ultima.strftime("%H:%M UTC")
         orario_roma = ultima.astimezone(timezone("Europe/Rome")).strftime("%H:%M ora italiana")
         data = ultima.strftime("(%d/%m)")
         ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data}"
 
-        if segnale_15m in ["BUY", "SELL"]:
-            tp_pct = round(((tp - close) / close) * 100, 1)
-            sl_pct = round(((sl - close) / close) * 100, 1)
-            commento = (
-                f"{'🟢 BUY' if segnale_15m == 'BUY' else '🔴 SELL'} | {symbol.upper()} @ {close}$\n"
-                f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
-                f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
-                f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
-                f"{note15}\n"
-                f"{'✅ Conferma su 1m e 5m' if conferma else '⚠️ Trend 15m, ma 1m/5m non confermano'}\n"
-                f"{ritardo}"
-            )
-        else:
-            commento = (
-                f"⚠️ Nessun segnale confermato su 15m\n"
-                f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
-                f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
-                f"📉 Supporto: {supporto}$\n"
-                f"{note15}\n"
-                f"{ritardo}"
-            )
+        commento = (
+            f"⏱️ Timeframe 1m e 5m
+"
+            f"1m: {segnale_1m} | 5m: {segnale_5m}
+"
+            f"EMA: {ema9}/{ema21}/{ema100}
+"
+            f"{ritardo}"
+        )
 
         commento = "\n".join([r.strip() for r in commento.splitlines() if r.strip()])
 
         return SignalResponse(
-            segnale=segnale_15m,
+            segnale=segnale_1m,
             commento=commento,
             prezzo=close,
-            take_profit=tp,
-            stop_loss=sl,
-            rsi=rsi,
-            macd=macd,
-            macd_signal=macd_signal,
-            atr=atr,
+            take_profit=0.0,
+            stop_loss=0.0,
+            rsi=0.0,
+            macd=0.0,
+            macd_signal=0.0,
+            atr=0.0,
             ema9=ema9,
             ema21=ema21,
             ema100=ema100,
-            timeframe="15m"
+            timeframe="1m"
         )
 
     except Exception as e:
