@@ -118,18 +118,8 @@ _hot_cache = {"time": 0, "data": []}
 
 @router.get("/hotassets")
 def hot_assets():
-    return [
-        {
-            "symbol": "BTCUSDT",
-            "trend": "BUY",
-            "motivo": "✅ Test funzionante",
-            "pattern": "Hammer",
-            "rsi": 61.2,
-            "ema9": 62000,
-            "ema21": 61500,
-            "ema100": 60000,
-            "candele_trend": 5
-        }
-    ]
+    print("✅ Funzione /hotassets chiamata")
+    return [{"test": "Funziona"}]
+
     
 __all__ = ["router"]
