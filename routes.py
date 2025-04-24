@@ -121,7 +121,7 @@ def hot_assets():
     if now - _hot_cache["time"] < 30:
         return _hot_cache["data"]
 
-    symbols = get_best_symbols(limit=50)  # puoi aumentare se vuoi più simboli
+    symbols = get_best_symbols(limit=50)
     risultati = []
 
     for symbol in symbols:
@@ -130,24 +130,36 @@ def hot_assets():
             if df.empty or len(df) < 30:
                 continue
 
-            # Calcola indicatori
+            # Calcolo medie
             df["EMA_9"] = df["close"].ewm(span=9).mean()
             df["EMA_21"] = df["close"].ewm(span=21).mean()
             df["EMA_100"] = df["close"].ewm(span=100).mean()
 
-            # Calcola pattern candlestick
+            # Calcolo pattern candlestick
             pattern = riconosci_pattern_candela(df)
 
-            # Verifica se da almeno 3 candele EMA9 > EMA21 > EMA100
-            trend_attivo = all(
+            # Verifica trend BUY da almeno 3 candele
+            trend_buy = all(
                 df["EMA_9"].iloc[-i] > df["EMA_21"].iloc[-i] > df["EMA_100"].iloc[-i]
                 for i in range(1, 4)
             )
 
-            # Condizione completa: trend attivo + figura candlestick valida
-            if trend_attivo and pattern:
+            # Verifica trend SELL da almeno 3 candele
+            trend_sell = all(
+                df["EMA_9"].iloc[-i] < df["EMA_21"].iloc[-i] < df["EMA_100"].iloc[-i]
+                for i in range(1, 4)
+            )
+
+            tipo_trend = ""
+            if trend_buy and "Hammer" in pattern:
+                tipo_trend = "BUY"
+            elif trend_sell and "Shooting Star" in pattern:
+                tipo_trend = "SELL"
+
+            if tipo_trend:
                 risultati.append({
                     "symbol": symbol,
+                    "trend": tipo_trend,
                     "pattern": pattern,
                     "ema9": round(df["EMA_9"].iloc[-1], 2),
                     "ema21": round(df["EMA_21"].iloc[-1], 2),
