@@ -125,31 +125,42 @@ def hot_assets():
     symbols = get_best_symbols(limit=50)
     risultati = []
 
-    for symbol in symbols:
+        for symbol in symbols:
         try:
             df = get_binance_df(symbol, "1m", 100)
             if df.empty or len(df) < 30:
                 continue
 
-            segnale, hist, dist, commento, _, _, _ = analizza_trend(df)
+            df['EMA_9'] = df['close'].ewm(span=9).mean()
+            df['EMA_21'] = df['close'].ewm(span=21).mean()
+            df['EMA_100'] = df['close'].ewm(span=100).mean()
+            df['RSI'] = calcola_rsi(df['close'])
+            df['MACD'], df['MACD_SIGNAL'] = calcola_macd(df['close'])
+            df['ATR'] = calcola_atr(df)
 
-            # Conteggio trend
-            candele_buy = conta_candele_trend(hist, rialzista=True)
-            candele_sell = conta_candele_trend(hist, rialzista=False)
+            ema9 = df['EMA_9']
+            ema21 = df['EMA_21']
+            ema100 = df['EMA_100']
 
-            # Includi TUTTO se almeno 3 candele coerenti
-            if candele_buy >= 3 or candele_sell >= 3:
-                ultimo = hist.iloc[-1]
+            ultime3 = df.tail(3)
+            rialzista = all(ema9[-i] > ema21[-i] > ema100[-i] for i in range(1, 4))
+            ribassista = all(ema9[-i] < ema21[-i] < ema100[-i] for i in range(1, 4))
+
+            if rialzista or ribassista:
+                pattern = riconosci_pattern_candela(df)
+                trend = "BUY" if rialzista else "SELL"
+                motivo = "✅ Pattern candlestick confermato" if pattern else "ℹ️ Trend attivo senza pattern"
+
                 risultati.append({
                     "symbol": symbol,
-                    "segnale": segnale,
-                    "rsi": round(ultimo["RSI"], 2),
-                    "ema9": round(ultimo["EMA_9"], 2),
-                    "ema21": round(ultimo["EMA_21"], 2),
-                    "ema100": round(ultimo["EMA_100"], 2),
-                    "candele_buy": candele_buy,
-                    "candele_sell": candele_sell,
-                    "commento": commento
+                    "trend": trend,
+                    "motivo": motivo,
+                    "pattern": pattern,
+                    "rsi": round(df['RSI'].iloc[-1], 2),
+                    "ema9": round(df['EMA_9'].iloc[-1], 2),
+                    "ema21": round(df['EMA_21'].iloc[-1], 2),
+                    "ema100": round(df['EMA_100'].iloc[-1], 2),
+                    "candele_trend": conta_candele_trend(df, rialzista=(trend == "BUY"))
                 })
 
         except Exception as e:
