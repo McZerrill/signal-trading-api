@@ -130,40 +130,33 @@ def hot_assets():
             if df.empty or len(df) < 30:
                 continue
 
-            # Calcolo medie
-            df["EMA_9"] = df["close"].ewm(span=9).mean()
-            df["EMA_21"] = df["close"].ewm(span=21).mean()
-            df["EMA_100"] = df["close"].ewm(span=100).mean()
+            # Analizza il trend come nella funzione /analyze
+            segnale, hist, dist, commento, _, _, _ = analizza_trend(df)
 
-            # Calcolo pattern candlestick
-            pattern = riconosci_pattern_candela(df)
+            # Conteggio candele coerenti
+            candele_buy = conta_candele_trend(hist, rialzista=True)
+            candele_sell = conta_candele_trend(hist, rialzista=False)
 
-            # Verifica trend BUY da almeno 3 candele
-            trend_buy = all(
-                df["EMA_9"].iloc[-i] > df["EMA_21"].iloc[-i] > df["EMA_100"].iloc[-i]
-                for i in range(1, 4)
-            )
+            # Pattern candlestick
+            pattern = riconosci_pattern_candela(hist)
 
-            # Verifica trend SELL da almeno 3 candele
-            trend_sell = all(
-                df["EMA_9"].iloc[-i] < df["EMA_21"].iloc[-i] < df["EMA_100"].iloc[-i]
-                for i in range(1, 4)
-            )
+            # Condizione per essere considerato "hot"
+            trend_attivo = (candele_buy >= 3 and segnale == "BUY") or (candele_sell >= 3 and segnale == "SELL")
+            trend_indebolito = segnale == "HOLD" and (candele_buy >= 3 or candele_sell >= 3)
 
-            tipo_trend = ""
-            if trend_buy and "Hammer" in pattern:
-                tipo_trend = "BUY"
-            elif trend_sell and "Shooting Star" in pattern:
-                tipo_trend = "SELL"
-
-            if tipo_trend:
+            if trend_attivo or trend_indebolito:
+                ultimo = hist.iloc[-1]
                 risultati.append({
                     "symbol": symbol,
-                    "trend": tipo_trend,
+                    "segnale": segnale,
                     "pattern": pattern,
-                    "ema9": round(df["EMA_9"].iloc[-1], 2),
-                    "ema21": round(df["EMA_21"].iloc[-1], 2),
-                    "ema100": round(df["EMA_100"].iloc[-1], 2)
+                    "rsi": round(ultimo["RSI"], 2),
+                    "ema9": round(ultimo["EMA_9"], 2),
+                    "ema21": round(ultimo["EMA_21"], 2),
+                    "ema100": round(ultimo["EMA_100"], 2),
+                    "candele_buy": candele_buy,
+                    "candele_sell": candele_sell,
+                    "commento": commento
                 })
 
         except Exception as e:
