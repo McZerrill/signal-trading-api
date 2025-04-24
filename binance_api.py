@@ -1,24 +1,21 @@
-# binance_api.py
-
-import os
 import time
 import requests
 import pandas as pd
 from typing import Optional
 from binance.client import Client
+import os
 
-# Inizializza client Binance dalle variabili d'ambiente
+# Inizializza il client Binance con chiavi da variabili d'ambiente
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
 client = Client(api_key=BINANCE_API_KEY, api_secret=BINANCE_API_SECRET)
 
-# Cache simboli (valida 15 minuti)
+# Cache dei simboli
 _symbol_cache = {"time": 0, "data": []}
 
-def get_best_symbols(limit: int = 25) -> list[str]:
-    """Restituisce i simboli USDT più liquidi ordinati per volume."""
+def get_best_symbols(limit=50):
     now = time.time()
-    if now - _symbol_cache["time"] < 900:
+    if now - _symbol_cache["time"] < 900:  # 15 minuti cache
         return _symbol_cache["data"]
 
     try:
@@ -26,34 +23,44 @@ def get_best_symbols(limit: int = 25) -> list[str]:
         response = requests.get(url, timeout=10)
         data = response.json()
 
-        usdt_pairs = [
+        # Filtro su simboli USDT, no token a leva, volume > 10M
+        filtered = [
             d for d in data
-            if d["symbol"].endswith("USDT") and not any(x in d["symbol"] for x in ["UP", "DOWN", "BULL", "BEAR"])
+            if d["symbol"].endswith("USDT")
+            and not any(x in d["symbol"] for x in ["UP", "DOWN", "BULL", "BEAR"])
+            and float(d["quoteVolume"]) > 10_000_000
         ]
-        sorted_pairs = sorted(usdt_pairs, key=lambda x: float(x["quoteVolume"]), reverse=True)
+
+        # Ordina per volume decrescente
+        sorted_pairs = sorted(filtered, key=lambda x: float(x["quoteVolume"]), reverse=True)
         top_symbols = [d["symbol"] for d in sorted_pairs[:limit]]
 
+        print(f"✅ {len(top_symbols)} simboli trovati con volume > 10M USDT")
         _symbol_cache["time"] = now
         _symbol_cache["data"] = top_symbols
         return top_symbols
 
     except Exception as e:
-        print("❌ Errore nel recupero simboli:", e)
+        print("❌ Errore nel recupero simboli Binance:", e)
         return [
-            "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "SOLUSDT",
-            "AVAXUSDT", "DOTUSDT", "DOGEUSDT", "MATICUSDT"
+            "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT",
+            "SOLUSDT", "AVAXUSDT", "DOTUSDT", "DOGEUSDT", "MATICUSDT"
         ]
 
-def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None) -> pd.DataFrame:
-    """Restituisce un DataFrame OHLCV da Binance."""
-    params = {"symbol": symbol, "interval": interval, "limit": limit}
+# Funzione per ottenere lo storico delle candele da Binance
+def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None):
+    params = {
+        "symbol": symbol,
+        "interval": interval,
+        "limit": limit
+    }
     if end_time is not None:
         params["endTime"] = end_time
 
     try:
         klines = client.get_klines(**params)
     except Exception as e:
-        print(f"❌ Errore caricamento {symbol}-{interval}: {e}")
+        print(f"❌ Errore nel caricamento candela {symbol}-{interval}: {e}")
         return pd.DataFrame()
 
     df = pd.DataFrame(klines, columns=[
