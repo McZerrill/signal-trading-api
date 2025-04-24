@@ -7,6 +7,7 @@ import time
 
 from binance_api import get_binance_df, get_best_symbols
 from trend_logic import analizza_trend, conta_candele_trend
+from trend_logic import riconosci_pattern_candela
 from models import SignalResponse
 
 router = APIRouter()
