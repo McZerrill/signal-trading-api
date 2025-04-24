@@ -6,10 +6,10 @@ from datetime import datetime, timezone as dt_timezone
 import time
 
 from binance_api import get_binance_df, get_best_symbols
-from trend_logic import analizza_trend, conta_candele_trend
-from trend_logic import riconosci_pattern_candela
-from indicators import calcola_rsi
+from trend_logic import analizza_trend, conta_candele_trend, riconosci_pattern_candela
+from indicators import calcola_rsi, calcola_macd, calcola_atr  # se usi anche questi esplicitamente
 from models import SignalResponse
+
 
 router = APIRouter()
 utc = dt_timezone.utc
@@ -126,62 +126,54 @@ def hot_assets():
     symbols = get_best_symbols(limit=50)
     risultati = []
 
-    print(f"🧩 Simboli ricevuti da get_best_symbols: {len(symbols)}")
-    print(f"➡️ Simboli: {symbols[:5]}...")
-
     for symbol in symbols:
         try:
             df = get_binance_df(symbol, "1m", 100)
             if df.empty or len(df) < 30:
                 continue
 
-            df['EMA_9'] = df['close'].ewm(span=9).mean()
-            df['EMA_21'] = df['close'].ewm(span=21).mean()
-            df['EMA_100'] = df['close'].ewm(span=100).mean()
-            df['RSI'] = df['close'].ewm(span=14).mean()  # semplificato, puoi usare calcola_rsi
+            # Calcolo indicatori principali
+            df["EMA_9"] = df["close"].ewm(span=9).mean()
+            df["EMA_21"] = df["close"].ewm(span=21).mean()
+            df["EMA_100"] = df["close"].ewm(span=100).mean()
+            df["RSI"] = calcola_rsi(df["close"])
+            df["MACD"], df["MACD_SIGNAL"] = calcola_macd(df["close"])
+            df["H-L"] = df["high"] - df["low"]
+            df["H-PC"] = abs(df["high"] - df["close"].shift())
+            df["L-PC"] = abs(df["low"] - df["close"].shift())
+            df["TR"] = df[["H-L", "H-PC", "L-PC"]].max(axis=1)
+            df["ATR"] = df["TR"].rolling(window=14).mean()
 
-            sub_signals = []
-            for i in range(-40, -4):
-                sub_df = df.iloc[i - 4:i + 1].copy()
-                sub_df['EMA_9'] = sub_df['close'].ewm(span=9).mean()
-                sub_df['EMA_21'] = sub_df['close'].ewm(span=21).mean()
-                sub_df['EMA_100'] = sub_df['close'].ewm(span=100).mean()
-                sub_df['RSI'] = sub_df['close'].ewm(span=14).mean()
+            atr = df["ATR"].iloc[-1]
+            dist_medie = abs(df["EMA_9"].iloc[-1] - df["EMA_21"].iloc[-1]) + abs(df["EMA_21"].iloc[-1] - df["EMA_100"].iloc[-1])
 
-                e9 = sub_df['EMA_9'].iloc[-1]
-                e21 = sub_df['EMA_21'].iloc[-1]
-                e100 = sub_df['EMA_100'].iloc[-1]
-                rsi = sub_df['RSI'].iloc[-1]
+            # Trend analysis
+            segnale, hist, _, commento, _, _, _ = analizza_trend(df)
+            candele_attive = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
+            pattern = riconosci_pattern_candela(hist)
 
-                if e9 > e21 > e100 and rsi > 50:
-                    sub_signals.append("BUY")
-                elif e9 < e21 < e100 and rsi < 50:
-                    sub_signals.append("SELL")
+            # Determina se includere nei risultati
+            trend_attivo = (candele_attive >= 3 and segnale in ["BUY", "SELL"])
+            trend_indebolito = (segnale == "HOLD" and candele_attive >= 3)
+            filtro_tecnico = (atr > 0.5 and dist_medie > 1)
 
-            buy_signals = sub_signals.count("BUY")
-            sell_signals = sub_signals.count("SELL")
-
-            if buy_signals + sell_signals >= 1:
-                from trend_logic import conta_candele_trend
-                segnale, hist, *_ = analizza_trend(df)
-                candele_trend = conta_candele_trend(df, rialzista=(buy_signals > sell_signals))
-                ultimo = df.iloc[-1]
+            if trend_attivo or trend_indebolito or filtro_tecnico:
+                ultimo = hist.iloc[-1]
                 risultati.append({
                     "symbol": symbol,
-                    "segnali": buy_signals + sell_signals,
+                    "segnali": 1 if trend_attivo else 0,
                     "trend": segnale,
-                    "rsi": round(ultimo['RSI'], 2),
-                    "ema9": round(ultimo['EMA_9'], 2),
-                    "ema21": round(ultimo['EMA_21'], 2),
-                    "ema100": round(ultimo['EMA_100'], 2),
-                    "candele_trend": candele_trend
+                    "rsi": round(ultimo["RSI"], 2),
+                    "ema9": round(ultimo["EMA_9"], 2),
+                    "ema21": round(ultimo["EMA_21"], 2),
+                    "ema100": round(ultimo["EMA_100"], 2),
+                    "candele_trend": candele_attive
                 })
 
         except Exception as e:
             print(f"❌ Errore con {symbol}: {e}")
             continue
 
-    print(f"✅ Totale crypto HOT trovate: {len(risultati)}")
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
     return risultati
