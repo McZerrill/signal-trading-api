@@ -28,7 +28,7 @@ def get_best_symbols(limit=50):
             d for d in data
             if d["symbol"].endswith("USDT")
             and not any(x in d["symbol"] for x in ["UP", "DOWN", "BULL", "BEAR"])
-            and float(d["quoteVolume"]) > 10_000_000
+            and float(d["quoteVolume"]) > 5_000_000
         ]
 
         # Ordina per volume decrescente
