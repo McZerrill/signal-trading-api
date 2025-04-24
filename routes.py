@@ -155,4 +155,5 @@ def hot_assets():
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati_ordinati
     return risultati_ordinati
-  __all__ = ["router"]
+    
+__all__ = ["router"]
