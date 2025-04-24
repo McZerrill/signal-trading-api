@@ -176,7 +176,8 @@ def hot_assets():
                     "ema100": round(ultimo["EMA_100"], 2),
                     "candele_buy": candele_buy,
                     "candele_sell": candele_sell,
-                    "commento": commento
+                    "commento": commento,
+                    "segnali": candele_buy + candele_sell  
                 })
             else:
                 print(f"⛔ {symbol} scartato: segnale={segnale}, buy={candele_buy}, sell={candele_sell}")
