@@ -118,8 +118,31 @@ _hot_cache = {"time": 0, "data": []}
 
 @router.get("/hotassets")
 def hot_assets():
-    print("✅ Funzione /hotassets chiamata")
-    return [{"test": "Funziona"}]
+    from binance_api import get_binance_df
+    from trend_logic import analizza_trend
+
+    risultati = []
+    simboli = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]  # Test su 5
+
+    for symbol in simboli:
+        try:
+            df = get_binance_df(symbol, "1m", 100)
+            if df.empty:
+                continue
+
+            segnale, hist, _, note, _, _, _ = analizza_trend(df)
+            risultati.append({
+                "symbol": symbol,
+                "segnale": segnale,
+                "note": note,
+                "ultimo_prezzo": df['close'].iloc[-1]
+            })
+        except Exception as e:
+            print(f"Errore con {symbol}: {e}")
+            continue
+
+    return risultati
+
 
     
 __all__ = ["router"]
