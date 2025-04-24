@@ -120,4 +120,9 @@ def analizza_trend(hist: pd.DataFrame):
         if forza_trend:
             note.insert(0, forza_trend)
         if not note and candele_trend <= 1 and not (ema9 > ema21 > ema100):
-            note.append("⛔
+            note.append("⛔️ Trend esaurito, considera chiusura")
+        elif ema9 > ema21 > ema100 and candele_trend <= 2 and "indebolimento" not in forza_trend:
+            note.append("➖ Trend ancora attivo ma debole")
+
+    commento = "\n".join(note).strip()
+    return segnale, hist, dist_attuale, commento, tp, sl, supporto
