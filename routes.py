@@ -118,31 +118,71 @@ _hot_cache = {"time": 0, "data": []}
 
 @router.get("/hotassets")
 def hot_assets():
-    from binance_api import get_binance_df
-    from trend_logic import analizza_trend
+    now = time.time()
+    if now - _hot_cache["time"] < 30:
+        return _hot_cache["data"]
 
+    symbols = get_best_symbols(limit=50)
     risultati = []
-    simboli = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]  # Test su 5
 
-    for symbol in simboli:
+    for symbol in symbols:
         try:
             df = get_binance_df(symbol, "1m", 100)
-            if df.empty:
+            if df.empty or len(df) < 30:
                 continue
 
-            segnale, hist, _, note, _, _, _ = analizza_trend(df)
-            risultati.append({
-                "symbol": symbol,
-                "segnale": segnale,
-                "note": note,
-                "ultimo_prezzo": df['close'].iloc[-1]
-            })
+            # Calcola indicatori tecnici
+            df['EMA_9'] = df['close'].ewm(span=9).mean()
+            df['EMA_21'] = df['close'].ewm(span=21).mean()
+            df['EMA_100'] = df['close'].ewm(span=100).mean()
+            df['RSI'] = calcola_rsi(df['close'])
+
+            # ATR e distanza medie (usati come filtri alternativi)
+            df['H-L'] = df['high'] - df['low']
+            df['H-PC'] = abs(df['high'] - df['close'].shift())
+            df['L-PC'] = abs(df['low'] - df['close'].shift())
+            df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
+            df['ATR'] = df['TR'].rolling(window=14).mean()
+            atr = df['ATR'].iloc[-1]
+
+            dist_medie = abs(df['EMA_9'].iloc[-1] - df['EMA_21'].iloc[-1]) + abs(df['EMA_21'].iloc[-1] - df['EMA_100'].iloc[-1])
+
+            # Analizza il trend principale con la funzione centrale
+            segnale, hist, _, commento, _, _, _ = analizza_trend(df)
+
+            # Conteggio candele coerenti con il trend
+            candele_buy = conta_candele_trend(hist, rialzista=True)
+            candele_sell = conta_candele_trend(hist, rialzista=False)
+
+            # Pattern candlestick confermativo
+            pattern = riconosci_pattern_candela(hist)
+
+            # Condizione per essere "hot"
+            trend_attivo = (candele_buy >= 3 and segnale == "BUY") or (candele_sell >= 3 and segnale == "SELL")
+            trend_indebolito = segnale == "HOLD" and (candele_buy >= 3 or candele_sell >= 3)
+            filtro_tecnico = (atr > 0.5 and dist_medie > 1)
+
+            if trend_attivo or trend_indebolito or filtro_tecnico:
+                ultimo = hist.iloc[-1]
+                risultati.append({
+                    "symbol": symbol,
+                    "segnale": segnale,
+                    "pattern": pattern,
+                    "rsi": round(ultimo["RSI"], 2),
+                    "ema9": round(ultimo["EMA_9"], 2),
+                    "ema21": round(ultimo["EMA_21"], 2),
+                    "ema100": round(ultimo["EMA_100"], 2),
+                    "candele_buy": candele_buy,
+                    "candele_sell": candele_sell,
+                    "commento": commento
+                })
+
         except Exception as e:
-            print(f"Errore con {symbol}: {e}")
+            print(f"❌ Errore con {symbol}: {e}")
             continue
 
+    _hot_cache["time"] = now
+    _hot_cache["data"] = risultati
     return risultati
-
-
     
 __all__ = ["router"]
