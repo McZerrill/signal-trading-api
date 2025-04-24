@@ -126,57 +126,60 @@ def hot_assets():
     symbols = get_best_symbols(limit=50)
     risultati = []
 
-for symbol in symbols:
-    try:
-        df = get_binance_df(symbol, "1m", 100)
-        if df.empty or len(df) < 30:
+    for symbol in symbols:
+        try:
+            df = get_binance_df(symbol, "1m", 100)
+            if df.empty or len(df) < 30:
+                continue
+
+            # Indicatori tecnici
+            df["EMA_9"] = df["close"].ewm(span=9).mean()
+            df["EMA_21"] = df["close"].ewm(span=21).mean()
+            df["EMA_100"] = df["close"].ewm(span=100).mean()
+            df["RSI"] = calcola_rsi(df["close"])
+            df["H-L"] = df["high"] - df["low"]
+            df["H-PC"] = abs(df["high"] - df["close"].shift())
+            df["L-PC"] = abs(df["low"] - df["close"].shift())
+            df["TR"] = df[["H-L", "H-PC", "L-PC"]].max(axis=1)
+            df["ATR"] = df["TR"].rolling(window=14).mean()
+
+            atr = df["ATR"].iloc[-1]
+            dist_medie = abs(df["EMA_9"].iloc[-1] - df["EMA_21"].iloc[-1]) + abs(df["EMA_21"].iloc[-1] - df["EMA_100"].iloc[-1])
+            dist_precedente = abs(df["EMA_9"].iloc[-2] - df["EMA_21"].iloc[-2]) + abs(df["EMA_21"].iloc[-2] - df["EMA_100"].iloc[-2])
+            dist_in_aumento = dist_medie > dist_precedente
+
+            # Trend e pattern
+            segnale, hist, _, commento, _, _, _ = analizza_trend(df)
+            candele_buy = conta_candele_trend(hist, rialzista=True)
+            candele_sell = conta_candele_trend(hist, rialzista=False)
+            pattern = riconosci_pattern_candela(hist)
+
+            # Condizioni invisibili ma attive
+            figura_valida = (segnale == "BUY" and "Hammer" in pattern) or (segnale == "SELL" and "Shooting Star" in pattern)
+            trend_attivo = (candele_buy >= 3 and segnale == "BUY") or (candele_sell >= 3 and segnale == "SELL")
+            trend_indebolito = segnale == "HOLD" and (candele_buy >= 3 or candele_sell >= 3)
+            volatilita_ok = atr > 0.5
+            distanza_ok = dist_medie > 1 and dist_in_aumento
+
+            if (trend_attivo and figura_valida and distanza_ok and volatilita_ok) or trend_indebolito:
+                ultimo = df.iloc[-1]
+                risultati.append({
+                    "symbol": symbol,
+                    "segnali": 1,
+                    "trend": segnale,
+                    "rsi": round(ultimo["RSI"], 2),
+                    "ema9": round(ultimo["EMA_9"], 2),
+                    "ema21": round(ultimo["EMA_21"], 2),
+                    "ema100": round(ultimo["EMA_100"], 2),
+                    "candele_trend": max(candele_buy, candele_sell)
+                })
+
+        except Exception as e:
+            print(f"❌ Errore con {symbol}: {e}")
             continue
 
-        # Indicatori tecnici
-        df["EMA_9"] = df["close"].ewm(span=9).mean()
-        df["EMA_21"] = df["close"].ewm(span=21).mean()
-        df["EMA_100"] = df["close"].ewm(span=100).mean()
-        df["RSI"] = calcola_rsi(df["close"])
-        df["H-L"] = df["high"] - df["low"]
-        df["H-PC"] = abs(df["high"] - df["close"].shift())
-        df["L-PC"] = abs(df["low"] - df["close"].shift())
-        df["TR"] = df[["H-L", "H-PC", "L-PC"]].max(axis=1)
-        df["ATR"] = df["TR"].rolling(window=14).mean()
-
-        atr = df["ATR"].iloc[-1]
-        dist_medie = abs(df["EMA_9"].iloc[-1] - df["EMA_21"].iloc[-1]) + abs(df["EMA_21"].iloc[-1] - df["EMA_100"].iloc[-1])
-        dist_precedente = abs(df["EMA_9"].iloc[-2] - df["EMA_21"].iloc[-2]) + abs(df["EMA_21"].iloc[-2] - df["EMA_100"].iloc[-2])
-        dist_in_aumento = dist_medie > dist_precedente
-
-        # Trend e pattern
-        segnale, hist, _, commento, _, _, _ = analizza_trend(df)
-        candele_buy = conta_candele_trend(hist, rialzista=True)
-        candele_sell = conta_candele_trend(hist, rialzista=False)
-        pattern = riconosci_pattern_candela(hist)
-
-        # Condizioni invisibili ma attive
-        figura_valida = (segnale == "BUY" and "Hammer" in pattern) or (segnale == "SELL" and "Shooting Star" in pattern)
-        trend_attivo = (candele_buy >= 3 and segnale == "BUY") or (candele_sell >= 3 and segnale == "SELL")
-        trend_indebolito = segnale == "HOLD" and (candele_buy >= 3 or candele_sell >= 3)
-        volatilita_ok = atr > 0.5
-        distanza_ok = dist_medie > 1 and dist_in_aumento
-
-        if (trend_attivo and figura_valida and distanza_ok and volatilita_ok) or trend_indebolito:
-            ultimo = df.iloc[-1]
-            risultati.append({
-                "symbol": symbol,
-                "segnali": 1,
-                "trend": segnale,
-                "rsi": round(ultimo["RSI"], 2),
-                "ema9": round(ultimo["EMA_9"], 2),
-                "ema21": round(ultimo["EMA_21"], 2),
-                "ema100": round(ultimo["EMA_100"], 2),
-                "candele_trend": max(candele_buy, candele_sell)
-            })
-
-    except Exception as e:
-        print(f"❌ Errore con {symbol}: {e}")
-        continue
-
+    _hot_cache["time"] = now
+    _hot_cache["data"] = risultati
+    return risultati
     
 __all__ = ["router"]
