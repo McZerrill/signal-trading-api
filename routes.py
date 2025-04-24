@@ -130,26 +130,18 @@ def hot_assets():
             if df.empty or len(df) < 30:
                 continue
 
-            # Analizza il trend come nella funzione /analyze
             segnale, hist, dist, commento, _, _, _ = analizza_trend(df)
 
-            # Conteggio candele coerenti
+            # Conteggio trend
             candele_buy = conta_candele_trend(hist, rialzista=True)
             candele_sell = conta_candele_trend(hist, rialzista=False)
 
-            # Pattern candlestick
-            pattern = riconosci_pattern_candela(hist)
-
-            # Condizione per essere considerato "hot"
-            trend_attivo = (candele_buy >= 3 and segnale == "BUY") or (candele_sell >= 3 and segnale == "SELL")
-            trend_indebolito = segnale == "HOLD" and (candele_buy >= 3 or candele_sell >= 3)
-
-            if trend_attivo or trend_indebolito:
+            # Includi TUTTO se almeno 3 candele coerenti
+            if candele_buy >= 3 or candele_sell >= 3:
                 ultimo = hist.iloc[-1]
                 risultati.append({
                     "symbol": symbol,
                     "segnale": segnale,
-                    "pattern": pattern,
                     "rsi": round(ultimo["RSI"], 2),
                     "ema9": round(ultimo["EMA_9"], 2),
                     "ema21": round(ultimo["EMA_21"], 2),
