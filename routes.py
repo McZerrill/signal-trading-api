@@ -132,43 +132,38 @@ def hot_assets():
             if df.empty or len(df) < 30:
                 continue
 
-            # Calcolo indicatori principali
-            df["EMA_9"] = df["close"].ewm(span=9).mean()
-            df["EMA_21"] = df["close"].ewm(span=21).mean()
-            df["EMA_100"] = df["close"].ewm(span=100).mean()
-            df["RSI"] = calcola_rsi(df["close"])
-            df["MACD"], df["MACD_SIGNAL"] = calcola_macd(df["close"])
-            df["H-L"] = df["high"] - df["low"]
-            df["H-PC"] = abs(df["high"] - df["close"].shift())
-            df["L-PC"] = abs(df["low"] - df["close"].shift())
-            df["TR"] = df[["H-L", "H-PC", "L-PC"]].max(axis=1)
-            df["ATR"] = df["TR"].rolling(window=14).mean()
-
-            atr = df["ATR"].iloc[-1]
-            dist_medie = abs(df["EMA_9"].iloc[-1] - df["EMA_21"].iloc[-1]) + abs(df["EMA_21"].iloc[-1] - df["EMA_100"].iloc[-1])
-
-            # Trend analysis
-            segnale, hist, _, commento, _, _, _ = analizza_trend(df)
-            candele_attive = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
+            segnale, hist, distanza, commento, _, _, _ = analizza_trend(df)
+            candele_buy = conta_candele_trend(hist, rialzista=True)
+            candele_sell = conta_candele_trend(hist, rialzista=False)
             pattern = riconosci_pattern_candela(hist)
+            ultimo = hist.iloc[-1]
 
-            # Determina se includere nei risultati
-            trend_attivo = (candele_attive >= 3 and segnale in ["BUY", "SELL"])
-            trend_indebolito = (segnale == "HOLD" and candele_attive >= 3)
-            filtro_tecnico = (atr > 0.5 and dist_medie > 1)
+            # FILTRI AVANZATI
+            if segnale == "BUY":
+                if candele_buy >= 3 and pattern == "🪓 Hammer rilevato (BUY)" and distanza > 0.5:
+                    risultati.append({
+                        "symbol": symbol,
+                        "segnali": 1,
+                        "trend": "BUY",
+                        "rsi": round(ultimo["RSI"], 2),
+                        "ema9": round(ultimo["EMA_9"], 2),
+                        "ema21": round(ultimo["EMA_21"], 2),
+                        "ema100": round(ultimo["EMA_100"], 2),
+                        "candele_trend": candele_buy
+                    })
 
-            if trend_attivo or trend_indebolito or filtro_tecnico:
-                ultimo = hist.iloc[-1]
-                risultati.append({
-                    "symbol": symbol,
-                    "segnali": 1 if trend_attivo else 0,
-                    "trend": segnale,
-                    "rsi": round(ultimo["RSI"], 2),
-                    "ema9": round(ultimo["EMA_9"], 2),
-                    "ema21": round(ultimo["EMA_21"], 2),
-                    "ema100": round(ultimo["EMA_100"], 2),
-                    "candele_trend": candele_attive
-                })
+            elif segnale == "SELL":
+                if candele_sell >= 3 and pattern == "🌠 Shooting Star rilevato (SELL)" and distanza > 0.5:
+                    risultati.append({
+                        "symbol": symbol,
+                        "segnali": 1,
+                        "trend": "SELL",
+                        "rsi": round(ultimo["RSI"], 2),
+                        "ema9": round(ultimo["EMA_9"], 2),
+                        "ema21": round(ultimo["EMA_21"], 2),
+                        "ema100": round(ultimo["EMA_100"], 2),
+                        "candele_trend": candele_sell
+                    })
 
         except Exception as e:
             print(f"❌ Errore con {symbol}: {e}")
