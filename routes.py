@@ -121,7 +121,7 @@ def hot_assets():
     if now - _hot_cache["time"] < 30:
         return _hot_cache["data"]
 
-    symbols = get_best_symbols()
+    symbols = get_best_symbols(limit=50)  # puoi aumentare se vuoi più simboli
     risultati = []
 
     for symbol in symbols:
@@ -130,30 +130,36 @@ def hot_assets():
             if df.empty or len(df) < 30:
                 continue
 
-            segnale, _, _, _, _, _, _ = analizza_trend(df)
-            rsi = round(df['RSI'].iloc[-1], 2)
-            ema9 = round(df['EMA_9'].iloc[-1], 2)
-            ema21 = round(df['EMA_21'].iloc[-1], 2)
-            ema100 = round(df['EMA_100'].iloc[-1], 2)
-            candele_attive = conta_candele_trend(df, rialzista=(segnale == "BUY"))
+            # Calcola indicatori
+            df["EMA_9"] = df["close"].ewm(span=9).mean()
+            df["EMA_21"] = df["close"].ewm(span=21).mean()
+            df["EMA_100"] = df["close"].ewm(span=100).mean()
 
-            risultati.append({
-                "symbol": symbol,
-                "segnale": segnale,
-                "rsi": rsi,
-                "ema9": ema9,
-                "ema21": ema21,
-                "ema100": ema100,
-                "candele_trend": candele_attive
-            })
+            # Calcola pattern candlestick
+            pattern = riconosci_pattern_candela(df)
+
+            # Verifica se da almeno 3 candele EMA9 > EMA21 > EMA100
+            trend_attivo = all(
+                df["EMA_9"].iloc[-i] > df["EMA_21"].iloc[-i] > df["EMA_100"].iloc[-i]
+                for i in range(1, 4)
+            )
+
+            # Condizione completa: trend attivo + figura candlestick valida
+            if trend_attivo and pattern:
+                risultati.append({
+                    "symbol": symbol,
+                    "pattern": pattern,
+                    "ema9": round(df["EMA_9"].iloc[-1], 2),
+                    "ema21": round(df["EMA_21"].iloc[-1], 2),
+                    "ema100": round(df["EMA_100"].iloc[-1], 2)
+                })
 
         except Exception as e:
             print(f"Errore con {symbol}: {e}")
             continue
 
-    risultati_ordinati = sorted(risultati, key=lambda x: x['candele_trend'], reverse=True)[:10]
     _hot_cache["time"] = now
-    _hot_cache["data"] = risultati_ordinati
-    return risultati_ordinati
+    _hot_cache["data"] = risultati
+    return risultati
     
 __all__ = ["router"]
