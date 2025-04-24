@@ -125,7 +125,7 @@ def hot_assets():
     symbols = get_best_symbols(limit=50)
     risultati = []
 
-        for symbol in symbols:
+    for symbol in symbols:
         try:
             df = get_binance_df(symbol, "1m", 100)
             if df.empty or len(df) < 30:
