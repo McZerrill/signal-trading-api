@@ -125,44 +125,46 @@ def hot_assets():
     symbols = get_best_symbols(limit=50)
     risultati = []
 
+    print(f"🧩 Simboli ricevuti da get_best_symbols: {len(symbols)}")
+    print(f"➡️ Simboli esempio: {symbols[:5]}")
+
     for symbol in symbols:
+        print(f"🔍 Analizzando: {symbol}")
         try:
             df = get_binance_df(symbol, "1m", 100)
             if df.empty or len(df) < 30:
+                print(f"⚠️ Dati insufficienti per {symbol}")
                 continue
 
-            # Calcola indicatori tecnici
-            df['EMA_9'] = df['close'].ewm(span=9).mean()
-            df['EMA_21'] = df['close'].ewm(span=21).mean()
-            df['EMA_100'] = df['close'].ewm(span=100).mean()
-            df['RSI'] = calcola_rsi(df['close'])
+            # Calcolo indicatori principali
+            df["EMA_9"] = df["close"].ewm(span=9).mean()
+            df["EMA_21"] = df["close"].ewm(span=21).mean()
+            df["EMA_100"] = df["close"].ewm(span=100).mean()
+            df["RSI"] = calcola_rsi(df["close"])
 
-            # ATR e distanza medie (usati come filtri alternativi)
-            df['H-L'] = df['high'] - df['low']
-            df['H-PC'] = abs(df['high'] - df['close'].shift())
-            df['L-PC'] = abs(df['low'] - df['close'].shift())
-            df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
-            df['ATR'] = df['TR'].rolling(window=14).mean()
-            atr = df['ATR'].iloc[-1]
+            # Calcolo ATR
+            df["H-L"] = df["high"] - df["low"]
+            df["H-PC"] = abs(df["high"] - df["close"].shift())
+            df["L-PC"] = abs(df["low"] - df["close"].shift())
+            df["TR"] = df[["H-L", "H-PC", "L-PC"]].max(axis=1)
+            df["ATR"] = df["TR"].rolling(window=14).mean()
 
-            dist_medie = abs(df['EMA_9'].iloc[-1] - df['EMA_21'].iloc[-1]) + abs(df['EMA_21'].iloc[-1] - df['EMA_100'].iloc[-1])
+            atr = df["ATR"].iloc[-1]
+            dist_medie = abs(df["EMA_9"].iloc[-1] - df["EMA_21"].iloc[-1]) + abs(df["EMA_21"].iloc[-1] - df["EMA_100"].iloc[-1])
 
-            # Analizza il trend principale con la funzione centrale
+            # Analisi avanzata
             segnale, hist, _, commento, _, _, _ = analizza_trend(df)
-
-            # Conteggio candele coerenti con il trend
             candele_buy = conta_candele_trend(hist, rialzista=True)
             candele_sell = conta_candele_trend(hist, rialzista=False)
-
-            # Pattern candlestick confermativo
             pattern = riconosci_pattern_candela(hist)
 
-            # Condizione per essere "hot"
+            # Condizioni di trend
             trend_attivo = (candele_buy >= 3 and segnale == "BUY") or (candele_sell >= 3 and segnale == "SELL")
             trend_indebolito = segnale == "HOLD" and (candele_buy >= 3 or candele_sell >= 3)
             filtro_tecnico = (atr > 0.5 and dist_medie > 1)
 
             if trend_attivo or trend_indebolito or filtro_tecnico:
+                print(f"🔥 {symbol} considerato HOT! Segnale: {segnale}, Candele: BUY={candele_buy}, SELL={candele_sell}")
                 ultimo = hist.iloc[-1]
                 risultati.append({
                     "symbol": symbol,
@@ -176,13 +178,17 @@ def hot_assets():
                     "candele_sell": candele_sell,
                     "commento": commento
                 })
+            else:
+                print(f"⛔ {symbol} scartato: segnale={segnale}, buy={candele_buy}, sell={candele_sell}")
 
         except Exception as e:
             print(f"❌ Errore con {symbol}: {e}")
             continue
 
+    print(f"✅ Totale crypto HOT trovate: {len(risultati)}")
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
     return risultati
+
     
 __all__ = ["router"]
