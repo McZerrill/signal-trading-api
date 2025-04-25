@@ -131,39 +131,36 @@ def hot_assets():
             if df.empty or len(df) < 60:
                 continue
 
-            # 🔍 Filtro di direzionalità: serve un trend recente BUY o SELL
-            if not verifica_volatilita_direzionale(df, analisi_range=60, min_candele=5):
-                continue
-
-            # Calcolo medie e indicatori
+            # 🔍 Trend incipiente + volume
             df["EMA_7"] = df["close"].ewm(span=7).mean()
             df["EMA_25"] = df["close"].ewm(span=25).mean()
             df["EMA_99"] = df["close"].ewm(span=99).mean()
             df["RSI"] = calcola_rsi(df["close"])
+            df["volume_ma_20"] = df["volume"].rolling(20).mean()
+            df["volume_ma_5"] = df["volume"].rolling(5).mean()
 
-            # Controlla incrocio EMA7↑EMA25 nelle ultime 5 candele
+            ultimo = df.iloc[-1]
+            ema7, ema25, ema99 = ultimo["EMA_7"], ultimo["EMA_25"], ultimo["EMA_99"]
+            vicino_ema99 = abs(ema7 - ema99) / ema99 < 0.02
+            volume_ok = df["volume_ma_5"].iloc[-1] > df["volume_ma_20"].iloc[-1] * 1.3
+
+            # 🔁 Incrocio EMA nelle ultime 10 candele
             incrocio_buy = any(
                 df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] < df["EMA_25"].iloc[-i - 1]
-                for i in range(1, 6)
+                for i in range(1, 11)
             )
             incrocio_sell = any(
                 df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] > df["EMA_25"].iloc[-i - 1]
-                for i in range(1, 6)
+                for i in range(1, 11)
             )
 
-            ema7 = df["EMA_7"].iloc[-1]
-            ema25 = df["EMA_25"].iloc[-1]
-            ema99 = df["EMA_99"].iloc[-1]
-            vicino_ema99 = abs(ema7 - ema99) / ema99 < 0.015
-
-            presegnale_buy = incrocio_buy and ema25 < ema99 and vicino_ema99
-            presegnale_sell = incrocio_sell and ema25 > ema99 and vicino_ema99
+            presegnale_buy = incrocio_buy and (ema7 > ema99 or vicino_ema99) and volume_ok
+            presegnale_sell = incrocio_sell and (ema7 < ema99 or vicino_ema99) and volume_ok
 
             if presegnale_buy or presegnale_sell:
                 segnale = "BUY" if presegnale_buy else "SELL"
                 candele_buy = conta_candele_trend(df, rialzista=True)
                 candele_sell = conta_candele_trend(df, rialzista=False)
-                ultimo = df.iloc[-1]
 
                 risultati.append({
                     "symbol": symbol,
@@ -183,39 +180,5 @@ def hot_assets():
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
     return risultati
-
-
-def verifica_volatilita_direzionale(df: pd.DataFrame, analisi_range: int = 120, min_candele: int = 5) -> bool:
-    df = df.tail(analisi_range).copy()
-    df["EMA_7"] = df["close"].ewm(span=7).mean()
-    df["EMA_25"] = df["close"].ewm(span=25).mean()
-    df["EMA_99"] = df["close"].ewm(span=99).mean()
-
-    contatore = 0
-    direzione = None
-
-    for i in range(-min_candele, 0):
-        e7 = df["EMA_7"].iloc[i]
-        e25 = df["EMA_25"].iloc[i]
-        e99 = df["EMA_99"].iloc[i]
-
-        if e7 > e25 > e99:
-            if direzione == "SELL":
-                contatore = 0
-            direzione = "BUY"
-            contatore += 1
-        elif e7 < e25 < e99:
-            if direzione == "BUY":
-                contatore = 0
-            direzione = "SELL"
-            contatore += 1
-        else:
-            contatore = 0
-            direzione = None
-
-        if contatore >= min_candele:
-            return True
-
-    return False
     
 __all__ = ["router"]
