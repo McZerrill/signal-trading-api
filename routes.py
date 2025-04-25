@@ -9,6 +9,7 @@ from binance_api import get_binance_df, get_best_symbols
 from trend_logic import analizza_trend, conta_candele_trend, riconosci_pattern_candela
 from indicators import calcola_rsi, calcola_macd, calcola_atr  # se usi anche questi esplicitamente
 from models import SignalResponse
+import pandas as pd
 
 
 router = APIRouter()
