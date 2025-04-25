@@ -47,15 +47,17 @@ def analizza_trend(hist: pd.DataFrame):
     hist['ATR'] = calcola_atr(hist)
     hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['close'])
 
-    if len(hist) < 5:
+    if len(hist) < 30:
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
 
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
 
     ema9, ema21, ema100 = ultimo['EMA_9'], ultimo['EMA_21'], ultimo['EMA_100']
-    close, rsi, atr = ultimo['close'], ultimo['RSI'], ultimo['ATR']
-    macd, macd_signal = ultimo['MACD'], ultimo['MACD_SIGNAL']
+    close, rsi = ultimo['close'], ultimo['RSI']
+    atr = ultimo['ATR'] if pd.notna(ultimo['ATR']) else 0.0
+    macd = ultimo['MACD'] if pd.notna(ultimo['MACD']) else 0.0
+    macd_signal = ultimo['MACD_SIGNAL'] if pd.notna(ultimo['MACD_SIGNAL']) else 0.0
     supporto = calcola_supporto(hist)
 
     dist_attuale = abs(ema9 - ema21) + abs(ema21 - ema100)
@@ -114,7 +116,7 @@ def analizza_trend(hist: pd.DataFrame):
             if ema21 > ema100 and abs(ema9 - ema100) / ema100 < 0.01 and rsi < 50 and macd < macd_signal:
                 note.append("📡 Presegnale: EMA9↓EMA21 vicino EMA100 (SELL)")
 
-    # Candele in trend + pattern
+    # Trend + Pattern
     candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
     pattern = riconosci_pattern_candela(hist)
 
@@ -127,12 +129,12 @@ def analizza_trend(hist: pd.DataFrame):
         elif candele_trend == 2:
             note.append("🔄 Trend in formazione")
     else:
-        if forza_trend:
-            note.insert(0, forza_trend)
         if not note and candele_trend <= 1 and not (ema9 > ema21 > ema100):
             note.append("⛔️ Trend esaurito, considera chiusura")
         elif ema9 > ema21 > ema100 and candele_trend <= 2:
             note.append("➖ Trend ancora attivo ma debole")
+        elif forza_trend:
+            note.append(forza_trend)
 
     commento = "\n".join(note).strip()
     return segnale, hist, dist_attuale, commento, tp, sl, supporto
