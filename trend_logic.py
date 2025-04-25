@@ -40,83 +40,90 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     return ""
 
 def analizza_trend(hist: pd.DataFrame):
-    hist['EMA_9'] = hist['close'].ewm(span=9).mean()
-    hist['EMA_21'] = hist['close'].ewm(span=21).mean()
-    hist['EMA_100'] = hist['close'].ewm(span=100).mean()
+    hist['EMA_7'] = hist['close'].ewm(span=7).mean()
+    hist['EMA_25'] = hist['close'].ewm(span=25).mean()
+    hist['EMA_99'] = hist['close'].ewm(span=99).mean()
     hist['RSI'] = calcola_rsi(hist['close'])
     hist['ATR'] = calcola_atr(hist)
     hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['close'])
 
-    if len(hist) < 30:
+    if len(hist) < 5:
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
 
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
 
-    ema9, ema21, ema100 = ultimo['EMA_9'], ultimo['EMA_21'], ultimo['EMA_100']
-    close, rsi = ultimo['close'], ultimo['RSI']
-    atr = ultimo['ATR'] if pd.notna(ultimo['ATR']) else 0.0
-    macd = ultimo['MACD'] if pd.notna(ultimo['MACD']) else 0.0
-    macd_signal = ultimo['MACD_SIGNAL'] if pd.notna(ultimo['MACD_SIGNAL']) else 0.0
+    ema7, ema25, ema99 = ultimo['EMA_7'], ultimo['EMA_25'], ultimo['EMA_99']
+    close, rsi, atr = ultimo['close'], ultimo['RSI'], ultimo['ATR']
+    macd, macd_signal = ultimo['MACD'], ultimo['MACD_SIGNAL']
     supporto = calcola_supporto(hist)
 
-    dist_attuale = abs(ema9 - ema21) + abs(ema21 - ema100)
-    dist_precedente = abs(penultimo['EMA_9'] - penultimo['EMA_21']) + abs(penultimo['EMA_21'] - penultimo['EMA_100'])
+    dist_attuale = abs(ema7 - ema25) + abs(ema25 - ema99)
+    dist_precedente = abs(penultimo['EMA_7'] - penultimo['EMA_25']) + abs(penultimo['EMA_25'] - penultimo['EMA_99'])
     dist_diff = dist_attuale - dist_precedente
     dist_level = valuta_distanza(dist_attuale)
 
     note = []
     segnale = "HOLD"
     tp = sl = 0.0
+    condizioni_verificate = 0
 
-    # Forza trend
+    # Forza del trend
     forza_trend = ""
-    if ema9 > ema21 > ema100:
+    if ema7 > ema25 > ema99:
         forza_trend = "📈 Trend forte in espansione" if dist_diff > 0 else "➖ Trend stabile"
-    elif ema9 < ema21 < ema100:
+    elif ema7 < ema25 < ema99:
         forza_trend = "⛔️ Trend ribassista"
-    elif ema9 < ema21 and ema21 > ema100 and ema9 > ema100:
+    elif ema7 < ema25 and ema25 > ema99 and ema7 > ema99:
         forza_trend = "⛔️ Trend in esaurimento"
-    elif ema9 > ema21 and penultimo['EMA_9'] < penultimo['EMA_21']:
+    elif ema7 > ema25 and penultimo['EMA_7'] < penultimo['EMA_25']:
         forza_trend = "🔁 Trend ripreso"
 
     # Ultime 3 candele coerenti
-    recent_trend_up = all(hist['EMA_9'].iloc[-i] > hist['EMA_21'].iloc[-i] for i in range(1, 4))
-    recent_trend_down = all(hist['EMA_9'].iloc[-i] < hist['EMA_21'].iloc[-i] for i in range(1, 4))
+    recent_trend_up = all(hist['EMA_7'].iloc[-i] > hist['EMA_25'].iloc[-i] for i in range(1, 4))
+    recent_trend_down = all(hist['EMA_7'].iloc[-i] < hist['EMA_25'].iloc[-i] for i in range(1, 4))
 
     # BUY
     if (
-        penultimo['EMA_9'] < penultimo['EMA_21'] < penultimo['EMA_100']
-        and ema9 > ema21 > ema100
+        penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99']
+        and ema7 > ema25 > ema99
         and rsi > 50 and macd > macd_signal
         and recent_trend_up and dist_diff > 0
     ):
         segnale = "BUY"
+        condizioni_verificate = 5
         resistenza = hist['high'].tail(20).max()
         tp = round(min(close + atr * 1.5, resistenza), 4)
         sl = round(close - atr * 1.2, 4)
 
     # SELL
     elif (
-        penultimo['EMA_9'] > penultimo['EMA_21'] > penultimo['EMA_100']
-        and ema9 < ema21 < ema100
+        penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99']
+        and ema7 < ema25 < ema99
         and rsi < 50 and macd < macd_signal
         and recent_trend_down and dist_diff > 0
     ):
         segnale = "SELL"
+        condizioni_verificate = 5
         tp = round(max(close - atr * 1.5, supporto), 4)
         sl = round(close + atr * 1.2, 4)
 
     # Presegnali
     if segnale == "HOLD":
-        if penultimo['EMA_9'] < penultimo['EMA_21'] and ema9 > ema21:
-            if ema21 < ema100 and abs(ema9 - ema100) / ema100 < 0.01 and rsi > 50 and macd > macd_signal:
-                note.append("📡 Presegnale: EMA9↑EMA21 vicino EMA100 (BUY)")
-        elif penultimo['EMA_9'] > penultimo['EMA_21'] and ema9 < ema21:
-            if ema21 > ema100 and abs(ema9 - ema100) / ema100 < 0.01 and rsi < 50 and macd < macd_signal:
-                note.append("📡 Presegnale: EMA9↓EMA21 vicino EMA100 (SELL)")
+        if penultimo['EMA_7'] < penultimo['EMA_25'] and ema7 > ema25:
+            if ema25 < ema99 and abs(ema7 - ema99) / ema99 < 0.01:
+                condizioni_verificate += 1
+                if rsi > 50: condizioni_verificate += 1
+                if macd > macd_signal: condizioni_verificate += 1
+                note.append("🟢🗣 Presegnale: EMA7↑EMA25 vicino EMA99 (BUY)")
+        elif penultimo['EMA_7'] > penultimo['EMA_25'] and ema7 < ema25:
+            if ema25 > ema99 and abs(ema7 - ema99) / ema99 < 0.01:
+                condizioni_verificate += 1
+                if rsi < 50: condizioni_verificate += 1
+                if macd < macd_signal: condizioni_verificate += 1
+                note.append("🔴🗣 Presegnale: EMA7↓EMA25 vicino EMA99 (SELL)")
 
-    # Trend + Pattern
+    # Candele in trend + pattern
     candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
     pattern = riconosci_pattern_candela(hist)
 
@@ -129,12 +136,15 @@ def analizza_trend(hist: pd.DataFrame):
         elif candele_trend == 2:
             note.append("🔄 Trend in formazione")
     else:
-        if not note and candele_trend <= 1 and not (ema9 > ema21 > ema100):
+        if forza_trend:
+            note.insert(0, forza_trend)
+        if not note and candele_trend <= 1 and not (ema7 > ema25 > ema99):
             note.append("⛔️ Trend esaurito, considera chiusura")
-        elif ema9 > ema21 > ema100 and candele_trend <= 2:
+        elif ema7 > ema25 > ema99 and candele_trend <= 2:
             note.append("➖ Trend ancora attivo ma debole")
-        elif forza_trend:
-            note.append(forza_trend)
 
-    commento = "\n".join(note).strip()
+    if 0 < condizioni_verificate < 5:
+        note.append(f"⚙️ Segnale in attesa: {condizioni_verificate}/5 condizioni verificate")
+
+    commento = "\\n".join(note).strip()
     return segnale, hist, dist_attuale, commento, tp, sl, supporto
