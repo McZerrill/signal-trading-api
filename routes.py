@@ -132,46 +132,33 @@ def hot_assets():
             if df.empty or len(df) < 30:
                 continue
 
-            # Indicatori tecnici
             df["EMA_9"] = df["close"].ewm(span=9).mean()
             df["EMA_21"] = df["close"].ewm(span=21).mean()
             df["EMA_100"] = df["close"].ewm(span=100).mean()
-            df["RSI"] = calcola_rsi(df["close"])
-            df["H-L"] = df["high"] - df["low"]
-            df["H-PC"] = abs(df["high"] - df["close"].shift())
-            df["L-PC"] = abs(df["low"] - df["close"].shift())
-            df["TR"] = df[["H-L", "H-PC", "L-PC"]].max(axis=1)
-            df["ATR"] = df["TR"].rolling(window=14).mean()
 
-            atr = df["ATR"].iloc[-1]
-            dist_medie = abs(df["EMA_9"].iloc[-1] - df["EMA_21"].iloc[-1]) + abs(df["EMA_21"].iloc[-1] - df["EMA_100"].iloc[-1])
-            dist_precedente = abs(df["EMA_9"].iloc[-2] - df["EMA_21"].iloc[-2]) + abs(df["EMA_21"].iloc[-2] - df["EMA_100"].iloc[-2])
-            dist_in_aumento = dist_medie > dist_precedente
+            # Condizione base: incrocio EMA9↑EMA21 sotto EMA100 e vicinanza
+            ema9 = df["EMA_9"].iloc[-1]
+            ema21 = df["EMA_21"].iloc[-1]
+            ema100 = df["EMA_100"].iloc[-1]
+            pen_ema9 = df["EMA_9"].iloc[-2]
+            pen_ema21 = df["EMA_21"].iloc[-2]
 
-            # Trend e pattern
-            segnale, hist, _, commento, _, _, _ = analizza_trend(df)
-            candele_buy = conta_candele_trend(hist, rialzista=True)
-            candele_sell = conta_candele_trend(hist, rialzista=False)
-            pattern = riconosci_pattern_candela(hist)
+            incrocio = pen_ema9 < pen_ema21 and ema9 > ema21
+            sotto_ema100 = ema9 < ema100 and ema21 < ema100
+            vicine = abs(ema9 - ema100) / ema100 < 0.015  # entro 1.5%
 
-            # Condizioni invisibili ma attive
-            figura_valida = (segnale == "BUY" and "Hammer" in pattern) or (segnale == "SELL" and "Shooting Star" in pattern)
-            trend_attivo = (candele_buy >= 3 and segnale == "BUY") or (candele_sell >= 3 and segnale == "SELL")
-            trend_indebolito = segnale == "HOLD" and (candele_buy >= 3 or candele_sell >= 3)
-            volatilita_ok = atr > 0.5
-            distanza_ok = dist_medie > 1 and dist_in_aumento
-
-            if (trend_attivo and figura_valida and distanza_ok and volatilita_ok) or trend_indebolito:
+            if incrocio and sotto_ema100 and vicine:
+                df["RSI"] = calcola_rsi(df["close"])
                 ultimo = df.iloc[-1]
                 risultati.append({
                     "symbol": symbol,
                     "segnali": 1,
-                    "trend": segnale,
+                    "trend": "PRESEGNALATO",
                     "rsi": round(ultimo["RSI"], 2),
-                    "ema9": round(ultimo["EMA_9"], 2),
-                    "ema21": round(ultimo["EMA_21"], 2),
-                    "ema100": round(ultimo["EMA_100"], 2),
-                    "candele_trend": max(candele_buy, candele_sell)
+                    "ema9": round(ema9, 2),
+                    "ema21": round(ema21, 2),
+                    "ema100": round(ema100, 2),
+                    "candele_trend": 0  # Verrà valutato in analizza_trend
                 })
 
         except Exception as e:
