@@ -130,17 +130,17 @@ def hot_assets():
             if df.empty or len(df) < 60:
                 continue
 
-            # ⚠️ Nuovo filtro iniziale: volatilità direzionale
-            if not verifica_volatilita_direzionale(df, min_candele=5, max_candele=10, analisi_range=60):
+            # 🔍 Filtro di direzionalità: serve un trend recente BUY o SELL
+            if not verifica_volatilita_direzionale(df, analisi_range=60, min_candele=5):
                 continue
 
-            # Indicatori principali
+            # Calcolo medie e indicatori
             df["EMA_7"] = df["close"].ewm(span=7).mean()
             df["EMA_25"] = df["close"].ewm(span=25).mean()
             df["EMA_99"] = df["close"].ewm(span=99).mean()
             df["RSI"] = calcola_rsi(df["close"])
 
-            # Incrocio EMA7 ↑ EMA25 nelle ultime 5 candele
+            # Controlla incrocio EMA7↑EMA25 nelle ultime 5 candele
             incrocio_buy = any(
                 df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] < df["EMA_25"].iloc[-i - 1]
                 for i in range(1, 6)
@@ -155,10 +155,7 @@ def hot_assets():
             ema99 = df["EMA_99"].iloc[-1]
             vicino_ema99 = abs(ema7 - ema99) / ema99 < 0.015
 
-            # Condizione BUY → incrocio EMA7↑EMA25 sotto EMA99
             presegnale_buy = incrocio_buy and ema25 < ema99 and vicino_ema99
-
-            # Condizione SELL → incrocio EMA7↓EMA25 sopra EMA99
             presegnale_sell = incrocio_sell and ema25 > ema99 and vicino_ema99
 
             if presegnale_buy or presegnale_sell:
@@ -185,5 +182,39 @@ def hot_assets():
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
     return risultati
+
+
+def verifica_volatilita_direzionale(df: pd.DataFrame, analisi_range: int = 60, min_candele: int = 5) -> bool:
+    df = df.tail(analisi_range).copy()
+    df["EMA_7"] = df["close"].ewm(span=7).mean()
+    df["EMA_25"] = df["close"].ewm(span=25).mean()
+    df["EMA_99"] = df["close"].ewm(span=99).mean()
+
+    contatore = 0
+    direzione = None
+
+    for i in range(-min_candele, 0):
+        e7 = df["EMA_7"].iloc[i]
+        e25 = df["EMA_25"].iloc[i]
+        e99 = df["EMA_99"].iloc[i]
+
+        if e7 > e25 > e99:
+            if direzione == "SELL":
+                contatore = 0
+            direzione = "BUY"
+            contatore += 1
+        elif e7 < e25 < e99:
+            if direzione == "BUY":
+                contatore = 0
+            direzione = "SELL"
+            contatore += 1
+        else:
+            contatore = 0
+            direzione = None
+
+        if contatore >= min_candele:
+            return True
+
+    return False
     
 __all__ = ["router"]
