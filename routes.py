@@ -131,20 +131,14 @@ def hot_assets():
             if df.empty or len(df) < 60:
                 continue
 
-            # 🔍 Trend incipiente + volume
+            # Calcolo medie e indicatori
             df["EMA_7"] = df["close"].ewm(span=7).mean()
             df["EMA_25"] = df["close"].ewm(span=25).mean()
             df["EMA_99"] = df["close"].ewm(span=99).mean()
             df["RSI"] = calcola_rsi(df["close"])
-            df["volume_ma_20"] = df["volume"].rolling(20).mean()
-            df["volume_ma_5"] = df["volume"].rolling(5).mean()
+            df["MACD"], df["MACD_SIGNAL"] = calcola_macd(df["close"])
 
-            ultimo = df.iloc[-1]
-            ema7, ema25, ema99 = ultimo["EMA_7"], ultimo["EMA_25"], ultimo["EMA_99"]
-            vicino_ema99 = abs(ema7 - ema99) / ema99 < 0.02
-            volume_ok = df["volume_ma_5"].iloc[-1] > df["volume_ma_20"].iloc[-1] * 1.3
-
-            # 🔁 Incrocio EMA nelle ultime 10 candele
+            # Controlla incrocio EMA7↑EMA25 fino a 10 candele fa
             incrocio_buy = any(
                 df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] < df["EMA_25"].iloc[-i - 1]
                 for i in range(1, 11)
@@ -154,19 +148,33 @@ def hot_assets():
                 for i in range(1, 11)
             )
 
-            presegnale_buy = incrocio_buy and (ema7 > ema99 or vicino_ema99) and volume_ok
-            presegnale_sell = incrocio_sell and (ema7 < ema99 or vicino_ema99) and volume_ok
+            ema7 = df["EMA_7"].iloc[-1]
+            ema25 = df["EMA_25"].iloc[-1]
+            ema99 = df["EMA_99"].iloc[-1]
+            rsi = df["RSI"].iloc[-1]
+            macd = df["MACD"].iloc[-1]
+            macd_signal = df["MACD_SIGNAL"].iloc[-1]
+
+            # Più permissivo nella vicinanza a EMA99
+            vicino_ema99 = abs(ema7 - ema99) / ema99 < 0.03
+
+            # Condizione BUY
+            presegnale_buy = incrocio_buy and ema25 < ema99 and vicino_ema99 and rsi > 50 and macd > macd_signal
+
+            # Condizione SELL
+            presegnale_sell = incrocio_sell and ema25 > ema99 and vicino_ema99 and rsi < 50 and macd < macd_signal
 
             if presegnale_buy or presegnale_sell:
                 segnale = "BUY" if presegnale_buy else "SELL"
                 candele_buy = conta_candele_trend(df, rialzista=True)
                 candele_sell = conta_candele_trend(df, rialzista=False)
+                ultimo = df.iloc[-1]
 
                 risultati.append({
                     "symbol": symbol,
                     "segnali": 1,
                     "trend": segnale,
-                    "rsi": round(ultimo["RSI"], 2),
+                    "rsi": round(rsi, 2),
                     "ema9": round(ema7, 2),
                     "ema21": round(ema25, 2),
                     "ema100": round(ema99, 2),
