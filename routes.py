@@ -127,16 +127,29 @@ def hot_assets():
     for symbol in symbols:
         try:
             df = get_binance_df(symbol, "1m", 100)
-            if df.empty or len(df) < 30:
+            if df.empty or len(df) < 60:
                 continue
 
-            # Indicatori principali con nuove medie
+            # Fase 1: Filtra per volatilità nelle ultime 30 candele
+            ultimi_30 = df[-30:]
+            min_price = ultimi_30["low"].min()
+            max_price = ultimi_30["high"].max()
+            variazione_pct = (max_price - min_price) / min_price
+
+            if variazione_pct < 0.03:  # almeno 3% di oscillazione
+                continue  # scarta se non abbastanza volatile
+
+            # Calcolo medie
             df["EMA_7"] = df["close"].ewm(span=7).mean()
             df["EMA_25"] = df["close"].ewm(span=25).mean()
             df["EMA_99"] = df["close"].ewm(span=99).mean()
             df["RSI"] = calcola_rsi(df["close"])
 
-            # Incrocio EMA7 ↑ EMA25 nelle ultime 5 candele
+            ema7 = df["EMA_7"].iloc[-1]
+            ema25 = df["EMA_25"].iloc[-1]
+            ema99 = df["EMA_99"].iloc[-1]
+            vicino_ema99 = abs(ema7 - ema99) / ema99 < 0.015
+
             incrocio_buy = any(
                 df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] < df["EMA_25"].iloc[-i - 1]
                 for i in range(1, 6)
@@ -145,11 +158,6 @@ def hot_assets():
                 df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] > df["EMA_25"].iloc[-i - 1]
                 for i in range(1, 6)
             )
-
-            ema7 = df["EMA_7"].iloc[-1]
-            ema25 = df["EMA_25"].iloc[-1]
-            ema99 = df["EMA_99"].iloc[-1]
-            vicino_ema99 = abs(ema7 - ema99) / ema99 < 0.015
 
             presegnale_buy = incrocio_buy and ema25 < ema99 and vicino_ema99
             presegnale_sell = incrocio_sell and ema25 > ema99 and vicino_ema99
@@ -165,9 +173,9 @@ def hot_assets():
                     "segnali": 1,
                     "trend": segnale,
                     "rsi": round(ultimo["RSI"], 2),
-                    "ema9": round(ema7, 2),     # riusato per compatibilità frontend
-                    "ema21": round(ema25, 2),
-                    "ema100": round(ema99, 2),
+                    "ema9": round(ema7, 2),     # mappati su EMA7
+                    "ema21": round(ema25, 2),   # mappati su EMA25
+                    "ema100": round(ema99, 2),  # mappati su EMA99
                     "candele_trend": max(candele_buy, candele_sell)
                 })
 
