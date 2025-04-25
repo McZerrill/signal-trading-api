@@ -136,12 +136,13 @@ def analizza_trend(hist: pd.DataFrame):
         elif candele_trend == 2:
             note.append("🔄 Trend in formazione")
     else:
+        # Evita messaggi duplicati
         if forza_trend:
-            note.insert(0, forza_trend)
-        if not note and candele_trend <= 1 and not (ema7 > ema25 > ema99):
-            note.append("⛔️ Trend esaurito, considera chiusura")
+            note.append(forza_trend)
         elif ema7 > ema25 > ema99 and candele_trend <= 2:
             note.append("➖ Trend ancora attivo ma debole")
+        elif candele_trend <= 1 and not (ema7 > ema25 > ema99):
+            note.append("⛔️ Trend esaurito, considera chiusura")
 
     if 0 < condizioni_verificate < 5:
         note.append(f"⚙️ Segnale in attesa: {condizioni_verificate}/5 condizioni verificate")
