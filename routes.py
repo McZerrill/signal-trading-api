@@ -132,33 +132,57 @@ def hot_assets():
             if df.empty or len(df) < 30:
                 continue
 
+            # Calcolo medie
             df["EMA_9"] = df["close"].ewm(span=9).mean()
             df["EMA_21"] = df["close"].ewm(span=21).mean()
             df["EMA_100"] = df["close"].ewm(span=100).mean()
+            df["RSI"] = calcola_rsi(df["close"])
 
-            # Condizione base: incrocio EMA9↑EMA21 sotto EMA100 e vicinanza
-            ema9 = df["EMA_9"].iloc[-1]
-            ema21 = df["EMA_21"].iloc[-1]
-            ema100 = df["EMA_100"].iloc[-1]
-            pen_ema9 = df["EMA_9"].iloc[-2]
-            pen_ema21 = df["EMA_21"].iloc[-2]
+            presegnale_buy = False
+            presegnale_sell = False
 
-            incrocio = pen_ema9 < pen_ema21 and ema9 > ema21
-            sotto_ema100 = ema9 < ema100 and ema21 < ema100
-            vicine = abs(ema9 - ema100) / ema100 < 0.015  # entro 1.5%
+            for i in range(5):
+                ema9 = df["EMA_9"].iloc[-i-1]
+                ema21 = df["EMA_21"].iloc[-i-1]
+                ema100 = df["EMA_100"].iloc[-i-1]
+                pen_ema9 = df["EMA_9"].iloc[-i-2]
+                pen_ema21 = df["EMA_21"].iloc[-i-2]
 
-            if incrocio and sotto_ema100 and vicine:
-                df["RSI"] = calcola_rsi(df["close"])
+                # Condizione BUY semplificata
+                if (
+                    pen_ema9 < pen_ema21 and
+                    ema9 > ema21 and
+                    ema21 < ema100 and
+                    abs(ema9 - ema100) / ema100 < 0.02
+                ):
+                    presegnale_buy = True
+                    break
+
+                # Condizione SELL semplificata
+                if (
+                    pen_ema9 > pen_ema21 and
+                    ema9 < ema21 and
+                    ema21 > ema100 and
+                    abs(ema9 - ema100) / ema100 < 0.02
+                ):
+                    presegnale_sell = True
+                    break
+
+            if presegnale_buy or presegnale_sell:
+                segnale = "BUY" if presegnale_buy else "SELL"
+                candele_buy = conta_candele_trend(df, rialzista=True)
+                candele_sell = conta_candele_trend(df, rialzista=False)
                 ultimo = df.iloc[-1]
+
                 risultati.append({
                     "symbol": symbol,
                     "segnali": 1,
-                    "trend": "PRESEGNALATO",
+                    "trend": segnale,
                     "rsi": round(ultimo["RSI"], 2),
-                    "ema9": round(ema9, 2),
-                    "ema21": round(ema21, 2),
-                    "ema100": round(ema100, 2),
-                    "candele_trend": 0  # Verrà valutato in analizza_trend
+                    "ema9": round(ultimo["EMA_9"], 2),
+                    "ema21": round(ultimo["EMA_21"], 2),
+                    "ema100": round(ultimo["EMA_100"], 2),
+                    "candele_trend": max(candele_buy, candele_sell)
                 })
 
         except Exception as e:
