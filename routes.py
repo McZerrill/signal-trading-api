@@ -185,7 +185,7 @@ def hot_assets():
     return risultati
 
 
-def verifica_volatilita_direzionale(df: pd.DataFrame, analisi_range: int = 60, min_candele: int = 5) -> bool:
+def verifica_volatilita_direzionale(df: pd.DataFrame, analisi_range: int = 120, min_candele: int = 5) -> bool:
     df = df.tail(analisi_range).copy()
     df["EMA_7"] = df["close"].ewm(span=7).mean()
     df["EMA_25"] = df["close"].ewm(span=25).mean()
