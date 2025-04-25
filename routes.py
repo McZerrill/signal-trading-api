@@ -29,8 +29,8 @@ def analyze(symbol: str):
 
         def conta_trend_attivo(hist):
             return sum(1 for i in range(-10, 0) if (
-                hist['EMA_9'].iloc[i] > hist['EMA_21'].iloc[i] > hist['EMA_100'].iloc[i] or
-                hist['EMA_9'].iloc[i] < hist['EMA_21'].iloc[i] < hist['EMA_100'].iloc[i]
+                hist['EMA_7'].iloc[i] > hist['EMA_25'].iloc[i] > hist['EMA_99'].iloc[i] or
+                hist['EMA_7'].iloc[i] < hist['EMA_25'].iloc[i] < hist['EMA_99'].iloc[i]
             ))
 
         trend_1m = conta_trend_attivo(h1)
@@ -48,16 +48,14 @@ def analyze(symbol: str):
         orario_utc = ultima_candela.strftime("%H:%M UTC")
         orario_roma = ultima_candela.astimezone(timezone("Europe/Rome")).strftime("%H:%M ora italiana")
         data_candela = ultima_candela.strftime("(%d/%m)")
-
         ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data_candela}"
-        ultimo = hist.iloc[-1]
 
-        # Valori numerici
+        ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
         rsi = round(ultimo['RSI'], 2)
-        ema9 = round(ultimo['EMA_9'], 2)
-        ema21 = round(ultimo['EMA_21'], 2)
-        ema100 = round(ultimo['EMA_100'], 2)
+        ema7 = round(ultimo['EMA_7'], 2)
+        ema25 = round(ultimo['EMA_25'], 2)
+        ema99 = round(ultimo['EMA_99'], 2)
         atr = round(ultimo['ATR'], 2)
         macd = round(ultimo['MACD'], 4)
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
@@ -68,14 +66,14 @@ def analyze(symbol: str):
             commento = (
                 f"{'🟢 BUY' if segnale == 'BUY' else '🔴 SELL'} | {symbol.upper()} @ {close}$\n"
                 f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
-                f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
+                f"RSI: {rsi}  |  EMA: {ema7}/{ema25}/{ema99}\n"
                 f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
                 f"{note}\n{ritardo}"
             )
         else:
             commento = (
                 f"⚠️ Nessun segnale confermato tra timeframe 1m e 5m\n"
-                f"RSI: {rsi}  |  EMA: {ema9}/{ema21}/{ema100}\n"
+                f"RSI: {rsi}  |  EMA: {ema7}/{ema25}/{ema99}\n"
                 f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
                 f"📉 Supporto: {supporto}$\n"
                 f"{note}\n{ritardo}"
@@ -91,9 +89,9 @@ def analyze(symbol: str):
             macd=macd,
             macd_signal=macd_signal,
             atr=atr,
-            ema9=ema9,
-            ema21=ema21,
-            ema100=ema100,
+            ema9=ema7,
+            ema21=ema25,
+            ema100=ema99,
             timeframe=timeframe
         )
 
@@ -132,32 +130,29 @@ def hot_assets():
             if df.empty or len(df) < 30:
                 continue
 
-            # Indicatori principali
-            df["EMA_9"] = df["close"].ewm(span=9).mean()
-            df["EMA_21"] = df["close"].ewm(span=21).mean()
-            df["EMA_100"] = df["close"].ewm(span=100).mean()
+            # Indicatori principali con nuove medie
+            df["EMA_7"] = df["close"].ewm(span=7).mean()
+            df["EMA_25"] = df["close"].ewm(span=25).mean()
+            df["EMA_99"] = df["close"].ewm(span=99).mean()
             df["RSI"] = calcola_rsi(df["close"])
 
-            # Incrocio EMA9 ↑ EMA21 nelle ultime 5 candele
+            # Incrocio EMA7 ↑ EMA25 nelle ultime 5 candele
             incrocio_buy = any(
-                df["EMA_9"].iloc[-i] > df["EMA_21"].iloc[-i] and df["EMA_9"].iloc[-i - 1] < df["EMA_21"].iloc[-i - 1]
+                df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] < df["EMA_25"].iloc[-i - 1]
                 for i in range(1, 6)
             )
             incrocio_sell = any(
-                df["EMA_9"].iloc[-i] < df["EMA_21"].iloc[-i] and df["EMA_9"].iloc[-i - 1] > df["EMA_21"].iloc[-i - 1]
+                df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] > df["EMA_25"].iloc[-i - 1]
                 for i in range(1, 6)
             )
 
-            ema9 = df["EMA_9"].iloc[-1]
-            ema21 = df["EMA_21"].iloc[-1]
-            ema100 = df["EMA_100"].iloc[-1]
-            vicino_ema100 = abs(ema9 - ema100) / ema100 < 0.015
+            ema7 = df["EMA_7"].iloc[-1]
+            ema25 = df["EMA_25"].iloc[-1]
+            ema99 = df["EMA_99"].iloc[-1]
+            vicino_ema99 = abs(ema7 - ema99) / ema99 < 0.015
 
-            # Condizione BUY → incrocio EMA9↑EMA21 sotto la EMA100
-            presegnale_buy = incrocio_buy and ema21 < ema100 and vicino_ema100
-
-            # Condizione SELL → incrocio EMA9↓EMA21 sopra la EMA100
-            presegnale_sell = incrocio_sell and ema21 > ema100 and vicino_ema100
+            presegnale_buy = incrocio_buy and ema25 < ema99 and vicino_ema99
+            presegnale_sell = incrocio_sell and ema25 > ema99 and vicino_ema99
 
             if presegnale_buy or presegnale_sell:
                 segnale = "BUY" if presegnale_buy else "SELL"
@@ -170,9 +165,9 @@ def hot_assets():
                     "segnali": 1,
                     "trend": segnale,
                     "rsi": round(ultimo["RSI"], 2),
-                    "ema9": round(ema9, 2),
-                    "ema21": round(ema21, 2),
-                    "ema100": round(ema100, 2),
+                    "ema9": round(ema7, 2),     # riusato per compatibilità frontend
+                    "ema21": round(ema25, 2),
+                    "ema100": round(ema99, 2),
                     "candele_trend": max(candele_buy, candele_sell)
                 })
 
