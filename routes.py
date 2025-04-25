@@ -132,41 +132,32 @@ def hot_assets():
             if df.empty or len(df) < 30:
                 continue
 
-            # Calcolo medie
+            # Indicatori principali
             df["EMA_9"] = df["close"].ewm(span=9).mean()
             df["EMA_21"] = df["close"].ewm(span=21).mean()
             df["EMA_100"] = df["close"].ewm(span=100).mean()
             df["RSI"] = calcola_rsi(df["close"])
 
-            presegnale_buy = False
-            presegnale_sell = False
+            # Incrocio EMA9 ↑ EMA21 nelle ultime 5 candele
+            incrocio_buy = any(
+                df["EMA_9"].iloc[-i] > df["EMA_21"].iloc[-i] and df["EMA_9"].iloc[-i - 1] < df["EMA_21"].iloc[-i - 1]
+                for i in range(1, 6)
+            )
+            incrocio_sell = any(
+                df["EMA_9"].iloc[-i] < df["EMA_21"].iloc[-i] and df["EMA_9"].iloc[-i - 1] > df["EMA_21"].iloc[-i - 1]
+                for i in range(1, 6)
+            )
 
-            for i in range(5):
-                ema9 = df["EMA_9"].iloc[-i-1]
-                ema21 = df["EMA_21"].iloc[-i-1]
-                ema100 = df["EMA_100"].iloc[-i-1]
-                pen_ema9 = df["EMA_9"].iloc[-i-2]
-                pen_ema21 = df["EMA_21"].iloc[-i-2]
+            ema9 = df["EMA_9"].iloc[-1]
+            ema21 = df["EMA_21"].iloc[-1]
+            ema100 = df["EMA_100"].iloc[-1]
+            vicino_ema100 = abs(ema9 - ema100) / ema100 < 0.015
 
-                # Condizione BUY semplificata
-                if (
-                    pen_ema9 < pen_ema21 and
-                    ema9 > ema21 and
-                    ema21 < ema100 and
-                    abs(ema9 - ema100) / ema100 < 0.02
-                ):
-                    presegnale_buy = True
-                    break
+            # Condizione BUY → incrocio EMA9↑EMA21 sotto la EMA100
+            presegnale_buy = incrocio_buy and ema21 < ema100 and vicino_ema100
 
-                # Condizione SELL semplificata
-                if (
-                    pen_ema9 > pen_ema21 and
-                    ema9 < ema21 and
-                    ema21 > ema100 and
-                    abs(ema9 - ema100) / ema100 < 0.02
-                ):
-                    presegnale_sell = True
-                    break
+            # Condizione SELL → incrocio EMA9↓EMA21 sopra la EMA100
+            presegnale_sell = incrocio_sell and ema21 > ema100 and vicino_ema100
 
             if presegnale_buy or presegnale_sell:
                 segnale = "BUY" if presegnale_buy else "SELL"
@@ -179,9 +170,9 @@ def hot_assets():
                     "segnali": 1,
                     "trend": segnale,
                     "rsi": round(ultimo["RSI"], 2),
-                    "ema9": round(ultimo["EMA_9"], 2),
-                    "ema21": round(ultimo["EMA_21"], 2),
-                    "ema100": round(ultimo["EMA_100"], 2),
+                    "ema9": round(ema9, 2),
+                    "ema21": round(ema21, 2),
+                    "ema100": round(ema100, 2),
                     "candele_trend": max(candele_buy, candele_sell)
                 })
 
