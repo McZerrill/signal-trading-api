@@ -14,10 +14,10 @@ def valuta_distanza(distanza: float) -> str:
 def conta_candele_trend(hist: pd.DataFrame, rialzista: bool = True, max_candele: int = 20) -> int:
     count = 0
     for i in range(-1, -max_candele - 1, -1):
-        e9, e21, e100 = hist['EMA_9'].iloc[i], hist['EMA_21'].iloc[i], hist['EMA_100'].iloc[i]
-        if rialzista and (e9 > e21 > e100):
+        e7, e25, e99 = hist['EMA_7'].iloc[i], hist['EMA_25'].iloc[i], hist['EMA_99'].iloc[i]
+        if rialzista and (e7 > e25 > e99):
             count += 1
-        elif not rialzista and (e9 < e21 < e100):
+        elif not rialzista and (e7 < e25 < e99):
             count += 1
         else:
             break
@@ -146,5 +146,5 @@ def analizza_trend(hist: pd.DataFrame):
     if 0 < condizioni_verificate < 5:
         note.append(f"⚙️ Segnale in attesa: {condizioni_verificate}/5 condizioni verificate")
 
-    commento = "\\n".join(note).strip()
+    commento = "\n".join(note).strip()
     return segnale, hist, dist_attuale, commento, tp, sl, supporto
