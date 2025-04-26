@@ -90,9 +90,9 @@ def analyze(symbol: str):
             macd=macd,
             macd_signal=macd_signal,
             atr=atr,
-            ema9=ema7,
-            ema21=ema25,
-            ema100=ema99,
+            ema7=ema7,
+            ema25=ema25,
+            ema99=ema99,
             timeframe=timeframe
         )
 
@@ -108,9 +108,9 @@ def analyze(symbol: str):
             macd=0.0,
             macd_signal=0.0,
             atr=0.0,
-            ema9=0.0,
-            ema21=0.0,
-            ema100=0.0,
+            ema7=0.0,
+            ema25=0.0,
+            ema99=0.0,
             timeframe=""
         )
 
