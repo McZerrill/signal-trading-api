@@ -175,9 +175,9 @@ def hot_assets():
                     "segnali": 1,
                     "trend": segnale,
                     "rsi": round(rsi, 2),
-                    "ema9": round(ema7, 2),
-                    "ema21": round(ema25, 2),
-                    "ema100": round(ema99, 2),
+                    "ema7": round(ema7, 2),
+                    "ema25": round(ema25, 2),
+                    "ema99": round(ema99, 2),
                     "candele_trend": max(candele_buy, candele_sell)
                 })
 
