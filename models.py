@@ -12,7 +12,7 @@ class SignalResponse(BaseModel):
     macd: float
     macd_signal: float
     atr: float
-    ema9: float
-    ema21: float
-    ema100: float
+    ema7: float
+    ema25: float
+    ema99: float
     timeframe: str
