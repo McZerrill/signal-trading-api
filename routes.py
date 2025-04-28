@@ -61,24 +61,40 @@ def analyze(symbol: str):
         macd = round(ultimo['MACD'], 4)
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
 
+        # Costruzione commento
+        base_dati = (
+            f"RSI: {rsi}  |  EMA: {ema7}/{ema25}/{ema99}\n"
+            f"MACD: {macd}/{macd_signal}  |  ATR: {atr}"
+        )
+
         if segnale in ["BUY", "SELL"]:
             tp_pct = round(((tp - close) / close) * 100, 1)
             sl_pct = round(((sl - close) / close) * 100, 1)
             commento = (
                 f"{'🟢 BUY' if segnale == 'BUY' else '🔴 SELL'} | {symbol.upper()} @ {close}$\n"
                 f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
-                f"RSI: {rsi}  |  EMA: {ema7}/{ema25}/{ema99}\n"
-                f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
-                f"{note}\n{ritardo}"
+                f"{base_dati}\n"
+                f"{note}\n"
+                f"{ritardo}"
             )
         else:
-            commento = (
-                f"⚠️ Nessun segnale confermato tra timeframe 1m e 5m\n"
-                f"RSI: {rsi}  |  EMA: {ema7}/{ema25}/{ema99}\n"
-                f"MACD: {macd}/{macd_signal}  |  ATR: {atr}\n"
-                f"📉 Supporto: {supporto}$\n"
-                f"{note}\n{ritardo}"
-            )
+            # Se HOLD, verifica se esiste un Presegnale oppure Trend debole
+            if any(keyword in note for keyword in ["Presegnale", "Trend attivo", "Trend in formazione"]):
+                commento = (
+                    f"🟡 {symbol.upper()} in osservazione\n"
+                    f"{base_dati}\n"
+                    f"📉 Supporto: {supporto}$\n"
+                    f"{note}\n"
+                    f"{ritardo}"
+                )
+            else:
+                commento = (
+                    f"⚠️ Nessun segnale confermato su {symbol.upper()}\n"
+                    f"{base_dati}\n"
+                    f"📉 Supporto: {supporto}$\n"
+                    f"{note}\n"
+                    f"{ritardo}"
+                )
 
         return SignalResponse(
             segnale=segnale,
@@ -138,16 +154,6 @@ def hot_assets():
             df["RSI"] = calcola_rsi(df["close"])
             df["MACD"], df["MACD_SIGNAL"] = calcola_macd(df["close"])
 
-            # Controlla incrocio EMA7↑EMA25 fino a 10 candele fa
-            incrocio_buy = any(
-                df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] < df["EMA_25"].iloc[-i - 1]
-                for i in range(1, 11)
-            )
-            incrocio_sell = any(
-                df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] > df["EMA_25"].iloc[-i - 1]
-                for i in range(1, 11)
-            )
-
             ema7 = df["EMA_7"].iloc[-1]
             ema25 = df["EMA_25"].iloc[-1]
             ema99 = df["EMA_99"].iloc[-1]
@@ -155,20 +161,33 @@ def hot_assets():
             macd = df["MACD"].iloc[-1]
             macd_signal = df["MACD_SIGNAL"].iloc[-1]
 
-            # Più permissivo nella vicinanza a EMA99
-            vicino_ema99 = abs(ema7 - ema99) / ema99 < 0.03
+            # Controllo presegnale BUY
+            incrocio_buy = any(
+                df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] < df["EMA_25"].iloc[-i - 1]
+                for i in range(1, 11)
+            )
+            presegnale_buy = (
+                incrocio_buy and ema25 < ema99 and abs(ema7 - ema99) / ema99 < 0.03 and rsi > 50 and macd > macd_signal
+            )
 
-            # Condizione BUY
-            presegnale_buy = incrocio_buy and ema25 < ema99 and vicino_ema99 and rsi > 50 and macd > macd_signal
+            # Controllo presegnale SELL
+            incrocio_sell = any(
+                df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] > df["EMA_25"].iloc[-i - 1]
+                for i in range(1, 11)
+            )
+            presegnale_sell = (
+                incrocio_sell and ema25 > ema99 and abs(ema7 - ema99) / ema99 < 0.03 and rsi < 50 and macd < macd_signal
+            )
 
-            # Condizione SELL
-            presegnale_sell = incrocio_sell and ema25 > ema99 and vicino_ema99 and rsi < 50 and macd < macd_signal
+            # Controllo trend attivo
+            trend_rialzista = ema7 > ema25 > ema99
+            trend_ribassista = ema7 < ema25 < ema99
 
-            if presegnale_buy or presegnale_sell:
-                segnale = "BUY" if presegnale_buy else "SELL"
+            # Se presegnale OPPURE trend attivo
+            if presegnale_buy or presegnale_sell or trend_rialzista or trend_ribassista:
+                segnale = "BUY" if (presegnale_buy or trend_rialzista) else "SELL"
                 candele_buy = conta_candele_trend(df, rialzista=True)
                 candele_sell = conta_candele_trend(df, rialzista=False)
-                ultimo = df.iloc[-1]
 
                 risultati.append({
                     "symbol": symbol,
