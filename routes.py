@@ -147,10 +147,11 @@ def hot_assets():
             if df.empty or len(df) < 60:
                 continue
 
-            # Calcolo medie e indicatori
-            df["EMA_7"] = df["close"].ewm(span=7).mean()
-            df["EMA_25"] = df["close"].ewm(span=25).mean()
-            df["EMA_99"] = df["close"].ewm(span=99).mean()
+            # Calcolo indicatori con funzione ottimizzata
+            ema = calcola_ema(df, [7, 25, 99])
+            df["EMA_7"] = ema[7]
+            df["EMA_25"] = ema[25]
+            df["EMA_99"] = ema[99]
             df["RSI"] = calcola_rsi(df["close"])
             df["MACD"], df["MACD_SIGNAL"] = calcola_macd(df["close"])
 
@@ -207,5 +208,3 @@ def hot_assets():
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
     return risultati
-    
-__all__ = ["router"]
