@@ -23,19 +23,19 @@ def get_best_symbols(limit=50):
         response = requests.get(url, timeout=10)
         data = response.json()
 
-        # Filtro più flessibile: solo simboli con sufficiente volume e liquidi
+        # Filtro su simboli USDT, no token a leva, volume > 5M
         filtered = [
             d for d in data
             if d["symbol"].endswith("USDT")
             and not any(x in d["symbol"] for x in ["UP", "DOWN", "BULL", "BEAR"])
-            and float(d["quoteVolume"]) > 3_000_000  # ↓ abbassato a 3M
+            and float(d["quoteVolume"]) > 5_000_000
         ]
 
         # Ordina per volume decrescente
         sorted_pairs = sorted(filtered, key=lambda x: float(x["quoteVolume"]), reverse=True)
         top_symbols = [d["symbol"] for d in sorted_pairs[:limit]]
 
-        print(f"✅ {len(top_symbols)} simboli selezionati con volume > 3M USDT")
+        print(f"✅ {len(top_symbols)} simboli trovati con volume > 5M USDT")
         _symbol_cache["time"] = now
         _symbol_cache["data"] = top_symbols
         return top_symbols
@@ -71,4 +71,22 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
     df.set_index("timestamp", inplace=True)
     df = df[["open", "high", "low", "close", "volume"]].astype(float)
+
+    # Filtro su volatilità (ATR %) e spread candle
+    df["ATR"] = (df["high"] - df["low"]).rolling(window=14).mean()
+    df.dropna(inplace=True)
+    if len(df) < 15:
+        return pd.DataFrame()
+
+    atr_pct = df["ATR"].iloc[-1] / df["close"].iloc[-1]
+    spread_pct = (df["high"].iloc[-1] - df["low"].iloc[-1]) / df["close"].iloc[-1]
+
+    # Elimina asset troppo piatti o troppo volatili, oppure con spread eccessivo
+    if not (0.005 <= atr_pct <= 0.08):
+        print(f"⛔ Scartato {symbol} per ATR {atr_pct:.2%}")
+        return pd.DataFrame()
+    if spread_pct > 0.05:
+        print(f"⛔ Scartato {symbol} per spread {spread_pct:.2%}")
+        return pd.DataFrame()
+
     return df
