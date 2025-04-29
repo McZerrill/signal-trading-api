@@ -1,7 +1,5 @@
-# trend_logic.py
-
 import pandas as pd
-from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto
+from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto, calcola_ema
 
 def valuta_distanza(distanza: float) -> str:
     if distanza < 1:
@@ -40,9 +38,11 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     return ""
 
 def analizza_trend(hist: pd.DataFrame):
-    hist['EMA_7'] = hist['close'].ewm(span=7).mean()
-    hist['EMA_25'] = hist['close'].ewm(span=25).mean()
-    hist['EMA_99'] = hist['close'].ewm(span=99).mean()
+    # Calcolo indicatori
+    ema = calcola_ema(hist, [7, 25, 99])
+    hist['EMA_7'] = ema[7]
+    hist['EMA_25'] = ema[25]
+    hist['EMA_99'] = ema[99]
     hist['RSI'] = calcola_rsi(hist['close'])
     hist['ATR'] = calcola_atr(hist)
     hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['close'])
