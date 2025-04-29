@@ -23,19 +23,19 @@ def get_best_symbols(limit=50):
         response = requests.get(url, timeout=10)
         data = response.json()
 
-        # Filtro su simboli USDT, no token a leva, volume > 10M
+        # Filtro più flessibile: solo simboli con sufficiente volume e liquidi
         filtered = [
             d for d in data
             if d["symbol"].endswith("USDT")
             and not any(x in d["symbol"] for x in ["UP", "DOWN", "BULL", "BEAR"])
-            and float(d["quoteVolume"]) > 5_000_000
+            and float(d["quoteVolume"]) > 3_000_000  # ↓ abbassato a 3M
         ]
 
         # Ordina per volume decrescente
         sorted_pairs = sorted(filtered, key=lambda x: float(x["quoteVolume"]), reverse=True)
         top_symbols = [d["symbol"] for d in sorted_pairs[:limit]]
 
-        print(f"✅ {len(top_symbols)} simboli trovati con volume > 10M USDT")
+        print(f"✅ {len(top_symbols)} simboli selezionati con volume > 3M USDT")
         _symbol_cache["time"] = now
         _symbol_cache["data"] = top_symbols
         return top_symbols
