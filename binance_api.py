@@ -82,11 +82,11 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
     spread_pct = (df["high"].iloc[-1] - df["low"].iloc[-1]) / df["close"].iloc[-1]
 
     # Elimina asset troppo piatti o troppo volatili, oppure con spread eccessivo
-    if not (0.001 <= atr_pct <= 0.02):
-        print(f"⛔ Scartato {symbol} per ATR {atr_pct:.2%}")
-        return pd.DataFrame()
-    if spread_pct > 0.01:
-        print(f"⛔ Scartato {symbol} per spread {spread_pct:.2%}")
-        return pd.DataFrame()
+    #if not (0.001 <= atr_pct <= 0.02):
+    #    print(f"⛔ Scartato {symbol} per ATR {atr_pct:.2%}")
+        #return pd.DataFrame()
+    #if spread_pct > 0.01:
+        #print(f"⛔ Scartato {symbol} per spread {spread_pct:.2%}")
+        #return pd.DataFrame()
 
-    return df
+    #return df
