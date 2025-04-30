@@ -68,8 +68,10 @@ def analyze(symbol: str):
         tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
         sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
 
+        note_str = note.lower() if isinstance(note, str) else "\n".join(note).lower()
+
         if segnale == "BUY":
-            if "anticipato" in note.lower():
+            if "anticipato" in note_str:
                 commento = (
                     f"⚡ BUY anticipato | {symbol.upper()} @ {close}$\n"
                     f"🎯 Target stimato: {tp} ({tp_pct}%)   🛡 Stop: {sl} ({sl_pct}%)\n"
@@ -87,7 +89,7 @@ def analyze(symbol: str):
                 )
 
         elif segnale == "SELL":
-            if "anticipato" in note.lower():
+            if "anticipato" in note_str:
                 commento = (
                     f"⚡ SELL anticipato | {symbol.upper()} @ {close}$\n"
                     f"🎯 Target stimato: {tp} ({tp_pct}%)   🛡 Stop: {sl} ({sl_pct}%)\n"
@@ -105,7 +107,7 @@ def analyze(symbol: str):
                 )
 
         else:
-            if any(k in note for k in ["Presegnale", "Trend in formazione", "Trend attivo"]):
+            if any(k in note_str for k in ["presegnale", "trend in formazione", "trend attivo"]):
                 commento = (
                     f"🟡 {symbol.upper()} in osservazione\n"
                     f"{base_dati}\n"
