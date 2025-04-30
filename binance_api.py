@@ -89,4 +89,4 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
         #print(f"⛔ Scartato {symbol} per spread {spread_pct:.2%}")
         #return pd.DataFrame()
 
-    #return df
+    return df
