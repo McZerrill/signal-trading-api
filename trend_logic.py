@@ -76,6 +76,20 @@ def analizza_trend(hist: pd.DataFrame):
 
     pattern = riconosci_pattern_candela(hist)
 
+    # Classificazione forza MACD
+    macd_gap = macd - macd_signal
+    forza_macd = "neutro"
+    if abs(macd_gap) < 0.0001 and -0.001 < macd < 0.001:
+        forza_macd = "neutro"
+    elif macd_gap > 0 and macd < 0.002:
+        forza_macd = "buy_anticipato"
+    elif macd_gap > 0 and macd >= 0.002:
+        forza_macd = "buy_confermato"
+    elif macd_gap < 0 and macd > -0.002:
+        forza_macd = "sell_anticipato"
+    elif macd_gap < 0 and macd <= -0.002:
+        forza_macd = "sell_confermato"
+
     # BUY completo
     if (
         penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99']
@@ -95,11 +109,12 @@ def analizza_trend(hist: pd.DataFrame):
         trend_up
         and rsi > 60
         and candele_trend_up >= 3
+        and forza_macd == "buy_anticipato"
     ):
         segnale = "BUY"
         tp = round(close + atr * 1.3, 4)
         sl = round(close - atr * 1.1, 4)
-        note.append("⚡ BUY anticipato: trend forte, MACD in ritardo")
+        note.append("⚡ BUY anticipato: trend forte, MACD in attivazione")
 
     # SELL completo
     elif (
@@ -120,11 +135,12 @@ def analizza_trend(hist: pd.DataFrame):
         trend_down
         and rsi < 40
         and candele_trend_down >= 3
+        and forza_macd == "sell_anticipato"
     ):
         segnale = "SELL"
         tp = round(close - atr * 1.3, 4)
         sl = round(close + atr * 1.1, 4)
-        note.append("⚡ SELL anticipato: trend forte, MACD in ritardo")
+        note.append("⚡ SELL anticipato: trend forte, MACD in attivazione")
 
     # Presegnali
     else:
