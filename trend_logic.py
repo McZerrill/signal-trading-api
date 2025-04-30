@@ -69,69 +69,89 @@ def analizza_trend(hist: pd.DataFrame):
     tp = sl = 0.0
     condizioni_verificate = 0
 
-    recent_trend_up = all(hist['EMA_7'].iloc[-i] > hist['EMA_25'].iloc[-i] for i in range(1, 4))
-    recent_trend_down = all(hist['EMA_7'].iloc[-i] < hist['EMA_25'].iloc[-i] for i in range(1, 4))
+    trend_up = ema7 > ema25 > ema99
+    trend_down = ema7 < ema25 < ema99
+    candele_trend_up = conta_candele_trend(hist, rialzista=True)
+    candele_trend_down = conta_candele_trend(hist, rialzista=False)
 
+    pattern = riconosci_pattern_candela(hist)
+
+    # BUY completo
     if (
         penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99']
-        and ema7 > ema25 > ema99
-        and rsi > 50 and macd > macd_signal
-        and recent_trend_up and dist_diff > 0
+        and trend_up
+        and rsi > 50
+        and macd > macd_signal
+        and candele_trend_up >= 3
+        and dist_diff > 0
     ):
         segnale = "BUY"
-        condizioni_verificate = 5
-        resistenza = hist['high'].tail(20).max()
-        tp = round(min(close + atr * 1.5, resistenza), 4)
+        tp = round(close + atr * 1.5, 4)
         sl = round(close - atr * 1.2, 4)
+        note.append("✅ BUY confermato (trend completo)")
 
+    # BUY anticipato
+    elif (
+        trend_up
+        and rsi > 60
+        and candele_trend_up >= 3
+    ):
+        segnale = "BUY"
+        tp = round(close + atr * 1.3, 4)
+        sl = round(close - atr * 1.1, 4)
+        note.append("⚡ BUY anticipato: trend forte, MACD in ritardo")
+
+    # SELL completo
     elif (
         penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99']
-        and ema7 < ema25 < ema99
-        and rsi < 50 and macd < macd_signal
-        and recent_trend_down and dist_diff > 0
+        and trend_down
+        and rsi < 50
+        and macd < macd_signal
+        and candele_trend_down >= 3
+        and dist_diff > 0
     ):
         segnale = "SELL"
-        condizioni_verificate = 5
-        tp = round(max(close - atr * 1.5, supporto), 4)
+        tp = round(close - atr * 1.5, 4)
         sl = round(close + atr * 1.2, 4)
+        note.append("✅ SELL confermato (trend completo)")
 
-    if segnale == "HOLD":
+    # SELL anticipato
+    elif (
+        trend_down
+        and rsi < 40
+        and candele_trend_down >= 3
+    ):
+        segnale = "SELL"
+        tp = round(close - atr * 1.3, 4)
+        sl = round(close + atr * 1.1, 4)
+        note.append("⚡ SELL anticipato: trend forte, MACD in ritardo")
+
+    # Presegnali
+    else:
         if penultimo['EMA_7'] < penultimo['EMA_25'] and ema7 > ema25:
             if ema25 < ema99 and abs(ema7 - ema99) / ema99 < 0.015:
-                condizioni_verificate += 1
                 if rsi > 50: condizioni_verificate += 1
                 if macd > macd_signal: condizioni_verificate += 1
                 note.append("🟢 Presegnale BUY: EMA7 incrocia EMA25 sotto EMA99")
         elif penultimo['EMA_7'] > penultimo['EMA_25'] and ema7 < ema25:
             if ema25 > ema99 and abs(ema7 - ema99) / ema99 < 0.015:
-                condizioni_verificate += 1
                 if rsi < 50: condizioni_verificate += 1
                 if macd < macd_signal: condizioni_verificate += 1
                 note.append("🔴 Presegnale SELL: EMA7 incrocia EMA25 sopra EMA99")
 
-    candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
-    pattern = riconosci_pattern_candela(hist)
-
+    # Note aggiuntive
     if segnale in ["BUY", "SELL"]:
-        note.insert(0, f"📊 Trend attivo da {candele_trend} candele | Distanza: {dist_level}")
-        if candele_trend >= 3 and pattern:
-            note.append(f"✅ Conferma con pattern: {pattern}")
-        elif candele_trend == 2:
-            note.append("🔄 Trend in formazione")
-        elif candele_trend == 1:
-            note.append("⚠️ Trend appena iniziato")
-        elif candele_trend >= 6:
-            note.append("⏳ Trend già in corso da molte candele")
+        note.insert(0, f"📊 Trend attivo da {candele_trend_up if segnale == 'BUY' else candele_trend_down} candele | Distanza: {dist_level}")
+        if pattern:
+            note.append(f"✅ Pattern candlestick rilevato: {pattern}")
     else:
-        if condizioni_verificate >= 3:
+        if condizioni_verificate >= 2:
             note.append("🟡 Trend in formazione (presegnale attivo)")
-        elif ema7 > ema25 > ema99 and candele_trend <= 2:
+        elif trend_up and candele_trend_up <= 2:
             note.append("🟡 Trend attivo ma debole")
-        elif candele_trend <= 1 and not (ema7 > ema25 > ema99):
+        elif trend_down and candele_trend_down <= 2:
+            note.append("🟡 Trend ribassista ma debole")
+        elif candele_trend_up <= 1 and not trend_up:
             note.append("⚠️ Trend terminato")
 
-    if 0 < condizioni_verificate < 5:
-        note.append(f"⚙️ Condizioni parziali: {condizioni_verificate}/5 verificate")
-
-    commento = "\n".join(note).strip()
-    return segnale, hist, dist_attuale, commento, tp, sl, supporto
+    return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto
