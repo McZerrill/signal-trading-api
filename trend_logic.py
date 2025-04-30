@@ -119,10 +119,13 @@ def analizza_trend(hist: pd.DataFrame):
         elif candele_trend == 2:
             note.append("🔄 Trend in formazione")
     else:
-        if ema7 > ema25 > ema99 and candele_trend <= 2:
-            note.append("🟡 Trend attivo ma debole")
-        elif candele_trend <= 1 and not (ema7 > ema25 > ema99):
-            note.append("⚠️ Trend terminato")
+    if condizioni_verificate >= 3:
+        note.append("🟡 Trend in formazione (presegnale attivo)")
+    elif ema7 > ema25 > ema99 and candele_trend <= 2:
+        note.append("🟡 Trend attivo ma debole")
+    elif candele_trend <= 1 and not (ema7 > ema25 > ema99):
+        note.append("⚠️ Trend terminato")
+
 
     if 0 < condizioni_verificate < 5:
         note.append(f"⚙️ Condizioni parziali: {condizioni_verificate}/5 verificate")
