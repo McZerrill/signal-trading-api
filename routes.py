@@ -158,11 +158,11 @@ def hot_assets():
             rsi = df["RSI"].iloc[-1]
             macd = df["MACD"].iloc[-1]
             macd_signal = df["MACD_SIGNAL"].iloc[-1]
-            atr = round(df["ATR"].iloc[-1], 4)
+            raw_atr = df["ATR"].iloc[-1]
             prezzo = df["close"].iloc[-1]
 
             # 🔍 FILTRI per escludere asset piatti o senza trend
-            if atr < 0.001:
+            if raw_atr < 0.001:
                 continue
             if abs(ema7 - ema99) / ema99 < 0.001:
                 continue
@@ -170,6 +170,8 @@ def hot_assets():
                 continue
             if abs(macd - macd_signal) < 0.0001 and 49 < rsi < 51:
                 continue
+
+            atr = round(raw_atr, 4)  # arrotonda solo dopo il filtro
 
             distanza_percentuale = abs(ema7 - ema99) / ema99
             recenti_rialzo = all(df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] > df["EMA_99"].iloc[-i] for i in range(1, 4))
