@@ -65,62 +65,62 @@ def analyze(symbol: str):
             f"MACD: {macd}/{macd_signal}  |  ATR: {atr}"
         )
 
-tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
-sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
+        tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
+        sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
 
-if segnale == "BUY":
-    if "anticipato" in note.lower():
-        commento = (
-            f"⚡ BUY anticipato | {symbol.upper()} @ {close}$\n"
-            f"🎯 Target stimato: {tp} ({tp_pct}%)   🛡 Stop: {sl} ({sl_pct}%)\n"
-            f"{base_dati}\n"
-            f"{note}\n"
-            f"{ritardo}"
-        )
-    else:
-        commento = (
-            f"🟢 BUY confermato | {symbol.upper()} @ {close}$\n"
-            f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
-            f"{base_dati}\n"
-            f"{note}\n"
-            f"{ritardo}"
-        )
+        if segnale == "BUY":
+            if "anticipato" in note.lower():
+                commento = (
+                    f"⚡ BUY anticipato | {symbol.upper()} @ {close}$\n"
+                    f"🎯 Target stimato: {tp} ({tp_pct}%)   🛡 Stop: {sl} ({sl_pct}%)\n"
+                    f"{base_dati}\n"
+                    f"{note}\n"
+                    f"{ritardo}"
+                )
+            else:
+                commento = (
+                    f"🟢 BUY confermato | {symbol.upper()} @ {close}$\n"
+                    f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
+                    f"{base_dati}\n"
+                    f"{note}\n"
+                    f"{ritardo}"
+                )
 
-elif segnale == "SELL":
-    if "anticipato" in note.lower():
-        commento = (
-            f"⚡ SELL anticipato | {symbol.upper()} @ {close}$\n"
-            f"🎯 Target stimato: {tp} ({tp_pct}%)   🛡 Stop: {sl} ({sl_pct}%)\n"
-            f"{base_dati}\n"
-            f"{note}\n"
-            f"{ritardo}"
-        )
-    else:
-        commento = (
-            f"🔴 SELL confermato | {symbol.upper()} @ {close}$\n"
-            f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
-            f"{base_dati}\n"
-            f"{note}\n"
-            f"{ritardo}"
-        )
+        elif segnale == "SELL":
+            if "anticipato" in note.lower():
+                commento = (
+                    f"⚡ SELL anticipato | {symbol.upper()} @ {close}$\n"
+                    f"🎯 Target stimato: {tp} ({tp_pct}%)   🛡 Stop: {sl} ({sl_pct}%)\n"
+                    f"{base_dati}\n"
+                    f"{note}\n"
+                    f"{ritardo}"
+                )
+            else:
+                commento = (
+                    f"🔴 SELL confermato | {symbol.upper()} @ {close}$\n"
+                    f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
+                    f"{base_dati}\n"
+                    f"{note}\n"
+                    f"{ritardo}"
+                )
 
-else:
-    if any(k in note for k in ["Presegnale", "Trend in formazione", "Trend attivo"]):
-        commento = (
-            f"🟡 {symbol.upper()} in osservazione\n"
-            f"{base_dati}\n"
-            f"📉 Supporto: {supporto}$\n"
-            f"{note}\n"
-            f"{ritardo}"
-        )
-    else:
-        commento = (
-            f"⚠️ Nessun segnale confermato su {symbol.upper()}\n"
-            f"{base_dati}\n"
-            f"📉 Supporto: {supporto}$\n"
-            f"{note}\n"
-            f"{ritardo}"
-        )
+        else:
+            if any(k in note for k in ["Presegnale", "Trend in formazione", "Trend attivo"]):
+                commento = (
+                    f"🟡 {symbol.upper()} in osservazione\n"
+                    f"{base_dati}\n"
+                    f"📉 Supporto: {supporto}$\n"
+                    f"{note}\n"
+                    f"{ritardo}"
+                )
+            else:
+                commento = (
+                    f"⚠️ Nessun segnale confermato su {symbol.upper()}\n"
+                    f"{base_dati}\n"
+                    f"📉 Supporto: {supporto}$\n"
+                    f"{note}\n"
+                    f"{ritardo}"
+                )
 
         return SignalResponse(
             segnale=segnale,
