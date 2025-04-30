@@ -65,7 +65,7 @@ def analyze(symbol: str):
             f"MACD: {macd}/{macd_signal}  |  ATR: {atr}"
         )
 
-        tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
+tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
 sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
 
 if segnale == "BUY":
