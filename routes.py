@@ -130,6 +130,15 @@ def analyze(symbol: str):
 
 _hot_cache = {"time": 0, "data": []}
 
+_filtro_log = {
+    "totali": 0,
+    "atr": 0,
+    "ema_flat": 0,
+    "volume_basso": 0,
+    "prezzo_piattissimo": 0,
+    "macd_rsi_neutri": 0
+}
+
 @router.get("/hotassets")
 def hot_assets():
     now = time.time()
@@ -143,6 +152,14 @@ def hot_assets():
         try:
             df = get_binance_df(symbol, "1m", 100)
             if df.empty or len(df) < 60:
+                continue
+
+            _filtro_log["totali"] += 1
+
+            # FILTRO VOLUME
+            volume_medio = df["volume"].tail(20).mean()
+            if pd.isna(volume_medio) or volume_medio < 1000:
+                _filtro_log["volume_basso"] += 1
                 continue
 
             df["EMA_7"] = df["close"].ewm(span=7).mean()
@@ -161,17 +178,22 @@ def hot_assets():
             raw_atr = df["ATR"].iloc[-1]
             prezzo = df["close"].iloc[-1]
 
-            # 🔍 FILTRI per escludere asset piatti o senza trend
             if pd.isna(raw_atr) or raw_atr < 0.001:
+                _filtro_log["atr"] += 1
                 continue
+            atr = round(raw_atr, 4)
+
             if abs(ema7 - ema99) / ema99 < 0.001:
-                continue
-            if df["close"].diff().abs().tail(10).sum() < 0.001:
-                continue
-            if abs(macd - macd_signal) < 0.0001 and 49 < rsi < 51:
+                _filtro_log["ema_flat"] += 1
                 continue
 
-            atr = round(raw_atr, 4)  # arrotonda solo dopo il filtro
+            if df["close"].diff().abs().tail(10).sum() < 0.001:
+                _filtro_log["prezzo_piattissimo"] += 1
+                continue
+
+            if abs(macd - macd_signal) < 0.0001 and 49 < rsi < 51:
+                _filtro_log["macd_rsi_neutri"] += 1
+                continue
 
             distanza_percentuale = abs(ema7 - ema99) / ema99
             recenti_rialzo = all(df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] > df["EMA_99"].iloc[-i] for i in range(1, 4))
@@ -212,5 +234,9 @@ def hot_assets():
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
     return risultati
+
+@router.get("/debuglog")
+def get_debug_log():
+    return _filtro_log
 
 __all__ = ["router"]
