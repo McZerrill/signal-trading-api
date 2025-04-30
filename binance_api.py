@@ -47,7 +47,6 @@ def get_best_symbols(limit=50):
             "SOLUSDT", "AVAXUSDT", "DOTUSDT", "DOGEUSDT", "MATICUSDT"
         ]
 
-# Funzione per ottenere lo storico delle candele da Binance
 def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None):
     params = {
         "symbol": symbol,
@@ -63,6 +62,10 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
         print(f"❌ Errore nel caricamento candela {symbol}-{interval}: {e}")
         return pd.DataFrame()
 
+    if not klines or len(klines) < 50:
+        print(f"⚠️ Dati insufficienti per {symbol} ({interval}): solo {len(klines)} candele")
+        return pd.DataFrame()
+
     df = pd.DataFrame(klines, columns=[
         "timestamp", "open", "high", "low", "close", "volume",
         "close_time", "quote_asset_volume", "trades",
@@ -72,21 +75,7 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
     df.set_index("timestamp", inplace=True)
     df = df[["open", "high", "low", "close", "volume"]].astype(float)
 
-    # Filtro su volatilità (ATR %) e spread candle
     df["ATR"] = (df["high"] - df["low"]).rolling(window=14).mean()
     df.dropna(inplace=True)
-    if len(df) < 15:
-        return pd.DataFrame()
-
-    atr_pct = df["ATR"].iloc[-1] / df["close"].iloc[-1]
-    spread_pct = (df["high"].iloc[-1] - df["low"].iloc[-1]) / df["close"].iloc[-1]
-
-    # Elimina asset troppo piatti o troppo volatili, oppure con spread eccessivo
-    #if not (0.001 <= atr_pct <= 0.02):
-    #    print(f"⛔ Scartato {symbol} per ATR {atr_pct:.2%}")
-        #return pd.DataFrame()
-    #if spread_pct > 0.01:
-        #print(f"⛔ Scartato {symbol} per spread {spread_pct:.2%}")
-        #return pd.DataFrame()
 
     return df
