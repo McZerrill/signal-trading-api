@@ -1,3 +1,4 @@
+
 import pandas as pd
 from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto, calcola_ema
 
@@ -38,7 +39,7 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     return ""
 
 def analizza_trend(hist: pd.DataFrame):
-    hist = hist.copy()  # Evita SettingWithCopyWarning
+    hist = hist.copy()
 
     ema = calcola_ema(hist, [7, 25, 99])
     hist['EMA_7'] = ema[7]
@@ -69,66 +70,58 @@ def analizza_trend(hist: pd.DataFrame):
     tp = sl = 0.0
     condizioni_verificate = 0
 
-    recent_trend_up = all(hist['EMA_7'].iloc[-i] > hist['EMA_25'].iloc[-i] for i in range(1, 4))
-    recent_trend_down = all(hist['EMA_7'].iloc[-i] < hist['EMA_25'].iloc[-i] for i in range(1, 4))
+    candele_trend_buy = conta_candele_trend(hist, rialzista=True)
+    candele_trend_sell = conta_candele_trend(hist, rialzista=False)
+    pattern = riconosci_pattern_candela(hist)
 
+    # Conferma BUY
     if (
         penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99']
         and ema7 > ema25 > ema99
         and rsi > 50 and macd > macd_signal
-        and recent_trend_up and dist_diff > 0
+        and dist_diff > 0 and candele_trend_buy >= 3
     ):
         segnale = "BUY"
         condizioni_verificate = 5
         resistenza = hist['high'].tail(20).max()
         tp = round(min(close + atr * 1.5, resistenza), 4)
         sl = round(close - atr * 1.2, 4)
+        note.append(f"📊 Trend BUY attivo da {candele_trend_buy} candele | Distanza: {dist_level}")
+        if pattern:
+            note.append(f"✅ Conferma con pattern: {pattern}")
 
+    # Conferma SELL
     elif (
         penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99']
         and ema7 < ema25 < ema99
         and rsi < 50 and macd < macd_signal
-        and recent_trend_down and dist_diff > 0
+        and dist_diff > 0 and candele_trend_sell >= 3
     ):
         segnale = "SELL"
         condizioni_verificate = 5
         tp = round(max(close - atr * 1.5, supporto), 4)
         sl = round(close + atr * 1.2, 4)
-
-    if segnale == "HOLD":
-        if penultimo['EMA_7'] < penultimo['EMA_25'] and ema7 > ema25:
-            if ema25 < ema99 and abs(ema7 - ema99) / ema99 < 0.015:
-                condizioni_verificate += 1
-                if rsi > 50: condizioni_verificate += 1
-                if macd > macd_signal: condizioni_verificate += 1
-                note.append("🟢 Presegnale BUY: EMA7 incrocia EMA25 sotto EMA99")
-        elif penultimo['EMA_7'] > penultimo['EMA_25'] and ema7 < ema25:
-            if ema25 > ema99 and abs(ema7 - ema99) / ema99 < 0.015:
-                condizioni_verificate += 1
-                if rsi < 50: condizioni_verificate += 1
-                if macd < macd_signal: condizioni_verificate += 1
-                note.append("🔴 Presegnale SELL: EMA7 incrocia EMA25 sopra EMA99")
-
-    candele_trend = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
-    pattern = riconosci_pattern_candela(hist)
-
-    if segnale in ["BUY", "SELL"]:
-        note.insert(0, f"📊 Trend attivo da {candele_trend} candele | Distanza: {dist_level}")
-        if candele_trend >= 3 and pattern:
+        note.append(f"📊 Trend SELL attivo da {candele_trend_sell} candele | Distanza: {dist_level}")
+        if pattern:
             note.append(f"✅ Conferma con pattern: {pattern}")
-        elif candele_trend == 2:
-            note.append("🔄 Trend in formazione")
-    else:
-    if condizioni_verificate >= 3:
-        note.append("🟡 Trend in formazione (presegnale attivo)")
-    elif ema7 > ema25 > ema99 and candele_trend <= 2:
-        note.append("🟡 Trend attivo ma debole")
-    elif candele_trend <= 1 and not (ema7 > ema25 > ema99):
-        note.append("⚠️ Trend terminato")
 
+    # Presegnali
+    elif penultimo['EMA_7'] < penultimo['EMA_25'] and ema7 > ema25 and ema25 < ema99:
+        if abs(ema7 - ema99) / ema99 < 0.015:
+            note.append("🟢 Presegnale BUY: EMA7 incrocia EMA25 sotto EMA99")
+    elif penultimo['EMA_7'] > penultimo['EMA_25'] and ema7 < ema25 and ema25 > ema99:
+        if abs(ema7 - ema99) / ema99 < 0.015:
+            note.append("🔴 Presegnale SELL: EMA7 incrocia EMA25 sopra EMA99")
 
-    if 0 < condizioni_verificate < 5:
-        note.append(f"⚙️ Condizioni parziali: {condizioni_verificate}/5 verificate")
+    # Diagnostica finale
+    if segnale == "HOLD":
+        if ema7 > ema25 > ema99 and candele_trend_buy < 3:
+            note.append("🟡 Trend in formazione (BUY debole)")
+        elif ema7 < ema25 < ema99 and candele_trend_sell < 3:
+            note.append("🟡 Trend in formazione (SELL debole)")
+        else:
+            note.append("⚠️ Trend assente o terminato")
 
-    commento = "\n".join(note).strip()
+    commento = "
+".join(note).strip()
     return segnale, hist, dist_attuale, commento, tp, sl, supporto
