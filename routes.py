@@ -162,7 +162,7 @@ def hot_assets():
             prezzo = df["close"].iloc[-1]
 
             # 🔍 FILTRI per escludere asset piatti o senza trend
-            if raw_atr < 0.001:
+            if pd.isna(raw_atr) or raw_atr < 0.001:
                 continue
             if abs(ema7 - ema99) / ema99 < 0.001:
                 continue
