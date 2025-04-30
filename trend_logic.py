@@ -38,7 +38,8 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     return ""
 
 def analizza_trend(hist: pd.DataFrame):
-    # Calcolo indicatori
+    hist = hist.copy()  # Evita SettingWithCopyWarning
+
     ema = calcola_ema(hist, [7, 25, 99])
     hist['EMA_7'] = ema[7]
     hist['EMA_25'] = ema[25]
