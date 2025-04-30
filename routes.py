@@ -147,11 +147,9 @@ def hot_assets():
             if df.empty or len(df) < 60:
                 continue
 
-            # Calcolo indicatori con funzione ottimizzata
-            ema = calcola_ema(df, [7, 25, 99])
-            df["EMA_7"] = ema[7]
-            df["EMA_25"] = ema[25]
-            df["EMA_99"] = ema[99]
+            df["EMA_7"] = df["close"].ewm(span=7).mean()
+            df["EMA_25"] = df["close"].ewm(span=25).mean()
+            df["EMA_99"] = df["close"].ewm(span=99).mean()
             df["RSI"] = calcola_rsi(df["close"])
             df["MACD"], df["MACD_SIGNAL"] = calcola_macd(df["close"])
 
@@ -161,34 +159,27 @@ def hot_assets():
             rsi = df["RSI"].iloc[-1]
             macd = df["MACD"].iloc[-1]
             macd_signal = df["MACD_SIGNAL"].iloc[-1]
+            prezzo = df["close"].iloc[-1]
 
-            # Controllo presegnale BUY
-            incrocio_buy = any(
-                df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] < df["EMA_25"].iloc[-i - 1]
-                for i in range(1, 11)
-            )
+            distanza_percentuale = abs(ema7 - ema99) / ema99
+            recenti_rialzo = all(df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] > df["EMA_99"].iloc[-i] for i in range(1, 4))
+            recenti_ribasso = all(df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] < df["EMA_99"].iloc[-i] for i in range(1, 4))
+
+            trend_buy = recenti_rialzo and rsi > 50 and macd > macd_signal
+            trend_sell = recenti_ribasso and rsi < 50 and macd < macd_signal
+
             presegnale_buy = (
-                incrocio_buy and ema25 < ema99 and abs(ema7 - ema99) / ema99 < 0.03 and rsi > 50 and macd > macd_signal
-            )
-
-            # Controllo presegnale SELL
-            incrocio_sell = any(
-                df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] and df["EMA_7"].iloc[-i - 1] > df["EMA_25"].iloc[-i - 1]
-                for i in range(1, 11)
+                df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2] and ema7 > ema25 and ema25 < ema99
+                and distanza_percentuale < 0.015 and rsi > 50 and macd > macd_signal
             )
             presegnale_sell = (
-                incrocio_sell and ema25 > ema99 and abs(ema7 - ema99) / ema99 < 0.03 and rsi < 50 and macd < macd_signal
+                df["EMA_7"].iloc[-2] > df["EMA_25"].iloc[-2] and ema7 < ema25 and ema25 > ema99
+                and distanza_percentuale < 0.015 and rsi < 50 and macd < macd_signal
             )
 
-            # Controllo trend attivo
-            trend_rialzista = ema7 > ema25 > ema99
-            trend_ribassista = ema7 < ema25 < ema99
-
-            # Se presegnale OPPURE trend attivo
-            if presegnale_buy or presegnale_sell or trend_rialzista or trend_ribassista:
-                segnale = "BUY" if (presegnale_buy or trend_rialzista) else "SELL"
-                candele_buy = conta_candele_trend(df, rialzista=True)
-                candele_sell = conta_candele_trend(df, rialzista=False)
+            if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
+                segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
+                candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
 
                 risultati.append({
                     "symbol": symbol,
@@ -198,7 +189,8 @@ def hot_assets():
                     "ema7": round(ema7, 2),
                     "ema25": round(ema25, 2),
                     "ema99": round(ema99, 2),
-                    "candele_trend": max(candele_buy, candele_sell)
+                    "prezzo": round(prezzo, 4),
+                    "candele_trend": candele_trend
                 })
 
         except Exception as e:
@@ -208,3 +200,5 @@ def hot_assets():
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
     return risultati
+
+__all__ = ["router"]
