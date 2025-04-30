@@ -37,7 +37,6 @@ def analyze(symbol: str):
         trend_1m = conta_trend_attivo(h1)
         trend_5m = conta_trend_attivo(h5)
 
-        # Scegli timeframe dominante
         if trend_5m > trend_1m:
             segnale, hist, distanza, note, tp, sl, supporto = segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5
             timeframe = "5m"
@@ -61,7 +60,6 @@ def analyze(symbol: str):
         macd = round(ultimo['MACD'], 4)
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
 
-        # Costruzione commento
         base_dati = (
             f"RSI: {rsi}  |  EMA: {ema7}/{ema25}/{ema99}\n"
             f"MACD: {macd}/{macd_signal}  |  ATR: {atr}"
@@ -70,6 +68,7 @@ def analyze(symbol: str):
         if segnale in ["BUY", "SELL"]:
             tp_pct = round(((tp - close) / close) * 100, 1)
             sl_pct = round(((sl - close) / close) * 100, 1)
+
             commento = (
                 f"{'🟢 BUY' if segnale == 'BUY' else '🔴 SELL'} | {symbol.upper()} @ {close}$\n"
                 f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
@@ -78,8 +77,7 @@ def analyze(symbol: str):
                 f"{ritardo}"
             )
         else:
-            # Se HOLD, verifica se esiste un Presegnale oppure Trend debole
-            if any(keyword in note for keyword in ["Presegnale", "Trend attivo", "Trend in formazione"]):
+            if any(k in note for k in ["Presegnale", "Trend in formazione", "Trend attivo"]):
                 commento = (
                     f"🟡 {symbol.upper()} in osservazione\n"
                     f"{base_dati}\n"
