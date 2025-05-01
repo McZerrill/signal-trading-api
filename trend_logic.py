@@ -1,82 +1,46 @@
 
 import pandas as pd
-from indicators import calcola_ema, calcola_rsi, calcola_atr, calcola_macd
-from support_resistance import calcola_supporto
-
-def riconosci_pattern_candela(df: pd.DataFrame) -> str:
-    if len(df) < 3:
-        return ""
-
-    ultima = df.iloc[-1]
-    penultima = df.iloc[-2]
-    terzultima = df.iloc[-3]
-
-    body = abs(ultima['close'] - ultima['open'])
-    range_candela = ultima['high'] - ultima['low']
-    upper_shadow = ultima['high'] - max(ultima['close'], ultima['open'])
-    lower_shadow = min(ultima['close'], ultima['open']) - ultima['low']
-
-    # Hammer (BUY)
-    if body < range_candela * 0.3 and lower_shadow > body * 2 and upper_shadow < body:
-        return "Hammer"
-
-    # Shooting Star (SELL)
-    if body < range_candela * 0.3 and upper_shadow > body * 2 and lower_shadow < body:
-        return "Shooting Star"
-
-    # Bearish Engulfing
-    if penultima['close'] > penultima['open'] and ultima['open'] > ultima['close'] and ultima['open'] > penultima['close'] and ultima['close'] < penultima['open']:
-        return "Bearish Engulfing"
-
-    # Bullish Engulfing
-    if penultima['close'] < penultima['open'] and ultima['close'] > ultima['open'] and ultima['open'] < penultima['close'] and ultima['close'] > penultima['open']:
-        return "Bullish Engulfing"
-
-    # Morning Star
-    if (
-        terzultima['close'] < terzultima['open'] and
-        abs(penultima['close'] - penultima['open']) < (terzultima['open'] - terzultima['close']) * 0.3 and
-        ultima['close'] > ultima['open'] and
-        ultima['close'] > (terzultima['open'] + terzultima['close']) / 2
-    ):
-        return "Morning Star"
-
-    # Evening Star
-    if (
-        terzultima['close'] > terzultima['open'] and
-        abs(penultima['close'] - penultima['open']) < (terzultima['close'] - terzultima['open']) * 0.3 and
-        ultima['close'] < ultima['open'] and
-        ultima['close'] < (terzultima['open'] + terzultima['close']) / 2
-    ):
-        return "Evening Star"
-
-    return ""
-
-def conta_candele_trend(df: pd.DataFrame, rialzista: bool) -> int:
-    conteggio = 0
-    for i in range(1, min(10, len(df)) + 1):
-        ema7 = df['EMA_7'].iloc[-i]
-        ema25 = df['EMA_25'].iloc[-i]
-        ema99 = df['EMA_99'].iloc[-i]
-        if rialzista:
-            if ema7 > ema25 > ema99:
-                conteggio += 1
-            else:
-                break
-        else:
-            if ema7 < ema25 < ema99:
-                conteggio += 1
-            else:
-                break
-    return conteggio
+from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto, calcola_ema
 
 def valuta_distanza(distanza: float) -> str:
-    if distanza < 0.001:
+    if distanza < 1:
         return "bassa"
-    elif distanza < 0.01:
+    elif distanza < 3:
         return "media"
     else:
         return "alta"
+
+def conta_candele_trend(hist: pd.DataFrame, rialzista: bool = True, max_candele: int = 20) -> int:
+    count = 0
+    for i in range(-1, -max_candele - 1, -1):
+        e7, e25, e99 = hist['EMA_7'].iloc[i], hist['EMA_25'].iloc[i], hist['EMA_99'].iloc[i]
+        if rialzista and (e7 > e25 > e99):
+            count += 1
+        elif not rialzista and (e7 < e25 < e99):
+            count += 1
+        else:
+            break
+    return count
+
+def riconosci_pattern_candela(df: pd.DataFrame) -> str:
+    c = df.iloc[-1]
+    o, h, l, close = c['open'], c['high'], c['low'], c['close']
+    corpo = abs(close - o)
+    ombra_sup = h - max(o, close)
+    ombra_inf = min(o, close) - l
+
+    if corpo == 0:
+        return ""
+
+    if corpo > 0 and ombra_inf >= 2 * corpo and ombra_sup <= corpo * 0.3:
+        return "🪓 Hammer"
+    if corpo < 0 and ombra_sup >= 2 * abs(corpo) and ombra_inf <= abs(corpo) * 0.3:
+        return "🌠 Shooting Star"
+    if corpo > 0 and c['close'] > df['open'].iloc[-2] and c['open'] < df['close'].iloc[-2]:
+        return "🔄 Bullish Engulfing"
+    if corpo < 0 and c['close'] < df['open'].iloc[-2] and c['open'] > df['close'].iloc[-2]:
+        return "🔃 Bearish Engulfing"
+    return ""
 
 def analizza_trend(hist: pd.DataFrame):
     hist = hist.copy()
@@ -88,7 +52,7 @@ def analizza_trend(hist: pd.DataFrame):
     hist['ATR'] = calcola_atr(hist)
     hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['close'])
 
-    if len(hist) < 5:
+    if len(hist) < 22:
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
 
     ultimo = hist.iloc[-1]
@@ -116,6 +80,7 @@ def analizza_trend(hist: pd.DataFrame):
 
     pattern = riconosci_pattern_candela(hist)
 
+    # MACD strength classification
     macd_gap = macd - macd_signal
     forza_macd = "neutro"
     if abs(macd_gap) < 0.0001 and -0.001 < macd < 0.001:
@@ -129,32 +94,59 @@ def analizza_trend(hist: pd.DataFrame):
     elif macd_gap < 0 and macd <= -0.002:
         forza_macd = "sell_confermato"
 
+    # Breakout logic
+    massimo_20 = hist['high'].iloc[-21:-1].max()
+    minimo_20 = hist['low'].iloc[-21:-1].min()
+    volume_medio = hist['volume'].iloc[-21:-1].mean()
+    volume_attuale = hist['volume'].iloc[-1]
+
+    breakout_confirmato = False
+    if close > massimo_20 and volume_attuale > volume_medio * 1.5:
+        note.append("💥 Breakout rialzista confermato")
+        breakout_confirmato = True
+    elif close < minimo_20 and volume_attuale > volume_medio * 1.5:
+        note.append("💥 Breakout ribassista confermato")
+        breakout_confirmato = True
+    elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
+        note.append("⚠️ Breakout sospetto: volume non sufficiente a confermare")
+
+    # BUY completo
     if (
         penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99']
-        and trend_up and rsi > 50 and macd > macd_signal and candele_trend_up >= 3 and dist_diff > 0
+        and trend_up and rsi > 50 and macd > macd_signal
+        and candele_trend_up >= 3 and dist_diff > 0 and breakout_confirmato
     ):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
         sl = round(close - atr * 1.2, 4)
         note.append("✅ BUY confermato (trend completo)")
+
+    # BUY anticipato
     elif trend_up and rsi > 60 and candele_trend_up >= 3 and forza_macd == "buy_anticipato":
         segnale = "BUY"
         tp = round(close + atr * 1.3, 4)
         sl = round(close - atr * 1.1, 4)
         note.append("⚡ BUY anticipato: trend forte, MACD in attivazione")
+
+    # SELL completo
     elif (
         penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99']
-        and trend_down and rsi < 50 and macd < macd_signal and candele_trend_down >= 3 and dist_diff > 0
+        and trend_down and rsi < 50 and macd < macd_signal
+        and candele_trend_down >= 3 and dist_diff > 0 and breakout_confirmato
     ):
         segnale = "SELL"
         tp = round(close - atr * 1.5, 4)
         sl = round(close + atr * 1.2, 4)
         note.append("✅ SELL confermato (trend completo)")
+
+    # SELL anticipato
     elif trend_down and rsi < 40 and candele_trend_down >= 3 and forza_macd == "sell_anticipato":
         segnale = "SELL"
         tp = round(close - atr * 1.3, 4)
         sl = round(close + atr * 1.1, 4)
         note.append("⚡ SELL anticipato: trend forte, MACD in attivazione")
+
+    # Presegnali
     else:
         if penultimo['EMA_7'] < penultimo['EMA_25'] and ema7 > ema25:
             if ema25 < ema99 and abs(ema7 - ema99) / ema99 < 0.015:
@@ -167,8 +159,10 @@ def analizza_trend(hist: pd.DataFrame):
                 if macd < macd_signal: condizioni_verificate += 1
                 note.append("🔴 Presegnale SELL: EMA7 incrocia EMA25 sopra EMA99")
 
+    # Annotazioni finali
     if segnale in ["BUY", "SELL"]:
-        note.insert(0, f"📊 Trend attivo da {candele_trend_up if segnale == 'BUY' else candele_trend_down} candele | Distanza: {dist_level}")
+        n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
+        note.insert(0, f"📊 Trend attivo da {n_candele} candele | Distanza: {dist_level}")
         if pattern:
             note.append(f"✅ Pattern candlestick rilevato: {pattern}")
     else:
@@ -181,14 +175,12 @@ def analizza_trend(hist: pd.DataFrame):
         elif candele_trend_up <= 1 and not trend_up:
             note.append("⚠️ Trend terminato")
 
-    pattern_inverso_sell = pattern and "Hammer" in pattern
-    pattern_inverso_buy = pattern and any(p in pattern for p in ["Shooting Star", "Evening Star", "Bearish Engulfing"])
-
-    if segnale == "SELL" and pattern_inverso_sell:
-        note.append("⚠️ Pattern Hammer (BUY) rilevato: possibile inversione, prudenza sul segnale SELL")
+    # Contraddizioni tra pattern e direzione del trend
+    if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
+        note.append("⚠️ Pattern ribassista rilevato: possibile inversione")
         segnale = "HOLD"
-    if segnale == "BUY" and pattern_inverso_buy:
-        note.append("⚠️ Pattern ribassista rilevato: possibile inversione, prudenza sul segnale BUY")
+    if segnale == "SELL" and pattern and "Hammer" in pattern:
+        note.append("⚠️ Pattern Hammer rilevato: possibile inversione")
         segnale = "HOLD"
 
     return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto
