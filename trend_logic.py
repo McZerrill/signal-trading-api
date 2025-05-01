@@ -170,4 +170,17 @@ def analizza_trend(hist: pd.DataFrame):
         elif candele_trend_up <= 1 and not trend_up:
             note.append("⚠️ Trend terminato")
 
+    # Controllo coerenza tra segnale e pattern candlestick
+    pattern_inverso_sell = pattern and "Hammer" in pattern
+    pattern_inverso_buy = pattern and any(p in pattern for p in ["Shooting Star", "Evening Star", "Bearish Engulfing"])
+
+    if segnale == "SELL" and pattern_inverso_sell:
+            note.append("⚠️ Pattern Hammer (BUY) rilevato: possibile inversione, prudenza sul segnale SELL")
+            segnale = "HOLD"
+
+    if segnale == "BUY" and pattern_inverso_buy:
+            note.append("⚠️ Pattern ribassista rilevato: possibile inversione, prudenza sul segnale BUY")
+            segnale = "HOLD"
+
+    
     return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto
