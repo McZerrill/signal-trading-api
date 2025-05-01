@@ -79,6 +79,9 @@ def analyze(symbol: str):
         sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
 
         note_str = note.lower() if isinstance(note, str) else "\n".join(note).lower()
+        # Evidenzia breakout se presente tra le note
+        if "💥" in note_str:
+            base_dati = "💥 BREAKOUT rilevato\n" + base_dati
 
         if segnale == "BUY":
             if "anticipato" in note_str:
