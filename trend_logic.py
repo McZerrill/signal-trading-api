@@ -38,6 +38,12 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
         return "🌠 Shooting Star rilevato (SELL)"
     return ""
 
+import pandas as pd
+from indicators import calcola_ema, calcola_rsi, calcola_atr, calcola_macd
+from pattern_recognition import riconosci_pattern_candela
+from supporti import calcola_supporto
+from trend_utils import conta_candele_trend, valuta_distanza
+
 def analizza_trend(hist: pd.DataFrame):
     hist = hist.copy()
     ema = calcola_ema(hist, [7, 25, 99])
@@ -74,7 +80,11 @@ def analizza_trend(hist: pd.DataFrame):
     candele_trend_up = conta_candele_trend(hist, rialzista=True)
     candele_trend_down = conta_candele_trend(hist, rialzista=False)
 
+    # Analisi pattern candlestick
     pattern = riconosci_pattern_candela(hist)
+    pattern_rialzisti = ["Hammer", "Morning Star", "Bullish Engulfing"]
+    pattern_ribassisti = ["Shooting Star", "Evening Star", "Bearish Engulfing"]
+    pattern_info = f"✅ Pattern candlestick rilevato: {pattern}" if pattern else ""
 
     # Classificazione forza MACD
     macd_gap = macd - macd_signal
@@ -93,11 +103,7 @@ def analizza_trend(hist: pd.DataFrame):
     # BUY completo
     if (
         penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99']
-        and trend_up
-        and rsi > 50
-        and macd > macd_signal
-        and candele_trend_up >= 3
-        and dist_diff > 0
+        and trend_up and rsi > 50 and macd > macd_signal and candele_trend_up >= 3 and dist_diff > 0
     ):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
@@ -105,12 +111,7 @@ def analizza_trend(hist: pd.DataFrame):
         note.append("✅ BUY confermato (trend completo)")
 
     # BUY anticipato
-    elif (
-        trend_up
-        and rsi > 60
-        and candele_trend_up >= 3
-        and forza_macd == "buy_anticipato"
-    ):
+    elif trend_up and rsi > 60 and candele_trend_up >= 3 and forza_macd == "buy_anticipato":
         segnale = "BUY"
         tp = round(close + atr * 1.3, 4)
         sl = round(close - atr * 1.1, 4)
@@ -119,11 +120,7 @@ def analizza_trend(hist: pd.DataFrame):
     # SELL completo
     elif (
         penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99']
-        and trend_down
-        and rsi < 50
-        and macd < macd_signal
-        and candele_trend_down >= 3
-        and dist_diff > 0
+        and trend_down and rsi < 50 and macd < macd_signal and candele_trend_down >= 3 and dist_diff > 0
     ):
         segnale = "SELL"
         tp = round(close - atr * 1.5, 4)
@@ -131,12 +128,7 @@ def analizza_trend(hist: pd.DataFrame):
         note.append("✅ SELL confermato (trend completo)")
 
     # SELL anticipato
-    elif (
-        trend_down
-        and rsi < 40
-        and candele_trend_down >= 3
-        and forza_macd == "sell_anticipato"
-    ):
+    elif trend_down and rsi < 40 and candele_trend_down >= 3 and forza_macd == "sell_anticipato":
         segnale = "SELL"
         tp = round(close - atr * 1.3, 4)
         sl = round(close + atr * 1.1, 4)
@@ -144,22 +136,20 @@ def analizza_trend(hist: pd.DataFrame):
 
     # Presegnali
     else:
-        if penultimo['EMA_7'] < penultimo['EMA_25'] and ema7 > ema25:
-            if ema25 < ema99 and abs(ema7 - ema99) / ema99 < 0.015:
-                if rsi > 50: condizioni_verificate += 1
-                if macd > macd_signal: condizioni_verificate += 1
-                note.append("🟢 Presegnale BUY: EMA7 incrocia EMA25 sotto EMA99")
-        elif penultimo['EMA_7'] > penultimo['EMA_25'] and ema7 < ema25:
-            if ema25 > ema99 and abs(ema7 - ema99) / ema99 < 0.015:
-                if rsi < 50: condizioni_verificate += 1
-                if macd < macd_signal: condizioni_verificate += 1
-                note.append("🔴 Presegnale SELL: EMA7 incrocia EMA25 sopra EMA99")
+        if penultimo['EMA_7'] < penultimo['EMA_25'] and ema7 > ema25 and ema25 < ema99 and abs(ema7 - ema99) / ema99 < 0.015:
+            if rsi > 50: condizioni_verificate += 1
+            if macd > macd_signal: condizioni_verificate += 1
+            note.append("🟢 Presegnale BUY: EMA7 incrocia EMA25 sotto EMA99")
+        elif penultimo['EMA_7'] > penultimo['EMA_25'] and ema7 < ema25 and ema25 > ema99 and abs(ema7 - ema99) / ema99 < 0.015:
+            if rsi < 50: condizioni_verificate += 1
+            if macd < macd_signal: condizioni_verificate += 1
+            note.append("🔴 Presegnale SELL: EMA7 incrocia EMA25 sopra EMA99")
 
     # Note aggiuntive
     if segnale in ["BUY", "SELL"]:
         note.insert(0, f"📊 Trend attivo da {candele_trend_up if segnale == 'BUY' else candele_trend_down} candele | Distanza: {dist_level}")
-        if pattern:
-            note.append(f"✅ Pattern candlestick rilevato: {pattern}")
+        if pattern_info:
+            note.append(pattern_info)
     else:
         if condizioni_verificate >= 2:
             note.append("🟡 Trend in formazione (presegnale attivo)")
@@ -170,17 +160,12 @@ def analizza_trend(hist: pd.DataFrame):
         elif candele_trend_up <= 1 and not trend_up:
             note.append("⚠️ Trend terminato")
 
-    # Controllo coerenza tra segnale e pattern candlestick
-    pattern_inverso_sell = pattern and "Hammer" in pattern
-    pattern_inverso_buy = pattern and any(p in pattern for p in ["Shooting Star", "Evening Star", "Bearish Engulfing"])
+    # Pattern inversi
+    if segnale == "SELL" and any(p in pattern for p in pattern_rialzisti):
+        note.append(f"⚠️ Pattern {pattern} (BUY) rilevato: possibile inversione, prudenza sul segnale SELL")
+        segnale = "HOLD"
+    elif segnale == "BUY" and any(p in pattern for p in pattern_ribassisti):
+        note.append(f"⚠️ Pattern {pattern} (SELL) rilevato: possibile inversione, prudenza sul segnale BUY")
+        segnale = "HOLD"
 
-    if segnale == "SELL" and pattern_inverso_sell:
-            note.append("⚠️ Pattern Hammer (BUY) rilevato: possibile inversione, prudenza sul segnale SELL")
-            segnale = "HOLD"
-
-    if segnale == "BUY" and pattern_inverso_buy:
-            note.append("⚠️ Pattern ribassista rilevato: possibile inversione, prudenza sul segnale BUY")
-            segnale = "HOLD"
-
-    
     return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto
