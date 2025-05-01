@@ -24,9 +24,11 @@ def analyze(symbol: str):
     try:
         df_1m = get_binance_df(symbol, "1m", 300)
         df_5m = get_binance_df(symbol, "5m", 300)
+        df_15m = get_binance_df(symbol, "15m", 200)  # Analisi multi-timeframe
 
         segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1 = analizza_trend(df_1m)
         segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5 = analizza_trend(df_5m)
+        segnale_15m, *_ = analizza_trend(df_15m)  # Solo il segnale
 
         def conta_trend_attivo(hist):
             return sum(1 for i in range(-10, 0) if (
@@ -44,11 +46,19 @@ def analyze(symbol: str):
             segnale, hist, distanza, note, tp, sl, supporto = segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1
             timeframe = "1m"
 
+        # Multi-timeframe: se 15m contraddice, il segnale viene annullato
+        if segnale in ["BUY", "SELL"]:
+            if (segnale == "BUY" and segnale_15m == "SELL") or (segnale == "SELL" and segnale_15m == "BUY"):
+                note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
+                segnale = "HOLD"
+            elif segnale_15m == segnale:
+                note += "\n🧭 Segnale confermato anche su 15m"
+
         ultima_candela = hist.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
         orario_utc = ultima_candela.strftime("%H:%M UTC")
         orario_roma = ultima_candela.astimezone(timezone("Europe/Rome")).strftime("%H:%M ora italiana")
         data_candela = ultima_candela.strftime("(%d/%m)")
-        ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data_candela}"
+        ritardo = f"\U0001F552 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data_candela}"
 
         ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
@@ -73,55 +83,39 @@ def analyze(symbol: str):
         if segnale == "BUY":
             if "anticipato" in note_str:
                 commento = (
-                    f"⚡ BUY anticipato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 Target stimato: {tp} ({tp_pct}%)   🛡 Stop: {sl} ({sl_pct}%)\n"
-                    f"{base_dati}\n"
-                    f"{note}\n"
-                    f"{ritardo}"
+                    f"\u26a1 BUY anticipato | {symbol.upper()} @ {close}$\n"
+                    f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
+                    f"{base_dati}\n{note}\n{ritardo}"
                 )
             else:
                 commento = (
-                    f"🟢 BUY confermato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
-                    f"{base_dati}\n"
-                    f"{note}\n"
-                    f"{ritardo}"
+                    f"\U0001F7E2 BUY confermato | {symbol.upper()} @ {close}$\n"
+                    f"\U0001F3AF {tp} ({tp_pct}%)   \U0001F6E1 {sl} ({sl_pct}%)\n"
+                    f"{base_dati}\n{note}\n{ritardo}"
                 )
-
         elif segnale == "SELL":
             if "anticipato" in note_str:
                 commento = (
-                    f"⚡ SELL anticipato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 Target stimato: {tp} ({tp_pct}%)   🛡 Stop: {sl} ({sl_pct}%)\n"
-                    f"{base_dati}\n"
-                    f"{note}\n"
-                    f"{ritardo}"
+                    f"\u26a1 SELL anticipato | {symbol.upper()} @ {close}$\n"
+                    f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
+                    f"{base_dati}\n{note}\n{ritardo}"
                 )
             else:
                 commento = (
-                    f"🔴 SELL confermato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
-                    f"{base_dati}\n"
-                    f"{note}\n"
-                    f"{ritardo}"
+                    f"\U0001F534 SELL confermato | {symbol.upper()} @ {close}$\n"
+                    f"\U0001F3AF {tp} ({tp_pct}%)   \U0001F6E1 {sl} ({sl_pct}%)\n"
+                    f"{base_dati}\n{note}\n{ritardo}"
                 )
-
         else:
             if any(k in note_str for k in ["presegnale", "trend in formazione", "trend attivo"]):
                 commento = (
-                    f"🟡 {symbol.upper()} in osservazione\n"
-                    f"{base_dati}\n"
-                    f"📉 Supporto: {supporto}$\n"
-                    f"{note}\n"
-                    f"{ritardo}"
+                    f"\U0001F7E1 {symbol.upper()} in osservazione\n{base_dati}\n"
+                    f"\ud83d\udcc9 Supporto: {supporto}$\n{note}\n{ritardo}"
                 )
             else:
                 commento = (
-                    f"⚠️ Nessun segnale confermato su {symbol.upper()}\n"
-                    f"{base_dati}\n"
-                    f"📉 Supporto: {supporto}$\n"
-                    f"{note}\n"
-                    f"{ritardo}"
+                    f"\u26a0\ufe0f Nessun segnale confermato su {symbol.upper()}\n{base_dati}\n"
+                    f"\ud83d\udcc9 Supporto: {supporto}$\n{note}\n{ritardo}"
                 )
 
         return SignalResponse(
