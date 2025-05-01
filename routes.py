@@ -110,15 +110,17 @@ def analyze(symbol: str):
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
         else:
-            if any(k in note_str for k in ["presegnale", "trend in formazione", "trend attivo"]):
+            if isinstance(note, list):
+                note = "\n".join(note)
+            if any(k in note.lower() for k in ["presegnale", "trend in formazione", "trend attivo"]):
                 commento = (
-                    f"\U0001F7E1 {symbol.upper()} in osservazione\n{base_dati}\n"
-                    f"\ud83d\udcc9 Supporto: {supporto}$\n{note}\n{ritardo}"
+                    f"🟡 {symbol.upper()} in osservazione\n{base_dati}\n"
+                    f"📉 Supporto: {supporto}$\n⚠️ Condizione in fase di sviluppo\n{ritardo}"
                 )
             else:
                 commento = (
-                    f"\u26a0\ufe0f Nessun segnale confermato su {symbol.upper()}\n{base_dati}\n"
-                    f"\ud83d\udcc9 Supporto: {supporto}$\n{note}\n{ritardo}"
+                    f"⚠️ Nessun segnale confermato su {symbol.upper()}\n{base_dati}\n"
+                    f"📉 Supporto: {supporto}$\n⚠️ Nessuna condizione forte rilevata\n{ritardo}"
                 )
 
         return SignalResponse(
