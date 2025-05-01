@@ -111,20 +111,19 @@ def analyze(symbol: str):
                 )
         else:
             if isinstance(note, list):
-                   note = "\n".join(note)
+                note = "\n".join(note)
 
-                note_str = note.lower() if isinstance(note, str) else ""
-                header = f"🟡 HOLD | {symbol.upper()} @ {close}$"
+            note_str = note.lower() if isinstance(note, str) else ""
+            header = f"🟡 HOLD | {symbol.upper()} @ {close}$"
 
-                corpo = (
-                    f"{base_dati}\n"
-                    f"📉 Supporto: {supporto}$\n"
-                    f"{'⚠️ Nessuna condizione forte rilevata' if 'trend' not in note_str else note}\n"
-                    f"{ritardo}"
-                )
+            corpo = (
+                f"{base_dati}\n"
+                f"📉 Supporto: {supporto}$\n"
+                f"{'⚠️ Nessuna condizione forte rilevata' if 'trend' not in note_str else note}\n"
+                f"{ritardo}"
+            )
 
-                commento = "\n".join([header, corpo])
-
+            commento = "\n".join([header, corpo])
 
         return SignalResponse(
             segnale=segnale,
