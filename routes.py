@@ -24,11 +24,11 @@ def analyze(symbol: str):
     try:
         df_1m = get_binance_df(symbol, "1m", 300)
         df_5m = get_binance_df(symbol, "5m", 300)
-        df_15m = get_binance_df(symbol, "15m", 200)  # Analisi multi-timeframe
+        df_15m = get_binance_df(symbol, "15m", 200)
 
         segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1 = analizza_trend(df_1m)
         segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5 = analizza_trend(df_5m)
-        segnale_15m, *_ = analizza_trend(df_15m)  # Solo il segnale
+        segnale_15m, *_ = analizza_trend(df_15m)
 
         def conta_trend_attivo(hist):
             return sum(1 for i in range(-10, 0) if (
@@ -46,7 +46,6 @@ def analyze(symbol: str):
             segnale, hist, distanza, note, tp, sl, supporto = segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1
             timeframe = "1m"
 
-        # Multi-timeframe: se 15m contraddice, il segnale viene annullato
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_15m == "SELL") or (segnale == "SELL" and segnale_15m == "BUY"):
                 note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
@@ -79,50 +78,51 @@ def analyze(symbol: str):
         sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
 
         note_str = note.lower() if isinstance(note, str) else "\n".join(note).lower()
-        # Evidenzia breakout se presente tra le note
         if "💥" in note_str:
             base_dati = "💥 BREAKOUT rilevato\n" + base_dati
 
         if segnale == "BUY":
             if "anticipato" in note_str:
                 commento = (
-                    f"\u26a1 BUY anticipato | {symbol.upper()} @ {close}$\n"
-                    f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
+                    f"⚡ BUY anticipato | {symbol.upper()} @ {close}$\n"
+                    f"🎯 Target stimato: {tp if tp else '-'} ({tp_pct}%)   🛡 Stop: {sl if sl else '-'} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
+                tp, sl = 0.0, 0.0
             else:
                 commento = (
-                    f"\U0001F7E2 BUY confermato | {symbol.upper()} @ {close}$\n"
-                    f"\U0001F3AF {tp} ({tp_pct}%)   \U0001F6E1 {sl} ({sl_pct}%)\n"
+                    f"🟢 BUY confermato | {symbol.upper()} @ {close}$\n"
+                    f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
+
         elif segnale == "SELL":
             if "anticipato" in note_str:
                 commento = (
-                    f"\u26a1 SELL anticipato | {symbol.upper()} @ {close}$\n"
-                    f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
+                    f"⚡ SELL anticipato | {symbol.upper()} @ {close}$\n"
+                    f"🎯 Target stimato: {tp if tp else '-'} ({tp_pct}%)   🛡 Stop: {sl if sl else '-'} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
+                tp, sl = 0.0, 0.0
             else:
                 commento = (
-                    f"\U0001F534 SELL confermato | {symbol.upper()} @ {close}$\n"
-                    f"\U0001F3AF {tp} ({tp_pct}%)   \U0001F6E1 {sl} ({sl_pct}%)\n"
+                    f"🔴 SELL confermato | {symbol.upper()} @ {close}$\n"
+                    f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
+
         else:
             if isinstance(note, list):
                 note = "\n".join(note)
 
             note_str = note.lower() if isinstance(note, str) else ""
             header = f"🟡 HOLD | {symbol.upper()} @ {close}$"
-
             corpo = (
                 f"{base_dati}\n"
                 f"📉 Supporto: {supporto}$\n"
                 f"{'⚠️ Nessuna condizione forte rilevata' if 'trend' not in note_str else note}\n"
                 f"{ritardo}"
             )
-
             commento = "\n".join([header, corpo])
 
         return SignalResponse(
