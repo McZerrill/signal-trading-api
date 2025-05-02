@@ -79,3 +79,28 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
     df.dropna(inplace=True)
 
     return df
+
+def get_bid_ask(symbol: str) -> dict:
+    """
+    Recupera bid/ask reali dal book Binance e calcola lo spread percentuale.
+    """
+    try:
+        url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        bid = float(data["bidPrice"])
+        ask = float(data["askPrice"])
+        spread = (ask - bid) / ((ask + bid) / 2) * 100
+        return {
+            "bid": bid,
+            "ask": ask,
+            "spread": round(spread, 4)
+        }
+    except Exception as e:
+        print(f"❌ Errore get_bid_ask per {symbol}:", e)
+        return {
+            "bid": 0.0,
+            "ask": 0.0,
+            "spread": 0.0
+        }
+
