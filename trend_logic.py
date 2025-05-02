@@ -114,12 +114,15 @@ def analizza_trend(hist: pd.DataFrame):
     if (
         penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99']
         and trend_up and rsi > 50 and macd > macd_signal
-        and candele_trend_up >= 3 and dist_diff > 0 and breakout_confirmato
+        and candele_trend_up >= 3 and dist_diff > 0
     ):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
         sl = round(close - atr * 1.2, 4)
-        note.append("✅ BUY confermato (trend completo)")
+    if breakout_confirmato:
+        note.append("✅ BUY confermato con breakout")
+    else:
+        note.append("✅ BUY confermato senza breakout")
 
     # BUY anticipato
     elif trend_up and rsi > 60 and candele_trend_up >= 3 and forza_macd == "buy_anticipato":
