@@ -84,15 +84,15 @@ def analyze(symbol: str):
         if segnale == "BUY":
             if "anticipato" in note_str:
                 commento = (
-                    f"⚡ BUY anticipato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 Target stimato: {tp if tp else '-'} ({tp_pct}%)   🛡 Stop: {sl if sl else '-'} ({sl_pct}%)\n"
+                    f"\u26a1 BUY anticipato | {symbol.upper()} @ {close}$\n"
+                    f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
                 tp, sl = 0.0, 0.0
             else:
                 commento = (
                     f"🟢 BUY confermato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
+                    f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
 
@@ -100,14 +100,14 @@ def analyze(symbol: str):
             if "anticipato" in note_str:
                 commento = (
                     f"⚡ SELL anticipato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 Target stimato: {tp if tp else '-'} ({tp_pct}%)   🛡 Stop: {sl if sl else '-'} ({sl_pct}%)\n"
+                    f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
                 tp, sl = 0.0, 0.0
             else:
                 commento = (
                     f"🔴 SELL confermato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 {tp} ({tp_pct}%)   🛡 {sl} ({sl_pct}%)\n"
+                    f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
 
