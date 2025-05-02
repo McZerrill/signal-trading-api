@@ -64,7 +64,8 @@ def analyze(symbol: str):
         close = round(ultimo['close'], 4)
         book = get_bid_ask(symbol)
         spread = book["spread"]
-        print(f"📊 Spread calcolato per {symbol}: {spread}")  # ⬅️ Inseriscilo qui
+        with open("log.txt", "a") as f:
+           f.write(f"📊 Spread calcolato per {symbol}: {spread}\n")
         rsi = round(ultimo['RSI'], 2)
         ema7 = round(ultimo['EMA_7'], 2)
         ema25 = round(ultimo['EMA_25'], 2)
