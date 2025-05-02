@@ -16,4 +16,6 @@ class SignalResponse(BaseModel):
     ema25: float
     ema99: float
     timeframe: str
+    spread: float  # ✅ Nuovo campo: spread percentuale tra bid e ask
+
     
