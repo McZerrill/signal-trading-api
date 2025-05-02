@@ -26,7 +26,7 @@ def get_best_symbols(limit=50):
         # Filtro su simboli USDT, no token a leva, volume > 5M
         filtered = [
             d for d in data
-            if d["symbol"].endswith("USDT")
+            if d["symbol"].endswith("USDC")
             and not any(x in d["symbol"] for x in ["UP", "DOWN", "BULL", "BEAR"])
             and float(d["quoteVolume"]) > 5_000_000
         ]
