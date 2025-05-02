@@ -10,6 +10,7 @@ from trend_logic import analizza_trend, conta_candele_trend, riconosci_pattern_c
 from indicators import calcola_rsi, calcola_macd, calcola_atr  # se usi anche questi esplicitamente
 from models import SignalResponse
 import pandas as pd
+from binance_api import get_bid_ask
 
 
 router = APIRouter()
@@ -61,6 +62,8 @@ def analyze(symbol: str):
 
         ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
+        book = get_bid_ask(symbol)
+        spread = book["spread"]
         rsi = round(ultimo['RSI'], 2)
         ema7 = round(ultimo['EMA_7'], 2)
         ema25 = round(ultimo['EMA_25'], 2)
@@ -139,6 +142,7 @@ def analyze(symbol: str):
             ema25=ema25,
             ema99=ema99,
             timeframe=timeframe
+            spread=spread
         )
 
     except Exception as e:
@@ -156,7 +160,8 @@ def analyze(symbol: str):
             ema7=0.0,
             ema25=0.0,
             ema99=0.0,
-            timeframe=""
+            timeframe="",
+            spread=0.0
         )
 
 _hot_cache = {"time": 0, "data": []}
