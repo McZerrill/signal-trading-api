@@ -141,7 +141,7 @@ def analyze(symbol: str):
             ema7=ema7,
             ema25=ema25,
             ema99=ema99,
-            timeframe=timeframe
+            timeframe=timeframe,
             spread=spread
         )
 
