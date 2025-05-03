@@ -79,6 +79,18 @@ def analyze(symbol: str):
             f"MACD: {macd}/{macd_signal}  |  ATR: {atr}"
         )
 
+        # Calcolo dinamico TP e SL per guadagno netto positivo
+        commissione = 0.1  # percentuale
+        profitto_minimo = 0.5  # percentuale desiderata
+        margine_totale = spread + (2 * commissione) + profitto_minimo
+
+        if segnale == "BUY":
+           tp = round(close * (1 + margine_totale / 100), 4)
+           sl = round(close * (1 - margine_totale / 100), 4)
+        elif segnale == "SELL":
+           tp = round(close * (1 - margine_totale / 100), 4)
+           sl = round(close * (1 + margine_totale / 100), 4)
+        
         tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
         sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
 
