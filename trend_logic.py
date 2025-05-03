@@ -43,6 +43,7 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     return ""
 
 def analizza_trend(hist: pd.DataFrame):
+    # --- Preparazione indicatori ---
     hist = hist.copy()
     ema = calcola_ema(hist, [7, 25, 99])
     hist['EMA_7'] = ema[7]
@@ -55,6 +56,7 @@ def analizza_trend(hist: pd.DataFrame):
     if len(hist) < 22:
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
 
+    # --- Valori attuali e precedenti ---
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
 
@@ -63,6 +65,7 @@ def analizza_trend(hist: pd.DataFrame):
     macd, macd_signal = ultimo['MACD'], ultimo['MACD_SIGNAL']
     supporto = calcola_supporto(hist)
 
+    # --- Calcoli distanza e trend ---
     dist_attuale = abs(ema7 - ema25) + abs(ema25 - ema99)
     dist_precedente = abs(penultimo['EMA_7'] - penultimo['EMA_25']) + abs(penultimo['EMA_25'] - penultimo['EMA_99'])
     dist_diff = dist_attuale - dist_precedente
@@ -80,7 +83,7 @@ def analizza_trend(hist: pd.DataFrame):
 
     pattern = riconosci_pattern_candela(hist)
 
-    # MACD strength classification
+    # --- Classificazione forza MACD ---
     macd_gap = macd - macd_signal
     forza_macd = "neutro"
     if abs(macd_gap) < 0.0001 and -0.001 < macd < 0.001:
@@ -94,7 +97,7 @@ def analizza_trend(hist: pd.DataFrame):
     elif macd_gap < 0 and macd <= -0.002:
         forza_macd = "sell_confermato"
 
-    # Breakout logic
+    # --- Logica Breakout ---
     massimo_20 = hist['high'].iloc[-21:-1].max()
     minimo_20 = hist['low'].iloc[-21:-1].min()
     volume_medio = hist['volume'].iloc[-21:-1].mean()
@@ -110,53 +113,47 @@ def analizza_trend(hist: pd.DataFrame):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume non sufficiente a confermare")
 
-    # BUY completo
+    # --- BUY completo avanzato ---
     if (
-        trend_up
-        and candele_trend_up >= 2
-        and rsi > 55
-        and macd > macd_signal
-        and dist_diff > 0
+        penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99'] and
+        trend_up and dist_diff > 0 and
+        rsi > 55 and macd > macd_signal and macd > 0 and
+        candele_trend_up >= 3
     ):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
         sl = round(close - atr * 1.2, 4)
-        if breakout_confirmato:
-            note.append("✅ BUY confermato con breakout")
-        else:
-            note.append("✅ BUY confermato senza breakout")
+        note.append("✅ BUY confermato con breakout e allargamento EMA" if breakout_confirmato else
+                    "✅ BUY confermato senza breakout ma con allargamento EMA")
 
-    # BUY anticipato
+    # --- BUY anticipato ---
     elif trend_up and rsi > 60 and candele_trend_up >= 3 and forza_macd == "buy_anticipato":
         segnale = "BUY"
         tp = round(close + atr * 1.3, 4)
         sl = round(close - atr * 1.1, 4)
         note.append("⚡ BUY anticipato: trend forte, MACD in attivazione")
 
-    # SELL completo
+    # --- SELL completo avanzato ---
     elif (
-        trend_down
-        and candele_trend_down >= 2
-        and rsi < 45
-        and macd < macd_signal
-        and dist_diff > 0
+        penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99'] and
+        trend_down and dist_diff > 0 and
+        rsi < 45 and macd < macd_signal and macd < 0 and
+        candele_trend_down >= 3
     ):
         segnale = "SELL"
         tp = round(close - atr * 1.5, 4)
         sl = round(close + atr * 1.2, 4)
-        if breakout_confirmato:
-            note.append("✅ SELL confermato con breakout")
-        else:
-            note.append("✅ SELL confermato senza breakout")
+        note.append("✅ SELL confermato con breakout e allargamento EMA" if breakout_confirmato else
+                    "✅ SELL confermato senza breakout ma con allargamento EMA")
 
-    # SELL anticipato
+    # --- SELL anticipato ---
     elif trend_down and rsi < 40 and candele_trend_down >= 3 and forza_macd == "sell_anticipato":
         segnale = "SELL"
         tp = round(close - atr * 1.3, 4)
         sl = round(close + atr * 1.1, 4)
         note.append("⚡ SELL anticipato: trend forte, MACD in attivazione")
 
-    # Presegnali
+    # --- Presegnali e incroci EMA ---
     else:
         if penultimo['EMA_7'] < penultimo['EMA_25'] and ema7 > ema25:
             if ema25 < ema99 and abs(ema7 - ema99) / ema99 < 0.015:
@@ -169,7 +166,7 @@ def analizza_trend(hist: pd.DataFrame):
                 if macd < macd_signal: condizioni_verificate += 1
                 note.append("🔴 Presegnale SELL: EMA7 incrocia EMA25 sopra EMA99")
 
-    # Annotazioni finali
+    # --- Annotazioni finali ---
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
         note.insert(0, f"📊 Trend attivo da {n_candele} candele | Distanza: {dist_level}")
@@ -185,7 +182,7 @@ def analizza_trend(hist: pd.DataFrame):
         elif candele_trend_up <= 1 and not trend_up:
             note.append("⚠️ Trend terminato")
 
-    # Contraddizioni tra pattern e direzione del trend
+    # --- Contraddizioni con pattern ---
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
         note.append("⚠️ Pattern ribassista rilevato: possibile inversione")
         segnale = "HOLD"
