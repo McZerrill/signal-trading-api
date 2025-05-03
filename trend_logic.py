@@ -115,61 +115,23 @@ def analizza_trend(hist: pd.DataFrame):
 
     # --- BUY completo avanzato ---
     if (
-        penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99'] and
-        trend_up and
-        dist_diff > 0 and
-        rsi > 55 and
-        macd > macd_signal and
-        macd > 0 and
-        candele_trend_up >= 3
-    ) or (
-        trend_up and
-        candele_trend_up >= 2 and
-        rsi > 55 and
-        macd > macd_signal and
-        dist_diff > 0
+        (penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99'] and trend_up and dist_diff > 0 and rsi > 55 and macd > macd_signal and macd > 0 and candele_trend_up <= 5)
+        or (trend_up and candele_trend_up in [2, 3] and rsi > 55 and macd > macd_signal and dist_diff > 0)
     ):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
         sl = round(close - atr * 1.2, 4)
-        note.append("✅ BUY confermato con breakout e allargamento EMA" if breakout_confirmato else
-                    "✅ BUY confermato senza breakout ma con allargamento EMA")
-
-    # --- BUY anticipato ---
-    elif trend_up and rsi > 60 and candele_trend_up >= 3 and forza_macd == "buy_anticipato":
-        segnale = "BUY"
-        tp = round(close + atr * 1.3, 4)
-        sl = round(close - atr * 1.1, 4)
-        note.append("⚡ BUY anticipato: trend forte, MACD in attivazione")
+        note.append("✅ BUY confermato con breakout e allargamento EMA" if breakout_confirmato else "✅ BUY confermato senza breakout ma con allargamento EMA")
 
     # --- SELL completo avanzato ---
     elif (
-        penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99'] and
-        trend_down and
-        dist_diff > 0 and
-        rsi < 45 and
-        macd < macd_signal and
-        macd < 0 and
-        candele_trend_down >= 3
-    ) or (
-        trend_down and
-        candele_trend_down >= 2 and
-        rsi < 45 and
-        macd < macd_signal and
-        dist_diff > 0
+        (penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99'] and trend_down and dist_diff > 0 and rsi < 45 and macd < macd_signal and macd < 0 and candele_trend_down <= 5)
+        or (trend_down and candele_trend_down in [2, 3] and rsi < 45 and macd < macd_signal and dist_diff > 0)
     ):
         segnale = "SELL"
         tp = round(close - atr * 1.5, 4)
         sl = round(close + atr * 1.2, 4)
-        note.append("✅ SELL confermato con breakout e allargamento EMA" if breakout_confirmato else
-                    "✅ SELL confermato senza breakout ma con allargamento EMA")
-
-    # --- SELL anticipato ---
-    elif trend_down and rsi < 40 and candele_trend_down >= 3 and forza_macd == "sell_anticipato":
-        segnale = "SELL"
-        tp = round(close - atr * 1.3, 4)
-        sl = round(close + atr * 1.1, 4)
-        note.append("⚡ SELL anticipato: trend forte, MACD in attivazione")
+        note.append("✅ SELL confermato con breakout e allargamento EMA" if breakout_confirmato else "✅ SELL confermato senza breakout ma con allargamento EMA")
 
     # --- Presegnali e incroci EMA ---
     else:
