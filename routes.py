@@ -246,7 +246,7 @@ def hot_assets():
                 continue
             atr = round(raw_atr, 4)
 
-            if abs(ema7 - ema99) / ema99 < 0.001:
+            if abs(ema7 - ema99) / ema99 < 0.002:
                 _filtro_log["ema_flat"] += 1
                 continue
 
@@ -254,7 +254,7 @@ def hot_assets():
                 _filtro_log["prezzo_piattissimo"] += 1
                 continue
 
-            if abs(macd - macd_signal) < 0.0001 and 49 < rsi < 51:
+            if abs(macd - macd_signal) < 0.0005 and 48 < rsi < 52:
                 _filtro_log["macd_rsi_neutri"] += 1
                 continue
 
