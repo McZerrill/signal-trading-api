@@ -68,7 +68,10 @@ def analyze(symbol: str):
         close = round(ultimo['close'], 4)
         book = get_bid_ask(symbol)
         spread = book["spread"]
-
+        # Log dello spread ricevuto
+        with open("log.txt", "a") as f:
+            f.write(f"📊 Spread calcolato per {symbol}: {spread}\n")
+        
         rsi = round(ultimo['RSI'], 2)
         ema7 = round(ultimo['EMA_7'], 2)
         ema25 = round(ultimo['EMA_25'], 2)
@@ -84,6 +87,7 @@ def analyze(symbol: str):
 
         # Calcolo TP/SL solo se il segnale originale era BUY o SELL
         tp = sl = 0.0
+        print(f"[DEBUG] segnale_orig={segnale_orig}, conferma15m={segnale_15m}, margine_totale={margine_totale}")
         if segnale_orig == "BUY" or segnale_orig == "SELL":
             commissione = 0.1
             profitto_minimo = 0.5
