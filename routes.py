@@ -153,7 +153,7 @@ def analyze(symbol: str):
             )
             commento = "\n".join([header, corpo])
             
-        
+        print(f"✅ RESTITUZIONE → TP: {tp}, SL: {sl}, Segnale: {segnale}, Timeframe: {timeframe}")
         return SignalResponse(
             segnale=segnale,
             commento="\n".join([r.strip() for r in commento.splitlines() if r.strip()]),
