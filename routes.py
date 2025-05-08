@@ -136,7 +136,7 @@ def analyze(symbol: str):
             corpo = (
                 f"{base_dati}\n"
                 f"📉 Supporto: {supporto}$\n"
-                f"{⚠️ Nessuna condizione forte rilevata if 'trend' not in note_str else note}\n"
+                f"{'\u26a0\ufe0f Nessuna condizione forte rilevata' if 'trend' not in note_str else note}\n"
                 f"{ritardo}"
             )
             commento = "\n".join([header, corpo])
