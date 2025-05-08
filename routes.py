@@ -1,25 +1,3 @@
-# routes.py
-
-from fastapi import APIRouter
-from pytz import timezone
-from datetime import datetime, timezone as dt_timezone
-import time
-
-from binance_api import get_binance_df, get_best_symbols
-from trend_logic import analizza_trend, conta_candele_trend, riconosci_pattern_candela
-from indicators import calcola_rsi, calcola_macd, calcola_atr  # se usi anche questi esplicitamente
-from models import SignalResponse
-import pandas as pd
-from binance_api import get_bid_ask
-
-
-router = APIRouter()
-utc = dt_timezone.utc
-
-@router.get("/")
-def read_root():
-    return {"status": "API Segnali di Borsa attiva"}
-
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
@@ -49,7 +27,7 @@ def analyze(symbol: str):
 
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_15m == "SELL") or (segnale == "SELL" and segnale_15m == "BUY"):
-                note += f"\n\u26a0\ufe0f Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
+                note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
                 segnale = "HOLD"
             elif segnale_15m == segnale:
                 note += "\n🧭 Segnale confermato anche su 15m"
@@ -80,39 +58,19 @@ def analyze(symbol: str):
             f"MACD: {macd}/{macd_signal}  |  ATR: {atr}"
         )
 
-        # Calcolo TP e SL intelligenti con conferma timeframe 15m
+        # Calcolo TP e SL (solo lo SL viene semplificato senza logica 15m)
         commissione = 0.1
         profitto_minimo = 0.5
         margine_totale = spread + (2 * commissione) + profitto_minimo
 
-        tp = sl = 0.0  # inizializzo sempre
+        tp = sl = 0.0
 
         if segnale == "BUY":
             tp = round(close * (1 + margine_totale / 100), 4)
+            sl = round(close - atr * 1.2, 4)
         elif segnale == "SELL":
             tp = round(close * (1 - margine_totale / 100), 4)
-
-        if segnale_15m == segnale:
-            ultime3 = h15.tail(3)
-            if segnale == "BUY":
-                min_candele = ultime3['low'].min()
-                sl_ema = min(ultimo['EMA_25'], ultimo['EMA_99'])
-                sl = round(min(min_candele, sl_ema), 4)
-            elif segnale == "SELL":
-                max_candele = ultime3['high'].max()
-                sl_ema = max(ultimo['EMA_25'], ultimo['EMA_99'])
-                sl = round(max(max_candele, sl_ema), 4)
-        else:
-            sl = round(close - atr * 1.2, 4) if segnale == "BUY" else round(close + atr * 1.2, 4)
-            note += "\n⏳ SL in attesa: nessuna conferma su 15m"
-
-        # ⚠️ Dopo aver calcolato TP/SL, si verifica la coerenza del segnale con il 15m
-        if segnale in ["BUY", "SELL"]:
-            if (segnale == "BUY" and segnale_15m == "SELL") or (segnale == "SELL" and segnale_15m == "BUY"):
-                note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
-                segnale = "HOLD"
-            elif segnale_15m == segnale:
-                note += "\n🧭 Segnale confermato anche su 15m"
+            sl = round(close + atr * 1.2, 4)
 
         tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
         sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
@@ -124,14 +82,14 @@ def analyze(symbol: str):
         if segnale == "BUY":
             if "anticipato" in note_str:
                 commento = (
-                    f"\u26a1 BUY anticipato | {symbol.upper()} @ {close}$\n"
+                    f"⚡ BUY anticipato | {symbol.upper()} @ {close}$\n"
                     f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
             else:
                 commento = (
                     f"🟢 BUY confermato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
+                    f"🌟 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
 
@@ -145,20 +103,18 @@ def analyze(symbol: str):
             else:
                 commento = (
                     f"🔴 SELL confermato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
+                    f"🌟 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
-
         else:
             if isinstance(note, list):
                 note = "\n".join(note)
-
             note_str = note.lower() if isinstance(note, str) else ""
-            header = f"🛁 HOLD | {symbol.upper()} @ {close}$"
+            header = f"🚱 HOLD | {symbol.upper()} @ {close}$"
             corpo = (
                 f"{base_dati}\n"
                 f"📉 Supporto: {supporto}$\n"
-                f"{'\u26a0\ufe0f Nessuna condizione forte rilevata' if 'trend' not in note_str else note}\n"
+                f"{⚠️ Nessuna condizione forte rilevata if 'trend' not in note_str else note}\n"
                 f"{ritardo}"
             )
             commento = "\n".join([header, corpo])
