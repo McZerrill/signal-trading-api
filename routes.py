@@ -99,7 +99,7 @@ def analyze(symbol: str):
                     sl_ema = max(ultimo['EMA_25'], ultimo['EMA_99'])
                     sl = round(max(max_candele, sl_ema), 4)
             else:
-                sl = 0.0
+                sl = round(close - atr * 1.2, 4) if segnale == "BUY" else round(close + atr * 1.2, 4)
                 note += "\n⏳ SL in attesa: nessuna conferma su 15m"
         else:
             tp = sl = 0.0
