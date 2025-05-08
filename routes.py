@@ -83,6 +83,7 @@ def analyze(symbol: str):
 
         # Calcolo TP e SL solo se il segnale è ancora BUY o SELL
         tp = sl = 0.0
+        print(f"[DEBUG] Entrato in calcolo TP/SL con segnale={segnale} e conferma15m={segnale_15m}")
         if segnale in ["BUY", "SELL"]:
             commissione = 0.1
             profitto_minimo = 0.5
@@ -151,7 +152,7 @@ def analyze(symbol: str):
                 f"{ritardo}"
             )
             commento = "\n".join([header, corpo])
-
+        print(f"[DEBUG] TP calcolato: {tp}, SL calcolato: {sl}")
         print(f"✅ RESTITUZIONE → TP: {tp}, SL: {sl}, Segnale: {segnale}, Timeframe: {timeframe}")
         return SignalResponse(
             segnale=segnale,
