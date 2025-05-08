@@ -27,8 +27,8 @@ def analyze(symbol: str):
         df_5m = get_binance_df(symbol, "5m", 300)
         df_15m = get_binance_df(symbol, "15m", 200)
 
-        segnale_1m, h1, dist_1m, note1, _, _, supporto1 = analizza_trend(df_1m)
-        segnale_5m, h5, dist_5m, note5, _, _, supporto5 = analizza_trend(df_5m)
+        segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1 = analizza_trend(df_1m)
+        segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5 = analizza_trend(df_5m)
         segnale_15m, h15, *_ = analizza_trend(df_15m)
 
         def conta_trend_attivo(hist):
@@ -41,19 +41,22 @@ def analyze(symbol: str):
         trend_5m = conta_trend_attivo(h5)
 
         if trend_5m > trend_1m:
-            segnale, hist, distanza, note, _, _, supporto = segnale_5m, h5, dist_5m, note5, _, _, supporto5
+            segnale, hist, distanza, note, tp, sl, supporto = segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5
             timeframe = "5m"
         else:
-            segnale, hist, distanza, note, _, _, supporto = segnale_1m, h1, dist_1m, note1, _, _, supporto1
+            segnale, hist, distanza, note, tp, sl, supporto = segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1
             timeframe = "1m"
 
-        # Conferma 15m
+        segnale_orig = segnale  # salva il segnale prima di eventuali modifiche
+        confermato = False
+
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_15m == "SELL") or (segnale == "SELL" and segnale_15m == "BUY"):
                 note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
                 segnale = "HOLD"
             elif segnale_15m == segnale:
                 note += "\n🧭 Segnale confermato anche su 15m"
+                confermato = True
 
         ultima_candela = hist.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
         orario_utc = ultima_candela.strftime("%H:%M UTC")
@@ -79,38 +82,31 @@ def analyze(symbol: str):
             f"MACD: {macd}/{macd_signal}  |  ATR: {atr}"
         )
 
-        # Calcolo TP e SL solo per BUY/SELL confermati
+        # Calcolo TP/SL solo se il segnale originale era BUY o SELL
         tp = sl = 0.0
-        if segnale in ["BUY", "SELL"]:
-            print(f"[✅] Segnale confermato ({segnale}) su {timeframe}, calcolo TP/SL attivo")
+        if segnale_orig == "BUY" or segnale_orig == "SELL":
+            commissione = 0.1
+            profitto_minimo = 0.5
+            margine_totale = spread + (2 * commissione) + profitto_minimo
 
-            commissione = 0.1  # 0.1% per lato
-            costo_totale = (2 * commissione) + spread  # % totale da recuperare
+            if segnale_orig == "BUY":
+                tp = round(close * (1 + margine_totale / 100), 4)
+            elif segnale_orig == "SELL":
+                tp = round(close * (1 - margine_totale / 100), 4)
 
-            rischio_base = atr * 1.2
-            rapporto_rr = 2.5
-            rendimento_lordo = rischio_base * rapporto_rr
-            extra = close * costo_totale / 100
-            rendimento_totale = rendimento_lordo + extra
-
-            if segnale == "BUY":
-                sl = round(close - rischio_base, 4)
-                tp = round(close + rendimento_totale, 4)
+            if confermato:
+                ultime3 = h15.tail(3)
+                if segnale_orig == "BUY":
+                    min_candele = ultime3['low'].min()
+                    sl_ema = min(ultimo['EMA_25'], ultimo['EMA_99'])
+                    sl = round(min(min_candele, sl_ema), 4)
+                elif segnale_orig == "SELL":
+                    max_candele = ultime3['high'].max()
+                    sl_ema = max(ultimo['EMA_25'], ultimo['EMA_99'])
+                    sl = round(max(max_candele, sl_ema), 4)
             else:
-                sl = round(close + rischio_base, 4)
-                tp = round(close - rendimento_totale, 4)
-
-            distanza_minima = close * 0.0015
-            if abs(sl - close) < distanza_minima:
-                print("[⚠️] SL troppo vicino al prezzo, applico fallback")
-                if segnale == "BUY":
-                    sl = round(close - atr * 1.5, 4)
-                    tp = round(close + (close - sl) * rapporto_rr + extra, 4)
-                else:
-                    sl = round(close + atr * 1.5, 4)
-                    tp = round(close - (sl - close) * rapporto_rr - extra, 4)
-
-            note += f"\n🎯 Rischio/Rendimento impostato: 1:{rapporto_rr}"
+                sl = round(close - atr * 1.2, 4) if segnale_orig == "BUY" else round(close + atr * 1.2, 4)
+                note += "\n⏳ SL provvisorio: nessuna conferma su 15m"
 
         tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
         sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
@@ -120,47 +116,26 @@ def analyze(symbol: str):
             base_dati = "💥 BREAKOUT rilevato\n" + base_dati
 
         if segnale == "BUY":
-            if "anticipato" in note_str:
-                commento = (
-                    f"⚡ BUY anticipato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 TP stimato: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
-                    f"{base_dati}\n{note}\n{ritardo}"
-                )
-            else:
-                commento = (
-                    f"🟢 BUY confermato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
-                    f"{base_dati}\n{note}\n{ritardo}"
-                )
-
+            commento = (
+                f"🟢 BUY confermato | {symbol.upper()} @ {close}$\n"
+                f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
+                f"{base_dati}\n{note}\n{ritardo}"
+            )
         elif segnale == "SELL":
-            if "anticipato" in note_str:
-                commento = (
-                    f"⚡ SELL anticipato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 TP stimato: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
-                    f"{base_dati}\n{note}\n{ritardo}"
-                )
-            else:
-                commento = (
-                    f"🔴 SELL confermato | {symbol.upper()} @ {close}$\n"
-                    f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
-                    f"{base_dati}\n{note}\n{ritardo}"
-                )
-
+            commento = (
+                f"🔴 SELL confermato | {symbol.upper()} @ {close}$\n"
+                f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
+                f"{base_dati}\n{note}\n{ritardo}"
+            )
         else:
             if isinstance(note, list):
                 note = "\n".join(note)
-            note_str = note.lower() if isinstance(note, str) else ""
-            header = f"🛁 HOLD | {symbol.upper()} @ {close}$"
-            corpo = (
-                f"{base_dati}\n"
-                f"📉 Supporto: {supporto}$\n"
-                f"{'⚠️ Nessuna condizione forte rilevata' if 'trend' not in note_str else note}\n"
-                f"{ritardo}"
+            commento = (
+                f"🛁 HOLD | {symbol.upper()} @ {close}$\n"
+                f"{base_dati}\n📉 Supporto: {supporto}$\n{note}\n{ritardo}"
             )
-            commento = "\n".join([header, corpo])
 
-        print(f"✅ RESTITUZIONE → TP: {tp}, SL: {sl}, Segnale: {segnale}, Timeframe: {timeframe}")
+        print(f"[DEBUG] TP: {tp}, SL: {sl}, segnale_orig={segnale_orig}, segnale finale={segnale}")
         return SignalResponse(
             segnale=segnale,
             commento="\n".join([r.strip() for r in commento.splitlines() if r.strip()]),
