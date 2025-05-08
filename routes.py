@@ -85,6 +85,7 @@ def analyze(symbol: str):
         tp = sl = 0.0
         print(f"[DEBUG] Entrato in calcolo TP/SL con segnale={segnale} e conferma15m={segnale_15m}")
         if segnale in ["BUY", "SELL"]:
+            print(f"[✅] Segnale confermato ({segnale}) su {timeframe}, calcolo TP/SL attivo")
             commissione = 0.1
             profitto_minimo = 0.5
             margine_totale = spread + (2 * commissione) + profitto_minimo
