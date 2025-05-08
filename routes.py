@@ -84,10 +84,10 @@ def analyze(symbol: str):
         commissione = 0.1
         profitto_minimo = 0.5
         margine_totale = spread + (2 * commissione) + profitto_minimo
-
+        tp = sl = 0.0
         if segnale in ["BUY", "SELL"]:
             tp = round(close * (1 + margine_totale / 100), 4) if segnale == "BUY" else round(close * (1 - margine_totale / 100), 4)
-
+            
             if segnale_15m == segnale:
                 ultime3 = h15.tail(3)
                 if segnale == "BUY":
@@ -101,9 +101,7 @@ def analyze(symbol: str):
             else:
                 sl = round(close - atr * 1.2, 4) if segnale == "BUY" else round(close + atr * 1.2, 4)
                 note += "\n⏳ SL in attesa: nessuna conferma su 15m"
-        else:
-            tp = sl = 0.0
-
+        
         tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
         sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
 
@@ -154,7 +152,7 @@ def analyze(symbol: str):
                 f"{ritardo}"
             )
             commento = "\n".join([header, corpo])
-            print(f"🛠 DEBUG HOLD → TP: {tp}, SL: {sl}, Segnale: {segnale}, Timeframe: {timeframe}")
+            
         
         return SignalResponse(
             segnale=segnale,
