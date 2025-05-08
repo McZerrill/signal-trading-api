@@ -1,3 +1,25 @@
+# routes.py
+
+from fastapi import APIRouter
+from pytz import timezone
+from datetime import datetime, timezone as dt_timezone
+import time
+
+from binance_api import get_binance_df, get_best_symbols
+from trend_logic import analizza_trend, conta_candele_trend, riconosci_pattern_candela
+from indicators import calcola_rsi, calcola_macd, calcola_atr  # se usi anche questi esplicitamente
+from models import SignalResponse
+import pandas as pd
+from binance_api import get_bid_ask
+
+
+router = APIRouter()
+utc = dt_timezone.utc
+
+@router.get("/")
+def read_root():
+    return {"status": "API Segnali di Borsa attiva"}
+    
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
