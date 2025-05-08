@@ -41,15 +41,16 @@ def analyze(symbol: str):
         trend_5m = conta_trend_attivo(h5)
 
         if trend_5m > trend_1m:
-            segnale, hist, distanza, note, tp, sl, supporto = segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5
+            segnale, hist, distanza, note, _, _, supporto = segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5
             timeframe = "5m"
         else:
-            segnale, hist, distanza, note, tp, sl, supporto = segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1
+            segnale, hist, distanza, note, _, _, supporto = segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1
             timeframe = "1m"
 
+        # Conferma 15m
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_15m == "SELL") or (segnale == "SELL" and segnale_15m == "BUY"):
-                note += f"\n\u26a0\ufe0f Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
+                note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
                 segnale = "HOLD"
             elif segnale_15m == segnale:
                 note += "\n🧭 Segnale confermato anche su 15m"
@@ -80,14 +81,14 @@ def analyze(symbol: str):
             f"MACD: {macd}/{macd_signal}  |  ATR: {atr}"
         )
 
-        # Calcolo TP e SL intelligenti con conferma timeframe 15m
-        commissione = 0.1
-        profitto_minimo = 0.5
-        margine_totale = spread + (2 * commissione) + profitto_minimo
+        # Calcolo TP e SL solo se il segnale è ancora BUY o SELL
         tp = sl = 0.0
         if segnale in ["BUY", "SELL"]:
+            commissione = 0.1
+            profitto_minimo = 0.5
+            margine_totale = spread + (2 * commissione) + profitto_minimo
             tp = round(close * (1 + margine_totale / 100), 4) if segnale == "BUY" else round(close * (1 - margine_totale / 100), 4)
-            
+
             if segnale_15m == segnale:
                 ultime3 = h15.tail(3)
                 if segnale == "BUY":
@@ -101,7 +102,7 @@ def analyze(symbol: str):
             else:
                 sl = round(close - atr * 1.2, 4) if segnale == "BUY" else round(close + atr * 1.2, 4)
                 note += "\n⏳ SL in attesa: nessuna conferma su 15m"
-        
+
         tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
         sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
 
@@ -116,7 +117,6 @@ def analyze(symbol: str):
                     f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
-                
             else:
                 commento = (
                     f"🟢 BUY confermato | {symbol.upper()} @ {close}$\n"
@@ -131,7 +131,6 @@ def analyze(symbol: str):
                     f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
-                
             else:
                 commento = (
                     f"🔴 SELL confermato | {symbol.upper()} @ {close}$\n"
@@ -152,7 +151,7 @@ def analyze(symbol: str):
                 f"{ritardo}"
             )
             commento = "\n".join([header, corpo])
-            
+
         print(f"✅ RESTITUZIONE → TP: {tp}, SL: {sl}, Segnale: {segnale}, Timeframe: {timeframe}")
         return SignalResponse(
             segnale=segnale,
