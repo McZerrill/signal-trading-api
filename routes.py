@@ -154,8 +154,8 @@ def analyze(symbol: str):
                 f"{ritardo}"
             )
             commento = "\n".join([header, corpo])
-            print(f"🔍 DEBUG HOLD → TP: {tp}, SL: {sl}, Segnale: {segnale}, Timeframe: {timeframe}")
-        print(f"✅ RESTITUZIONE → TP: {tp}, SL: {sl}, Segnale: {segnale}, Timeframe: {timeframe}")
+            print(f"🛠 DEBUG HOLD → TP: {tp}, SL: {sl}, Segnale: {segnale}, Timeframe: {timeframe}")
+        
         return SignalResponse(
             segnale=segnale,
             commento="\n".join([r.strip() for r in commento.splitlines() if r.strip()]),
