@@ -1,7 +1,6 @@
 # models.py
 
 from pydantic import BaseModel
-from typing import Optional
 
 class SignalResponse(BaseModel):
     segnale: str
