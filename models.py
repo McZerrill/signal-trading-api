@@ -7,8 +7,8 @@ class SignalResponse(BaseModel):
     segnale: str
     commento: str
     prezzo: float
-    take_profit: Optional[float] = None
-    stop_loss: Optional[float] = None
+    take_profit: float
+    stop_loss: float
     rsi: float
     macd: float
     macd_signal: float
