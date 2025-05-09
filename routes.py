@@ -47,6 +47,13 @@ def analyze(symbol: str):
             segnale, hist, distanza, note, tp, sl, supporto = segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1
             timeframe = "1m"
 
+        if segnale in ["BUY", "SELL"]:
+            if (segnale == "BUY" and segnale_15m == "SELL") or (segnale == "SELL" and segnale_15m == "BUY"):
+                note += f"\n\u26a0\ufe0f Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
+                segnale = "HOLD"
+            elif segnale_15m == segnale:
+                note += "\n🧭 Segnale confermato anche su 15m"
+
         ultima_candela = hist.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
         orario_utc = ultima_candela.strftime("%H:%M UTC")
         orario_roma = ultima_candela.astimezone(timezone("Europe/Rome")).strftime("%H:%M ora italiana")
@@ -58,7 +65,7 @@ def analyze(symbol: str):
         book = get_bid_ask(symbol)
         spread = book["spread"]
         with open("log.txt", "a") as f:
-            f.write(f"\U0001F4CA Spread calcolato per {symbol}: {spread}\n")
+            f.write(f"📊 Spread calcolato per {symbol}: {spread}\n")
 
         rsi = round(ultimo['RSI'], 2)
         ema7 = round(ultimo['EMA_7'], 2)
@@ -73,59 +80,64 @@ def analyze(symbol: str):
             f"MACD: {macd}/{macd_signal}  |  ATR: {atr}"
         )
 
-        # Calcolo TP/SL immediati per BUY/SELL
+        # Calcolo TP e SL intelligenti con conferma timeframe 15m
         commissione = 0.1
         profitto_minimo = 0.5
         margine_totale = spread + (2 * commissione) + profitto_minimo
 
-        tp = sl = 0.0
-        if segnale == "BUY":
-            tp = round(close * (1 + margine_totale / 100), 4)
-            sl = round(close - atr * 1.2, 4)
-        elif segnale == "SELL":
-            tp = round(close * (1 - margine_totale / 100), 4)
-            sl = round(close + atr * 1.2, 4)
-
-        # Controllo coerenza con 15m solo per decidere HOLD
         if segnale in ["BUY", "SELL"]:
-            if (segnale == "BUY" and segnale_15m == "SELL") or (segnale == "SELL" and segnale_15m == "BUY"):
-                note += f"\n\u26a0\ufe0f Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
-                segnale = "HOLD"
-            elif segnale == segnale_15m:
-                note += "\n\U0001F9ED Segnale confermato anche su 15m"
+            tp = round(close * (1 + margine_totale / 100), 4) if segnale == "BUY" else round(close * (1 - margine_totale / 100), 4)
+
+            if segnale_15m == segnale:
+                ultime3 = h15.tail(3)
+                if segnale == "BUY":
+                    min_candele = ultime3['low'].min()
+                    sl_ema = min(ultimo['EMA_25'], ultimo['EMA_99'])
+                    sl = round(min(min_candele, sl_ema), 4)
+                else:
+                    max_candele = ultime3['high'].max()
+                    sl_ema = max(ultimo['EMA_25'], ultimo['EMA_99'])
+                    sl = round(max(max_candele, sl_ema), 4)
+            else:
+                sl = 0.0
+                note += "\n⏳ SL in attesa: nessuna conferma su 15m"
+        else:
+            tp = sl = 0.0
 
         tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
         sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
 
         note_str = note.lower() if isinstance(note, str) else "\n".join(note).lower()
-        if "\U0001F4A5" in note_str:
-            base_dati = "\U0001F4A5 BREAKOUT rilevato\n" + base_dati
+        if "💥" in note_str:
+            base_dati = "💥 BREAKOUT rilevato\n" + base_dati
 
         if segnale == "BUY":
             if "anticipato" in note_str:
                 commento = (
-                    f"\u26A1 BUY anticipato | {symbol.upper()} @ {close}$\n"
+                    f"\u26a1 BUY anticipato | {symbol.upper()} @ {close}$\n"
                     f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
+                tp, sl = 0.0, 0.0
             else:
                 commento = (
-                    f"\U0001F7E2 BUY confermato | {symbol.upper()} @ {close}$\n"
-                    f"\U0001F3AF TP: {tp} ({tp_pct}%)   \U0001F6E1 SL: {sl} ({sl_pct}%)\n"
+                    f"🟢 BUY confermato | {symbol.upper()} @ {close}$\n"
+                    f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
 
         elif segnale == "SELL":
             if "anticipato" in note_str:
                 commento = (
-                    f"\u26A1 SELL anticipato | {symbol.upper()} @ {close}$\n"
+                    f"⚡ SELL anticipato | {symbol.upper()} @ {close}$\n"
                     f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
+                tp, sl = 0.0, 0.0
             else:
                 commento = (
-                    f"\U0001F534 SELL confermato | {symbol.upper()} @ {close}$\n"
-                    f"\U0001F3AF TP: {tp} ({tp_pct}%)   \U0001F6E1 SL: {sl} ({sl_pct}%)\n"
+                    f"🔴 SELL confermato | {symbol.upper()} @ {close}$\n"
+                    f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
 
@@ -133,11 +145,12 @@ def analyze(symbol: str):
             if isinstance(note, list):
                 note = "\n".join(note)
 
-            header = f"\U0001F6C1 HOLD | {symbol.upper()} @ {close}$"
+            note_str = note.lower() if isinstance(note, str) else ""
+            header = f"🛁 HOLD | {symbol.upper()} @ {close}$"
             corpo = (
                 f"{base_dati}\n"
-                f"\U0001F4C9 Supporto: {supporto}$\n"
-                f"{'\u26A0\ufe0f Nessuna condizione forte rilevata' if 'trend' not in note_str else note}\n"
+                f"📉 Supporto: {supporto}$\n"
+                f"{'\u26a0\ufe0f Nessuna condizione forte rilevata' if 'trend' not in note_str else note}\n"
                 f"{ritardo}"
             )
             commento = "\n".join([header, corpo])
@@ -177,6 +190,7 @@ def analyze(symbol: str):
             timeframe="",
             spread=0.0
         )
+
 _hot_cache = {"time": 0, "data": []}
 
 _filtro_log = {
