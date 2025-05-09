@@ -88,15 +88,15 @@ def analyze(symbol: str):
 
             try:
                 atr = max(atr, 0.001)  # prevenzione divisione per zero
-                rischio_percentuale = max((atr * 1.5 / close) * 100, 1.0)
+                rischio_percentuale = max((atr * 2 / close) * 100, 1.2)
             except:
-                rischio_percentuale = 1.0
+                rischio_percentuale = 1.5
 
             # 🔁 Adatta il rapporto rischio/guadagno in base alla volatilità
-            if atr < 0.005:
-                rapporto_rr = 1.5
-            elif atr > 0.015:
-                rapporto_rr = 2.5
+            if atr < 0.004:
+                rapporto_rr = 1.3
+            elif atr > 0.2:
+                rapporto_rr = 2.8
             else:
                 rapporto_rr = 2.0
 
@@ -107,9 +107,9 @@ def analyze(symbol: str):
                 close * (1 + rischio_percentuale / 100), 4
             )
 
-            # ✅ Calcolo TP adattivo, limitato a max 5%
+            # ✅ Calcolo TP adattivo, limitato a max 4.5%
             tp_percentuale = rischio_percentuale * rapporto_rr + margine_fisso
-            tp_percentuale = min(tp_percentuale, 5.0)
+            tp_percentuale = min(tp_percentuale, 4.5)
 
             tp = round(
                 close * (1 + tp_percentuale / 100), 4
