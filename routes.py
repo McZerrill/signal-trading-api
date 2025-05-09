@@ -99,10 +99,10 @@ def analyze(symbol: str):
                     sl_ema = max(ultimo['EMA_25'], ultimo['EMA_99'])
                     sl = round(max(max_candele, sl_ema), 4)
             else:
-                sl = 0.0
+                sl = None
                 note += "\n⏳ SL in attesa: nessuna conferma su 15m"
         else:
-            tp = sl = 0.0
+            tp = sl = None
 
         tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
         sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
@@ -118,7 +118,7 @@ def analyze(symbol: str):
                     f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
-                tp, sl = 0.0, 0.0
+                tp, sl = None, None
             else:
                 commento = (
                     f"🟢 BUY confermato | {symbol.upper()} @ {close}$\n"
@@ -133,7 +133,7 @@ def analyze(symbol: str):
                     f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
-                tp, sl = 0.0, 0.0
+                tp, sl = None, None
             else:
                 commento = (
                     f"🔴 SELL confermato | {symbol.upper()} @ {close}$\n"
