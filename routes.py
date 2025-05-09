@@ -100,7 +100,8 @@ def analyze(symbol: str):
                 note += "\n🧭 Segnale confermato anche su 15m"
             else:
                 tp = sl = 0.0
-                note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
+                segnale = "HOLD"  # impedisce simulazione
+                note += f"\n⚠️ Segnale non confermato su 15m (15m = {segnale_15m})"
         else:
             tp = sl = 0.0
 
