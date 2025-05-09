@@ -1,13 +1,14 @@
 # models.py
 
 from pydantic import BaseModel
+from typing import Optional
 
 class SignalResponse(BaseModel):
     segnale: str
     commento: str
     prezzo: float
-    take_profit: float
-    stop_loss: float
+    take_profit: Optional[float] = None
+    stop_loss: Optional[float] = None
     rsi: float
     macd: float
     macd_signal: float
