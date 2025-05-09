@@ -80,27 +80,24 @@ def analyze(symbol: str):
             f"MACD: {macd}/{macd_signal}  |  ATR: {atr}"
         )
 
-        # Calcolo TP e SL intelligenti con conferma timeframe 15m
-        commissione = 0.1
-        profitto_minimo = 0.5
+        # Calcolo TP e SL sempre, anche senza conferma su 15m
+        commissione = 0.1       # percentuale
+        profitto_minimo = 0.5   # guadagno minimo desiderato
+        rapporto_rr = 2.0       # rischio/guadagno minimo
         margine_totale = spread + (2 * commissione) + profitto_minimo
 
         if segnale in ["BUY", "SELL"]:
+            # TP fisso intelligente basato su margine minimo
             tp = round(close * (1 + margine_totale / 100), 4) if segnale == "BUY" else round(close * (1 - margine_totale / 100), 4)
-
+            
+            # SL basato su ATR → 1.5x volatilità, soglia minima 1%
+            rischio_percentuale = max((atr * 1.5 / close) * 100, 1.0)
+            sl = round(close * (1 - rischio_percentuale / 100), 4) if segnale == "BUY" else round(close * (1 + rischio_percentuale / 100), 4)
+    
             if segnale_15m == segnale:
-                ultime3 = h15.tail(3)
-                if segnale == "BUY":
-                    min_candele = ultime3['low'].min()
-                    sl_ema = min(ultimo['EMA_25'], ultimo['EMA_99'])
-                    sl = round(min(min_candele, sl_ema), 4)
-                else:
-                    max_candele = ultime3['high'].max()
-                    sl_ema = max(ultimo['EMA_25'], ultimo['EMA_99'])
-                    sl = round(max(max_candele, sl_ema), 4)
+                note += "\n🧭 Segnale confermato anche su 15m"
             else:
-                sl = 0.0
-                note += "\n⏳ SL in attesa: nessuna conferma su 15m"
+                note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
         else:
             tp = sl = 0.0
 
