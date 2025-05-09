@@ -83,7 +83,6 @@ def analyze(symbol: str):
         # Calcolo TP e SL sempre, anche senza conferma su 15m
     
         if segnale in ["BUY", "SELL"]:
-            if segnale_15m == segnale:
                 
                 commissione = 0.1       # percentuale
                 profitto_minimo = 0.5   # guadagno minimo desiderato
@@ -92,16 +91,14 @@ def analyze(symbol: str):
             
                 # TP fisso intelligente basato su margine minimo
                 tp = round(close * (1 + margine_totale / 100), 4) if segnale == "BUY" else round(close * (1 - margine_totale / 100), 4)
-            
                 # SL basato su ATR → 1.5x volatilità, soglia minima 1%
                 rischio_percentuale = max((atr * 1.5 / close) * 100, 1.0)
                 sl = round(close * (1 - rischio_percentuale / 100), 4) if segnale == "BUY" else round(close * (1 + rischio_percentuale / 100), 4)
-    
+
+            if segnale_15m == segnale:
                 note += "\n🧭 Segnale confermato anche su 15m"
             else:
-                tp = sl = 0.0
-                segnale = "HOLD"  # impedisce simulazione
-                note += f"\n⚠️ Segnale non confermato su 15m (15m = {segnale_15m})"
+                note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
         else:
             tp = sl = 0.0
 
