@@ -95,10 +95,10 @@ def analyze(symbol: str):
                 rischio_percentuale = max((atr * 1.5 / close) * 100, 1.0)
                 sl = round(close * (1 - rischio_percentuale / 100), 4) if segnale == "BUY" else round(close * (1 + rischio_percentuale / 100), 4)
 
-            if segnale_15m == segnale:
-                note += "\n🧭 Segnale confermato anche su 15m"
-            else:
-                note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
+                if segnale_15m == segnale:
+                    note += "\n🧭 Segnale confermato anche su 15m"
+                else:
+                    note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
         else:
             tp = sl = 0.0
 
