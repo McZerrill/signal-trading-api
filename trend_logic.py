@@ -116,8 +116,14 @@ def analizza_trend(hist: pd.DataFrame):
     # --- BUY completo avanzato ---
     if (
         (penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99']
-         and trend_up and dist_diff > 0 and rsi > 58 and macd > macd_signal
-         and macd > 0.002 and candele_trend_up >= 3 and atr > 0.002 and abs(macd - macd_signal) > 0.0005)
+         and trend_up 
+         and dist_diff > 0 
+         and rsi > 55 
+         and macd > macd_signal
+         and macd > 0.0015 
+         and candele_trend_up >= 2 
+         and atr > 0.001 
+         and abs(macd - macd_signal) > 0.0005)
     ):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
@@ -127,8 +133,14 @@ def analizza_trend(hist: pd.DataFrame):
     # --- SELL completo avanzato ---
     elif (
         (penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99']
-         and trend_down and dist_diff > 0 and rsi < 42 and macd < macd_signal
-         and macd < -0.002 and candele_trend_down >= 3 and atr > 0.002 and abs(macd - macd_signal) > 0.0005)
+         and trend_down 
+         and dist_diff > 0 
+         and rsi < 45 
+         and macd < macd_signal
+         and macd < -0.0015 
+         and candele_trend_down >= 2 
+         and atr > 0.001 
+         and abs(macd - macd_signal) > 0.0005)
     ):
         segnale = "SELL"
         tp = round(close - atr * 1.5, 4)
