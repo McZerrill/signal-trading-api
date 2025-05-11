@@ -210,6 +210,33 @@ def analyze(symbol: str):
             timeframe="",
             spread=0.0
         )
+        
+@router.get("/price")
+def get_price(symbol: str):
+    try:
+        from binance_api import get_binance_df, get_bid_ask
+
+        df = get_binance_df(symbol, "1m", 10)
+        if df.empty:
+            raise Exception("Nessun dato ricevuto")
+
+        close = round(df["close"].iloc[-1], 4)
+        book = get_bid_ask(symbol)
+        spread = book["spread"]
+
+        return {
+            "symbol": symbol,
+            "prezzo": close,
+            "spread": spread
+        }
+
+    except Exception as e:
+        return {
+            "symbol": symbol,
+            "prezzo": 0.0,
+            "spread": 0.0,
+            "errore": str(e)
+        }
 
 _hot_cache = {"time": 0, "data": []}
 
