@@ -138,7 +138,7 @@ def analyze(symbol: str):
                     f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
-                tp, sl = 0.0, 0.0
+                
             else:
                 commento = (
                     f"🟢 BUY confermato | {symbol.upper()} @ {close}$\n"
@@ -153,7 +153,7 @@ def analyze(symbol: str):
                     f"\U0001F3AF Target stimato: {tp} ({tp_pct}%)   \U0001F6E1 Stop: {sl} ({sl_pct}%)\n"
                     f"{base_dati}\n{note}\n{ritardo}"
                 )
-                tp, sl = 0.0, 0.0
+                
             else:
                 commento = (
                     f"🔴 SELL confermato | {symbol.upper()} @ {close}$\n"
