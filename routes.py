@@ -88,7 +88,7 @@ def analyze(symbol: str):
 
             try:
                 atr = max(atr, 0.001)  # prevenzione divisione per zero
-                rischio_percentuale = max((atr * 2 / close) * 100, 1.2)
+                rischio_percentuale = max((atr * 3 / close) * 100, 1.2)
             except:
                 rischio_percentuale = 1.5
 
