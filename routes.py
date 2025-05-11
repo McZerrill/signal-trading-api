@@ -213,27 +213,20 @@ def analyze(symbol: str):
         
 @router.get("/price")
 def get_price(symbol: str):
-    from binance_api import get_binance_df, get_bid_ask
-
     try:
-        df = get_binance_df(symbol, "1m", 10)
-        if df.empty or len(df) < 5:
-            # Fallback: usa bid/ask direttamente se non ci sono abbastanza candele
-            book = get_bid_ask(symbol)
-            return {
-                "symbol": symbol,
-                "prezzo": book["bid"],
-                "spread": book["spread"],
-                "note": "Fallback: usato bid/ask"
-            }
+        url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
+        response = requests.get(url, timeout=3)
+        data = response.json()
 
-        close = round(df["close"].iloc[-1], 4)
-        book = get_bid_ask(symbol)
+        bid = float(data["bidPrice"])
+        ask = float(data["askPrice"])
+        spread = (ask - bid) / ((ask + bid) / 2) * 100
+        prezzo = round((bid + ask) / 2, 4)
 
         return {
             "symbol": symbol,
-            "prezzo": close,
-            "spread": book["spread"]
+            "prezzo": prezzo,
+            "spread": round(spread, 4)
         }
 
     except Exception as e:
