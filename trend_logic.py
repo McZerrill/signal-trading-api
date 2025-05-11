@@ -128,7 +128,6 @@ def analizza_trend(hist: pd.DataFrame):
     # --- SELL completo avanzato ---
     elif (
         (penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99']
-         (penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99'] 
          and trend_down and dist_diff > 0 and rsi < 44 and macd < macd_signal 
          and macd < -0.001 and 2 <= candele_trend_down <= 6) 
         or (trend_down and candele_trend_down in [3, 4] and rsi < 44 and macd < macd_signal and dist_diff > 0)         
