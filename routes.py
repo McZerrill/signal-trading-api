@@ -217,8 +217,9 @@ def get_price(symbol: str):
         from binance_api import get_binance_df, get_bid_ask
 
         df = get_binance_df(symbol, "1m", 10)
-        if df.empty:
-            raise Exception("Nessun dato ricevuto")
+        if df.empty or len(df) < 5:
+            raise Exception(f"Poche candele disponibili per {symbol}: {len(df)}")
+
 
         close = round(df["close"].iloc[-1], 4)
         book = get_bid_ask(symbol)
