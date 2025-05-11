@@ -213,22 +213,27 @@ def analyze(symbol: str):
         
 @router.get("/price")
 def get_price(symbol: str):
-    try:
-        from binance_api import get_binance_df, get_bid_ask
+    from binance_api import get_binance_df, get_bid_ask
 
+    try:
         df = get_binance_df(symbol, "1m", 10)
         if df.empty or len(df) < 5:
-            raise Exception(f"Poche candele disponibili per {symbol}: {len(df)}")
-
+            # Fallback: usa bid/ask direttamente se non ci sono abbastanza candele
+            book = get_bid_ask(symbol)
+            return {
+                "symbol": symbol,
+                "prezzo": book["bid"],
+                "spread": book["spread"],
+                "note": "Fallback: usato bid/ask"
+            }
 
         close = round(df["close"].iloc[-1], 4)
         book = get_bid_ask(symbol)
-        spread = book["spread"]
 
         return {
             "symbol": symbol,
             "prezzo": close,
-            "spread": spread
+            "spread": book["spread"]
         }
 
     except Exception as e:
