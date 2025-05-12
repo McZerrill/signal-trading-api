@@ -228,7 +228,7 @@ def get_price(symbol: str):
         prezzo = round((bid + ask) / 2, 4)
 
         elapsed = round(time.time() - start, 3)
-        print(f"✅ /price {symbol} risposto in {elapsed} sec")
+        print(f"✅ /price {symbol} ➜ prezzo: {prezzo}, spread: {spread:.4f}% (risposto in {elapsed}s)")
 
         return {
             "symbol": symbol,
