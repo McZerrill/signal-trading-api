@@ -11,6 +11,8 @@ from indicators import calcola_rsi, calcola_macd, calcola_atr  # se usi anche qu
 from models import SignalResponse
 import pandas as pd
 from binance_api import get_bid_ask
+import requests
+
 
 
 router = APIRouter()
