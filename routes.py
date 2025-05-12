@@ -228,7 +228,7 @@ def get_price(symbol: str):
         prezzo = round((bid + ask) / 2, 4)
 
         elapsed = round(time.time() - start, 3)
-        print(f"✅ /price {symbol} ➜ prezzo: {prezzo}, spread: {spread:.4f}% (risposto in {elapsed}s)")
+        print(f"/price {symbol} ➜ prezzo: {prezzo}, spread: {spread:.4f}% (risposto in {elapsed}s)")
 
         return {
             "symbol": symbol,
@@ -239,7 +239,7 @@ def get_price(symbol: str):
 
     except Exception as e:
         elapsed = round(time.time() - start, 3)
-        print(f"❌ /price {symbol} errore in {elapsed} sec: {e}")
+        print(f"/price {symbol} ERRORE: {e} (in {elapsed}s)")
         return {
             "symbol": symbol,
             "prezzo": 0.0,
