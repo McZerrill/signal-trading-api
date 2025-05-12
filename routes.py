@@ -213,6 +213,8 @@ def analyze(symbol: str):
         
 @router.get("/price")
 def get_price(symbol: str):
+    import time
+    start = time.time()
     try:
         url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
         response = requests.get(url, timeout=3)
@@ -223,18 +225,25 @@ def get_price(symbol: str):
         spread = (ask - bid) / ((ask + bid) / 2) * 100
         prezzo = round((bid + ask) / 2, 4)
 
+        elapsed = round(time.time() - start, 3)
+        print(f"✅ /price {symbol} risposto in {elapsed} sec")
+
         return {
             "symbol": symbol,
             "prezzo": prezzo,
-            "spread": round(spread, 4)
+            "spread": round(spread, 4),
+            "tempo": elapsed
         }
 
     except Exception as e:
+        elapsed = round(time.time() - start, 3)
+        print(f"❌ /price {symbol} errore in {elapsed} sec: {e}")
         return {
             "symbol": symbol,
             "prezzo": 0.0,
             "spread": 0.0,
-            "errore": str(e)
+            "errore": str(e),
+            "tempo": elapsed
         }
 
 _hot_cache = {"time": 0, "data": []}
