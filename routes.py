@@ -85,7 +85,7 @@ def analyze(symbol: str):
         # Calcolo TP e SL sempre, anche senza conferma su 15m
         if segnale in ["BUY", "SELL"]:
             commissione = 0.1       # percentuale
-            profitto_minimo = 0.2   # guadagno minimo desiderato
+            profitto_minimo = 0.3   # guadagno minimo desiderato
             margine_fisso = spread + (2 * commissione) + profitto_minimo
 
             try:
@@ -96,7 +96,7 @@ def analyze(symbol: str):
 
             # 🔁 Adatta il rapporto rischio/guadagno in base alla volatilità
             if atr < 0.004:
-                rapporto_rr = 1.1
+                rapporto_rr = 1.2
             elif atr > 0.2:
                 rapporto_rr = 2.0
             else:
@@ -111,7 +111,7 @@ def analyze(symbol: str):
 
             # ✅ Calcolo TP adattivo, limitato a max 4.5%
             tp_percentuale = rischio_percentuale * rapporto_rr + margine_fisso
-            tp_percentuale = min(tp_percentuale, 2.0)
+            tp_percentuale = min(tp_percentuale, 1.8)
 
             tp = round(
                 close * (1 + tp_percentuale / 100), 4
