@@ -64,8 +64,28 @@ def analyze(symbol: str):
 
         ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
+        if close <= 0:
+            raise ValueError(f"Prezzo di chiusura nullo o non valido per {symbol}: close={close}")
         book = get_bid_ask(symbol)
         spread = book["spread"]
+        if spread > 5.0:
+            note += f"\n⚠️ Spread troppo elevato: {spread:.2f}% — segnale ignorato"
+            return SignalResponse(
+                segnale="HOLD",
+                commento=f"Simulazione ignorata per {symbol.upper()} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
+                prezzo=close,
+                take_profit=0.0,
+                stop_loss=0.0,
+                rsi=0.0,
+                macd=0.0,
+                macd_signal=0.0,
+                atr=0.0,
+                ema7=0.0,
+                ema25=0.0,
+                ema99=0.0,
+                timeframe="",
+                spread=spread
+             )
         with open("log.txt", "a") as f:
             f.write(f"📊 Spread calcolato per {symbol}: {spread}\n")
 
@@ -224,6 +244,10 @@ def get_price(symbol: str):
 
         bid = float(data["bidPrice"])
         ask = float(data["askPrice"])
+        # Protezione contro valori non validi
+        if bid <= 0 or ask <= 0:
+            raise ValueError(f"Prezzo non valido: bid={bid}, ask={ask}")
+
         spread = (ask - bid) / ((ask + bid) / 2) * 100
         prezzo = round((bid + ask) / 2, 4)
 
@@ -297,6 +321,8 @@ def hot_assets():
             macd_signal = df["MACD_SIGNAL"].iloc[-1]
             raw_atr = df["ATR"].iloc[-1]
             prezzo = df["close"].iloc[-1]
+            if prezzo <= 0:
+                continue  # Ignora asset con prezzo nullo o negativo
 
             if pd.isna(raw_atr) or raw_atr < 0.001:
                 _filtro_log["atr"] += 1
