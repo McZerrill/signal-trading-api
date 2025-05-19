@@ -109,18 +109,18 @@ def analyze(symbol: str):
             margine_fisso = spread + (2 * commissione) + profitto_minimo
 
             try:
-                atr = max(atr, 0.001)  # prevenzione divisione per zero
-                rischio_percentuale = max((atr * 3 / close) * 100, 1.2)
+                atr = max(atr, 0.0008)  # prevenzione divisione per zero
+                rischio_percentuale = max((atr * 2.5 / close) * 100, 1)
             except:
-                rischio_percentuale = 1.5
+                rischio_percentuale = 1.2
 
             # 🔁 Adatta il rapporto rischio/guadagno in base alla volatilità
-            if atr < 0.004:
-                rapporto_rr = 1.2
+            if atr < 0.003:
+                rapporto_rr = 1.1
             elif atr > 0.2:
                 rapporto_rr = 2.0
             else:
-                rapporto_rr = 1.6
+                rapporto_rr = 1.4
 
             # ✅ Calcolo SL
             sl = round(
