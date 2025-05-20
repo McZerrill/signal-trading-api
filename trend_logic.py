@@ -120,10 +120,20 @@ def analizza_trend(hist: pd.DataFrame):
          and macd > 0.001 and 2 <= candele_trend_up <= 6) 
         or (trend_up and candele_trend_up in [3, 4] and rsi > 56 and macd > macd_signal and dist_diff > 0)
     ):
-        segnale = "BUY"
-        tp = round(close + atr * 1.5, 4)
-        sl = round(close - atr * 1.2, 4)
-        note.append("✅ BUY confermato con breakout e allargamento EMA" if breakout_confirmato else "✅ BUY confermato senza breakout ma con allargamento EMA")
+           # --- BUY completo avanzato ---
+    if (
+        (penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99']
+         and trend_up and dist_diff > 0 and rsi > 56 and macd > macd_signal 
+         and macd > 0.001 and 2 <= candele_trend_up <= 6) 
+        or (trend_up and candele_trend_up in [3, 4] and rsi > 56 and macd > macd_signal and dist_diff > 0)
+    ):
+        if atr < 0.002 or abs(ema7 - ema25) < 0.0005 or abs(ema25 - ema99) < 0.0005:
+            note.append("⚠️ BUY ignorato: volatilità o distanza EMA troppo bassa")
+        else:
+            segnale = "BUY"
+            tp = round(close + atr * 1.5, 4)
+            sl = round(close - atr * 1.2, 4)
+            note.append("✅ BUY confermato con breakout e allargamento EMA" if breakout_confirmato else "✅ BUY confermato senza breakout ma con allargamento EMA")
 
     # --- SELL completo avanzato ---
     elif (
@@ -132,10 +142,13 @@ def analizza_trend(hist: pd.DataFrame):
          and macd < -0.001 and 2 <= candele_trend_down <= 6) 
         or (trend_down and candele_trend_down in [3, 4] and rsi < 44 and macd < macd_signal and dist_diff > 0)         
     ):
-        segnale = "SELL"
-        tp = round(close - atr * 1.5, 4)
-        sl = round(close + atr * 1.2, 4)
-        note.append("✅ SELL confermato con breakout e allargamento EMA" if breakout_confirmato else "✅ SELL confermato senza breakout ma con allargamento EMA")
+        if atr < 0.002 or abs(ema7 - ema25) < 0.0005 or abs(ema25 - ema99) < 0.0005:
+            note.append("⚠️ SELL ignorato: volatilità o distanza EMA troppo bassa")
+        else:
+            segnale = "SELL"
+            tp = round(close - atr * 1.5, 4)
+            sl = round(close + atr * 1.2, 4)
+            note.append("✅ SELL confermato con breakout e allargamento EMA" if breakout_confirmato else "✅ SELL confermato senza breakout ma con allargamento EMA")
 
     # --- Presegnali e incroci EMA ---
     else:
