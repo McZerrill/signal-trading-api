@@ -329,15 +329,18 @@ def hot_assets():
                 continue
             atr = round(raw_atr, 4)
 
-            if abs(ema7 - ema99) / ema99 < 0.002:
+            # Filtro su distanza EMA: più tollerante per asset ad alto prezzo
+            distanza_relativa = abs(ema7 - ema99) / ema99
+            if distanza_relativa < 0.0015 and prezzo < 1000:
                 _filtro_log["ema_flat"] += 1
                 continue
-
-            if df["close"].diff().abs().tail(10).sum() < 0.001:
+            # Filtro su variazione prezzo: salta se il prezzo è alto
+            oscillazione = df["close"].diff().abs().tail(10).sum()
+            if oscillazione < 0.001 and prezzo < 50:
                 _filtro_log["prezzo_piattissimo"] += 1
                 continue
-
-            if abs(macd - macd_signal) < 0.0005 and 48 < rsi < 52:
+            # Filtro su MACD e RSI neutri: solo se EMA sono piatte e tutto è "piatto"
+            if abs(macd - macd_signal) < 0.0005 and 48 < rsi < 52 and distanza_relativa < 0.0015:
                 _filtro_log["macd_rsi_neutri"] += 1
                 continue
 
