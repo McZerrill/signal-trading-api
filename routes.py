@@ -33,11 +33,9 @@ def analyze(symbol: str):
         segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5 = analizza_trend(df_5m)
         segnale_15m, h15, *_ = analizza_trend(df_15m)
 
-        # Imposta base sul 1m
         segnale, hist, distanza, note, tp, sl, supporto = segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1
         timeframe = "1m"
 
-        # Conferma con 5m
         if segnale in ["BUY", "SELL"]:
             if segnale_5m != segnale:
                 note += f"\n⚠️ Segnale {segnale} non confermato su 5m (5m = {segnale_5m})"
@@ -45,7 +43,6 @@ def analyze(symbol: str):
             else:
                 note += "\n🧭 Segnale confermato anche su 5m"
 
-        # Se confermato su 5m, verifica se usare 5m come principale
         if segnale in ["BUY", "SELL"]:
             trend_1m = sum(1 for i in range(-10, 0) if h1['EMA_7'].iloc[i] > h1['EMA_25'].iloc[i] > h1['EMA_99'].iloc[i] or h1['EMA_7'].iloc[i] < h1['EMA_25'].iloc[i] < h1['EMA_99'].iloc[i])
             trend_5m = sum(1 for i in range(-10, 0) if h5['EMA_7'].iloc[i] > h5['EMA_25'].iloc[i] > h5['EMA_99'].iloc[i] or h5['EMA_7'].iloc[i] < h5['EMA_25'].iloc[i] < h5['EMA_99'].iloc[i])
@@ -53,7 +50,6 @@ def analyze(symbol: str):
                 segnale, hist, distanza, note, tp, sl, supporto = segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5
                 timeframe = "5m"
 
-        # Conferma con 15m
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_15m == "SELL") or (segnale == "SELL" and segnale_15m == "BUY"):
                 note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
@@ -61,7 +57,6 @@ def analyze(symbol: str):
             elif segnale_15m == segnale:
                 note += "\n🧭 Segnale confermato anche su 15m"
 
-        # Dati candele
         ultima_candela = hist.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
         orario_utc = ultima_candela.strftime("%H:%M UTC")
         orario_roma = ultima_candela.astimezone(timezone("Europe/Rome")).strftime("%H:%M ora italiana")
@@ -97,7 +92,6 @@ def analyze(symbol: str):
         with open("log.txt", "a") as f:
             f.write(f"📊 Spread calcolato per {symbol}: {spread}\n")
 
-        # Indicatori
         rsi = round(ultimo['RSI'], 2)
         ema7 = round(ultimo['EMA_7'], 2)
         ema25 = round(ultimo['EMA_25'], 2)
@@ -108,30 +102,44 @@ def analyze(symbol: str):
 
         base_dati = f"RSI: {rsi}  |  EMA: {ema7}/{ema25}/{ema99}\nMACD: {macd}/{macd_signal}  |  ATR: {atr}"
 
-        # Calcolo TP/SL
+        # ✅ BLOCCO MIGLIORATO
         if segnale in ["BUY", "SELL"]:
             commissione = 0.1
             profitto_minimo = 0.3
-            margine_fisso = spread + (2 * commissione) + profitto_minimo
-            try:
-                atr = max(atr, 0.0008)
-                rischio_pct = max((atr * 2.5 / close) * 100, 1)
-            except:
-                rischio_pct = 1.2
-            rapporto_rr = 1.1 if atr < 0.003 else 2.0 if atr > 0.2 else 1.4
-            sl = round(close * (1 - rischio_pct / 100), 4) if segnale == "BUY" else round(close * (1 + rischio_pct / 100), 4)
-            tp_pct = min(rischio_pct * rapporto_rr + margine_fisso, 1.8)
-            tp = round(close * (1 + tp_pct / 100), 4) if segnale == "BUY" else round(close * (1 - tp_pct / 100), 4)
+            margine_fisso = spread + 2 * commissione + profitto_minimo
+
+            atr = max(atr, 0.0008)
+            volatilita_pct = (atr / close) * 100
+            rapporto_rr = 1.2 if atr < 0.002 else 1.8 if atr > 0.05 else 1.5
+            rischio_pct = max(volatilita_pct * 1.1, 0.8)
+            max_tp_pct = 1.5 if timeframe == "1m" else 2.5 if timeframe == "5m" else 3.5
+            tp_pct = min(rischio_pct * rapporto_rr + margine_fisso, max_tp_pct)
+            sl_pct = tp_pct / rapporto_rr
+
+            if segnale == "BUY":
+                sl = round(close * (1 - sl_pct / 100), 4)
+                tp = round(close * (1 + tp_pct / 100), 4)
+            else:
+                sl = round(close * (1 + sl_pct / 100), 4)
+                tp = round(close * (1 - tp_pct / 100), 4)
         else:
             tp = sl = 0.0
 
-        tp_pct = round(((tp - close) / close) * 100, 1) if tp else 0.0
-        sl_pct = round(((sl - close) / close) * 100, 1) if sl else 0.0
+        # ✅ Percentuali corrette anche per SELL
+        if tp and sl:
+            if segnale == "BUY":
+                tp_pct = round(((tp - close) / close) * 100, 1)
+                sl_pct = round(((sl - close) / close) * 100, 1)
+            else:
+                tp_pct = round(((close - tp) / close) * 100, 1)
+                sl_pct = round(((sl - close) / close) * 100, 1)
+        else:
+            tp_pct = sl_pct = 0.0
+
         note_str = note.lower() if isinstance(note, str) else "\n".join(note).lower()
         if "💥" in note_str:
             base_dati = "💥 BREAKOUT rilevato\n" + base_dati
 
-        # Composizione commento
         if segnale == "BUY":
             header = "🟢 BUY confermato" if "anticipato" not in note_str else "⚡ BUY anticipato"
         elif segnale == "SELL":
