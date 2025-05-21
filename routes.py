@@ -112,8 +112,6 @@ def analyze(symbol: str):
             volatilita_pct = (atr / close) * 100
             rapporto_rr = 1.2 if atr < 0.002 else 1.8 if atr > 0.05 else 1.5
             rischio_pct = max(volatilita_pct * 1.1, 0.8)
-
-            # Target massimo adattivo in base al timeframe
             max_tp_pct = 1.5 if timeframe == "1m" else 2.5 if timeframe == "5m" else 3.5
             tp_pct = min(rischio_pct * rapporto_rr + margine_fisso, max_tp_pct)
             sl_pct = tp_pct / rapporto_rr
