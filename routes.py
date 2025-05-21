@@ -275,7 +275,7 @@ def hot_assets():
 
             # FILTRO VOLUME
             volume_medio = df["volume"].tail(20).mean()
-            if pd.isna(volume_medio) or volume_medio < 1000:
+            if pd.isna(volume_medio) or volume_medio < 500:
                 _filtro_log["volume_basso"] += 1
                 continue
 
