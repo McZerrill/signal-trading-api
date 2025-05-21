@@ -122,6 +122,11 @@ def analizza_trend(hist: pd.DataFrame, timeframe: str = "1m"):
             condizioni_buy = False
             note.append("⛔ BUY ignorato su 5m: trend troppo debole")
 
+        if abs(close - ema25) / ema25 > 0.01:
+            condizioni_buy = False
+            note.append("⚠️ Prezzo troppo distante dalle EMA: rischio di pullback")
+
+
     if condizioni_buy:
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
@@ -142,6 +147,10 @@ def analizza_trend(hist: pd.DataFrame, timeframe: str = "1m"):
         if timeframe == "5m" and candele_trend_down < 3:
             condizioni_sell = False
             note.append("⛔ SELL ignorato su 5m: trend troppo debole")
+
+        if abs(close - ema25) / ema25 > 0.01:
+            condizioni_sell = False
+            note.append("⚠️ Prezzo troppo distante dalle EMA: rischio di pullback")
 
     if condizioni_sell:
         segnale = "SELL"
