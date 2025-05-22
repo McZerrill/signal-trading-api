@@ -115,17 +115,35 @@ def analizza_trend(hist: pd.DataFrame, timeframe: str = "1m"):
     )
 
     if condizioni_buy:
+        # ⚠️ Filtro 1: distanza tra medie non in aumento
+        if dist_diff < 0:
+            condizioni_buy = False
+            note.append("⚠️ Trend in esaurimento: distanza EMA in calo")
+
+        # ⚠️ Filtro 2: volatilità o distanza tra EMA troppo bassa
         if atr < 0.002 or abs(ema7 - ema25) < 0.0005 or abs(ema25 - ema99) < 0.0005:
             condizioni_buy = False
             note.append("⚠️ BUY ignorato: volatilità o distanza EMA troppo bassa")
+
+        # ⚠️ Filtro 3: trend debole su timeframe maggiore
         if timeframe == "5m" and candele_trend_up < 3:
             condizioni_buy = False
             note.append("⛔ BUY ignorato su 5m: trend troppo debole")
 
+        # ⚠️ Filtro 4: prezzo troppo distante dalle EMA (pullback probabile)
         if abs(close - ema25) / ema25 > 0.01:
             condizioni_buy = False
             note.append("⚠️ Prezzo troppo distante dalle EMA: rischio di pullback")
 
+        # ⚠️ Filtro 5: breakout con volume insufficiente
+        if close > massimo_20 and volume_attuale < volume_medio * 1.2:
+            condizioni_buy = False
+            note.append("⚠️ Breakout con volume debole: rischio fakeout")
+
+        # ⚠️ Filtro 6: RSI troppo alto (climax)
+        if rsi > 78:
+            condizioni_buy = False
+            note.append("⚠️ RSI troppo alto: possibile esaurimento del trend")
 
     if condizioni_buy:
         segnale = "BUY"
@@ -141,9 +159,14 @@ def analizza_trend(hist: pd.DataFrame, timeframe: str = "1m"):
     )
 
     if condizioni_sell:
+        if dist_diff < 0:
+            condizioni_sell = False
+            note.append("⚠️ Trend in esaurimento: distanza EMA in calo")
+
         if atr < 0.002 or abs(ema7 - ema25) < 0.0005 or abs(ema25 - ema99) < 0.0005:
             condizioni_sell = False
             note.append("⚠️ SELL ignorato: volatilità o distanza EMA troppo bassa")
+
         if timeframe == "5m" and candele_trend_down < 3:
             condizioni_sell = False
             note.append("⛔ SELL ignorato su 5m: trend troppo debole")
@@ -151,6 +174,14 @@ def analizza_trend(hist: pd.DataFrame, timeframe: str = "1m"):
         if abs(close - ema25) / ema25 > 0.01:
             condizioni_sell = False
             note.append("⚠️ Prezzo troppo distante dalle EMA: rischio di pullback")
+
+        if close < minimo_20 and volume_attuale < volume_medio * 1.2:
+            condizioni_sell = False
+            note.append("⚠️ Breakout con volume debole: rischio fakeout")
+
+        if rsi < 22:
+            condizioni_sell = False
+            note.append("⚠️ RSI troppo basso: possibile rimbalzo tecnico")
 
     if condizioni_sell:
         segnale = "SELL"
