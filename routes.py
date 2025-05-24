@@ -107,9 +107,11 @@ def analyze(symbol: str):
             commissione = 0.1
             profitto_minimo = 0.3
             margine_fisso = spread + 2 * commissione + profitto_minimo
+            entry_price = close  
+
 
             atr = max(atr, 0.0008)
-            volatilita_pct = (atr / close) * 100
+            volatilita_pct = (atr / entry_price) * 100
             rapporto_rr = 1.2 if atr < 0.002 else 1.8 if atr > 0.05 else 1.5
             rischio_pct = max(volatilita_pct * 1.1, 0.8)
 
@@ -119,22 +121,22 @@ def analyze(symbol: str):
             sl_pct = tp_pct / rapporto_rr
 
             if segnale == "BUY":
-                sl = round(close * (1 - sl_pct / 100), 4)
-                tp = round(close * (1 + tp_pct / 100), 4)
+                sl = round(entry_price * (1 - sl_pct / 100), 4)
+                tp = round(entry_price * (1 + tp_pct / 100), 4)
             else:
-                sl = round(close * (1 + sl_pct / 100), 4)
-                tp = round(close * (1 - tp_pct / 100), 4)
+                sl = round(entry_price * (1 + sl_pct / 100), 4)
+                tp = round(entry_price * (1 - tp_pct / 100), 4)
         else:
             tp = sl = 0.0
 
         # ✅ Percentuali corrette anche per SELL
         if tp and sl:
             if segnale == "BUY":
-                tp_pct = round(((tp - close) / close) * 100, 1)
-                sl_pct = round(((sl - close) / close) * 100, 1)
+                tp_pct = round(((tp - entry_price) / entry_price) * 100, 1)
+                sl_pct = round(((sl - entry_price) / entry_price) * 100, 1)
             else:
-                tp_pct = round(((close - tp) / close) * 100, 1)
-                sl_pct = round(((sl - close) / close) * 100, 1)
+                tp_pct = round(((entry_price - tp) / entry_price) * 100, 1)
+                sl_pct = round(((sl - entry_price) / entry_price) * 100, 1)
         else:
             tp_pct = sl_pct = 0.0
             
