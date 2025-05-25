@@ -34,6 +34,28 @@ def analyze(symbol: str):
         segnale_15m, h15, *_ = analizza_trend(df_15m)
 
         segnale, hist, distanza, note, tp, sl, supporto = segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1
+
+        book = get_bid_ask(symbol)
+        spread = book["spread"]
+        
+        if segnale == "SELL":
+            return SignalResponse(
+                segnale="HOLD",
+                commento=f"🚫 Simulazione SELL disattivata temporaneamente per {symbol.upper()}.\n{note}",
+                prezzo=hist['close'].iloc[-1],
+                take_profit=0.0,
+                stop_loss=0.0,
+                rsi=round(hist['RSI'].iloc[-1], 2),
+                macd=round(hist['MACD'].iloc[-1], 4),
+                macd_signal=round(hist['MACD_SIGNAL'].iloc[-1], 4),
+                atr=round(hist['ATR'].iloc[-1], 2),
+                ema7=round(hist['EMA_7'].iloc[-1], 2),
+                ema25=round(hist['EMA_25'].iloc[-1], 2),
+                ema99=round(hist['EMA_99'].iloc[-1], 2),
+                timeframe="",
+                spread=spread
+            )
+
         timeframe = "1m"
 
         if segnale in ["BUY", "SELL"]:
@@ -68,8 +90,7 @@ def analyze(symbol: str):
         if close <= 0:
             raise ValueError(f"Prezzo di chiusura nullo o non valido per {symbol}: close={close}")
 
-        book = get_bid_ask(symbol)
-        spread = book["spread"]
+        
         if spread > 5.0:
             note += f"\n⚠️ Spread troppo elevato: {spread:.2f}% — segnale ignorato"
             return SignalResponse(
