@@ -138,8 +138,12 @@ def analyze(symbol: str):
 
             # Target massimo adattivo in base al timeframe
             max_tp_pct = 1.5 if timeframe == "1m" else 2.5 if timeframe == "5m" else 3.5
-            tp_pct = min(rischio_pct * rapporto_rr + margine_fisso, max_tp_pct)
+            # 🔁 TP più facilmente raggiungibile
+            tp_pct_originale = rischio_pct * rapporto_rr + margine_fisso
+            tp_pct = min(tp_pct_originale * 0.65, max_tp_pct)  # ridotto del 35%
             sl_pct = tp_pct / rapporto_rr
+            note += "\n🎯 TP ottimizzato per raggiungibilità più rapida"
+
 
             if segnale == "BUY":
                 sl = round(entry_price * (1 - sl_pct / 100), 4)
