@@ -122,7 +122,7 @@ def analizza_trend(hist: pd.DataFrame):
     )
 
     if condizioni_buy:
-        if atr < 0.0015 or abs(ema7 - ema25) < 0.0003 or abs(ema25 - ema99) < 0.0003:
+        if atr < 0.002 or abs(ema7 - ema25) < 0.0005 or abs(ema25 - ema99) < 0.0005:
             condizioni_buy = False
             note.append("⚠️ BUY ignorato: volatilità o distanza EMA troppo bassa")
 
