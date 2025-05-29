@@ -1,4 +1,3 @@
-
 import pandas as pd
 from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto, calcola_ema
 
@@ -43,7 +42,6 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     return ""
 
 def analizza_trend(hist: pd.DataFrame):
-    # --- Preparazione indicatori ---
     hist = hist.copy()
     ema = calcola_ema(hist, [7, 25, 99])
     hist['EMA_7'] = ema[7]
@@ -56,7 +54,6 @@ def analizza_trend(hist: pd.DataFrame):
     if len(hist) < 22:
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
 
-    # --- Valori attuali e precedenti ---
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
 
@@ -65,7 +62,6 @@ def analizza_trend(hist: pd.DataFrame):
     macd, macd_signal = ultimo['MACD'], ultimo['MACD_SIGNAL']
     supporto = calcola_supporto(hist)
 
-    # --- Calcoli distanza e trend ---
     dist_attuale = abs(ema7 - ema25) + abs(ema25 - ema99)
     dist_precedente = abs(penultimo['EMA_7'] - penultimo['EMA_25']) + abs(penultimo['EMA_25'] - penultimo['EMA_99'])
     dist_diff = dist_attuale - dist_precedente
@@ -80,24 +76,9 @@ def analizza_trend(hist: pd.DataFrame):
     trend_down = ema7 < ema25 < ema99
     candele_trend_up = conta_candele_trend(hist, rialzista=True)
     candele_trend_down = conta_candele_trend(hist, rialzista=False)
-
     pattern = riconosci_pattern_candela(hist)
 
-    # --- Classificazione forza MACD ---
-    macd_gap = macd - macd_signal
-    forza_macd = "neutro"
-    if abs(macd_gap) < 0.0001 and -0.001 < macd < 0.001:
-        forza_macd = "neutro"
-    elif macd_gap > 0 and macd < 0.002:
-        forza_macd = "buy_anticipato"
-    elif macd_gap > 0 and macd >= 0.002:
-        forza_macd = "buy_confermato"
-    elif macd_gap < 0 and macd > -0.002:
-        forza_macd = "sell_anticipato"
-    elif macd_gap < 0 and macd <= -0.002:
-        forza_macd = "sell_confermato"
-
-    # --- Logica Breakout ---
+    # Breakout logico
     massimo_20 = hist['high'].iloc[-21:-1].max()
     minimo_20 = hist['low'].iloc[-21:-1].min()
     volume_medio = hist['volume'].iloc[-21:-1].mean()
@@ -113,46 +94,40 @@ def analizza_trend(hist: pd.DataFrame):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume non sufficiente a confermare")
 
-    # --- BUY completo avanzato ---
+    # BUY conditions bilanciate con SELL
     condizioni_buy = (
         (penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99']
          and trend_up and dist_diff > 0 and rsi > 54 and macd > macd_signal 
-         and macd > 0.005 and 1 <= candele_trend_up <= 8) 
-        or (trend_up and candele_trend_up in range(1, 9) and rsi > 54 and macd > macd_signal and dist_diff > 0)
+         and macd > 0.0015 and 2 <= candele_trend_up <= 7)
+        or (trend_up and candele_trend_up in range(2, 8) and rsi > 54 and macd > macd_signal and dist_diff > 0)
     )
 
-    if condizioni_buy:
-        if atr < 0.002 or abs(ema7 - ema25) < 0.0005 or abs(ema25 - ema99) < 0.0005:
-            condizioni_buy = False
-            note.append("⚠️ BUY ignorato: volatilità o distanza EMA troppo bassa")
-
-    if condizioni_buy:
+    if condizioni_buy and atr >= 0.0015 and abs(ema7 - ema25) >= 0.0005:
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
         sl = round(close - atr * 1.2, 4)
         note.append("✅ BUY confermato con breakout e allargamento EMA" if breakout_confirmato else "✅ BUY confermato senza breakout ma con allargamento EMA")
+    elif condizioni_buy:
+        note.append("⚠️ BUY ignorato: volatilità o distanza EMA troppo bassa")
 
-    # --- SELL completo avanzato ---
+    # SELL conditions simmetriche
     condizioni_sell = (
         (penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99']
-         and trend_down and dist_diff > 0 and rsi < 44 and macd < macd_signal 
-         and macd < -0.001 and 2 <= candele_trend_down <= 6) 
-        or (trend_down and candele_trend_down in range(2, 7) and rsi < 44 and macd < macd_signal and dist_diff > 0)
+         and trend_down and dist_diff > 0 and rsi < 46 and macd < macd_signal 
+         and macd < -0.0015 and 2 <= candele_trend_down <= 7)
+        or (trend_down and candele_trend_down in range(2, 8) and rsi < 46 and macd < macd_signal and dist_diff > 0)
     )
 
-    if condizioni_sell:
-        if atr < 0.002 or abs(ema7 - ema25) < 0.0005 or abs(ema25 - ema99) < 0.0005:
-            condizioni_sell = False
-            note.append("⚠️ SELL ignorato: volatilità o distanza EMA troppo bassa")
-
-    if condizioni_sell:
+    if condizioni_sell and atr >= 0.0015 and abs(ema7 - ema25) >= 0.0005:
         segnale = "SELL"
         tp = round(close - atr * 1.5, 4)
         sl = round(close + atr * 1.2, 4)
         note.append("✅ SELL confermato con breakout e allargamento EMA" if breakout_confirmato else "✅ SELL confermato senza breakout ma con allargamento EMA")
+    elif condizioni_sell:
+        note.append("⚠️ SELL ignorato: volatilità o distanza EMA troppo bassa")
 
-    # --- Presegnali e incroci EMA ---
-    else:
+    # Presegnali
+    if segnale == "HOLD":
         if penultimo['EMA_7'] < penultimo['EMA_25'] and ema7 > ema25:
             if ema25 < ema99 and abs(ema7 - ema99) / ema99 < 0.015:
                 if rsi > 50: condizioni_verificate += 1
@@ -164,7 +139,7 @@ def analizza_trend(hist: pd.DataFrame):
                 if macd < macd_signal: condizioni_verificate += 1
                 note.append("🔴 Presegnale SELL: EMA7 incrocia EMA25 sopra EMA99")
 
-    # --- Annotazioni finali ---
+    # Annotazioni finali
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
         note.insert(0, f"📊 Trend attivo da {n_candele} candele | Distanza: {dist_level}")
@@ -180,7 +155,7 @@ def analizza_trend(hist: pd.DataFrame):
         elif candele_trend_up <= 1 and not trend_up:
             note.append("⚠️ Trend terminato")
 
-    # --- Contraddizioni con pattern ---
+    # Contraddizioni pattern
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
         note.append("⚠️ Pattern ribassista rilevato: possibile inversione")
         segnale = "HOLD"
