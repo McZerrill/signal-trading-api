@@ -116,9 +116,9 @@ def analizza_trend(hist: pd.DataFrame):
     # --- BUY completo avanzato ---
     condizioni_buy = (
         (penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99']
-         and trend_up and dist_diff > 0 and rsi > 56 and macd > macd_signal 
+         and trend_up and dist_diff > 0 and rsi > 52 and macd > macd_signal 
          and macd > 0.001 and 2 <= candele_trend_up <= 6) 
-        or (trend_up and candele_trend_up in range(2, 7) and rsi > 56 and macd > macd_signal and dist_diff > 0)
+        or (trend_up and candele_trend_up in range(2, 7) and rsi > 52 and macd > macd_signal and dist_diff > 0)
     )
 
     if condizioni_buy:
@@ -135,9 +135,9 @@ def analizza_trend(hist: pd.DataFrame):
     # --- SELL completo avanzato ---
     condizioni_sell = (
         (penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99']
-         and trend_down and dist_diff > 0 and rsi < 44 and macd < macd_signal 
+         and trend_down and dist_diff > 0 and rsi < 48 and macd < macd_signal 
          and macd < -0.001 and 2 <= candele_trend_down <= 6) 
-        or (trend_down and candele_trend_down in range(2, 7) and rsi < 44 and macd < macd_signal and dist_diff > 0)
+        or (trend_down and candele_trend_down in range(2, 7) and rsi < 48 and macd < macd_signal and dist_diff > 0)
     )
 
     if condizioni_sell:
