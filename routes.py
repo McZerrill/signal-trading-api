@@ -26,9 +26,9 @@ def read_root():
 def analyze(symbol: str):
     try:
         df_1m = get_binance_df(symbol, "1m", 300)
-        time.sleep(uniform(0.3, 0.5))  # ✅ Sleep per evitare rate limit
+        
         df_5m = get_binance_df(symbol, "5m", 300)
-        time.sleep(uniform(0.3, 0.5))  # ✅ Sleep per evitare rate limit
+        
         df_15m = get_binance_df(symbol, "15m", 200)
 
         segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1 = analizza_trend(df_1m)
