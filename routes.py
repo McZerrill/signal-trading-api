@@ -13,7 +13,8 @@ import pandas as pd
 from binance_api import get_bid_ask
 import requests
 
-
+# Stato simulazioni attive
+posizioni_attive = {}  # Esempio: { "ADAUSDC": {"tipo": "BUY", "prezzo": 0.45, "ora_apertura": time.time()} }
 
 router = APIRouter()
 utc = dt_timezone.utc
@@ -163,6 +164,16 @@ def analyze(symbol: str):
         else:
             tp_pct = sl_pct = 0.0
             
+        # 🧿 Registrazione della simulazione attiva
+        if segnale in ["BUY"]:  # o anche "SELL" se vorrai riattivarli
+            posizioni_attive[symbol] = {
+                "tipo": segnale,
+                "entry": close,
+                "tp": tp,
+                "sl": sl,
+                "ora_apertura": time.time()
+            }
+
         note_str = note.lower() if isinstance(note, str) else "\n".join(note).lower()
         if "💥" in note_str:
             base_dati = "💥 BREAKOUT rilevato\n" + base_dati
@@ -174,6 +185,7 @@ def analyze(symbol: str):
         else:
             header = f"🛁 HOLD | {symbol.upper()} @ {close}$"
             corpo = f"{base_dati}\n📉 Supporto: {supporto}$\n{note}\n{ritardo}"
+            
             return SignalResponse(
                 segnale=segnale,
                 commento="\n".join([header, corpo]),
@@ -383,6 +395,39 @@ def hot_assets():
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
     return risultati
+
+import threading
+
+def verifica_posizioni_attive():
+    while True:
+        time.sleep(5)
+        da_rimuovere = []
+        for symbol, posizione in list(posizioni_attive.items()):
+            df = get_binance_df(symbol, "1m", 300)
+            if df.empty or len(df) < 50:
+                continue
+            segnale_corrente, *_ = analizza_trend(df)
+
+            # Se il trend non è più lo stesso, chiudi la posizione
+            if segnale_corrente != posizione["tipo"]:
+                book = get_bid_ask(symbol)
+                prezzo_attuale = round((book["bid"] + book["ask"]) / 2, 4)
+                pnl = round(prezzo_attuale - posizione["entry"], 4) if posizione["tipo"] == "BUY" else round(posizione["entry"] - prezzo_attuale, 4)
+
+                print(f"📉 CHIUSURA ANTICIPATA: {symbol} @ {prezzo_attuale} | PnL simulato: {pnl}")
+                da_rimuovere.append(symbol)
+
+                # Potresti salvare info su file/log/output per visualizzare in app come TP/SL "raggiunto"
+                with open("log.txt", "a") as f:
+                    f.write(f"[{symbol}] Posizione chiusa anticipatamente @ {prezzo_attuale} per perdita di trend.\n")
+
+        for s in da_rimuovere:
+            posizioni_attive.pop(s, None)
+
+# Avvia il thread all'avvio del backend
+monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
+monitor_thread.start()
+
 
 @router.get("/debuglog")
 def get_debug_log():
