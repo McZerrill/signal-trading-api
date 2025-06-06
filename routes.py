@@ -406,20 +406,28 @@ def verifica_posizioni_attive():
             df = get_binance_df(symbol, "1m", 300)
             if df.empty or len(df) < 50:
                 continue
-            segnale_corrente, *_ = analizza_trend(df)
 
-            # Se il trend non è più lo stesso, chiudi la posizione
-            if segnale_corrente != posizione["tipo"]:
+            segnale_corrente, hist, *_ = analizza_trend(df)
+            candele_attive = conta_candele_trend(hist, rialzista=(posizione["tipo"] == "BUY"))
+
+            # Chiudi se il segnale è cambiato o il trend si è indebolito troppo
+            if segnale_corrente != posizione["tipo"] or candele_attive < 2:
                 book = get_bid_ask(symbol)
                 prezzo_attuale = round((book["bid"] + book["ask"]) / 2, 4)
-                pnl = round(prezzo_attuale - posizione["entry"], 4) if posizione["tipo"] == "BUY" else round(posizione["entry"] - prezzo_attuale, 4)
+                pnl = (
+                    round(prezzo_attuale - posizione["entry"], 4)
+                    if posizione["tipo"] == "BUY"
+                    else round(posizione["entry"] - prezzo_attuale, 4)
+                )
 
                 print(f"📉 CHIUSURA ANTICIPATA: {symbol} @ {prezzo_attuale} | PnL simulato: {pnl}")
                 da_rimuovere.append(symbol)
 
-                # Potresti salvare info su file/log/output per visualizzare in app come TP/SL "raggiunto"
                 with open("log.txt", "a") as f:
-                    f.write(f"[{symbol}] Posizione chiusa anticipatamente @ {prezzo_attuale} per perdita di trend.\n")
+                    f.write(
+                        f"[{symbol}] Posizione chiusa anticipatamente @ {prezzo_attuale} "
+                        f"per {'cambio segnale' if segnale_corrente != posizione['tipo'] else 'trend debole (<2 candele)'}.\n"
+                    )
 
         for s in da_rimuovere:
             posizioni_attive.pop(s, None)
