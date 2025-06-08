@@ -26,6 +26,30 @@ def read_root():
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
+        # 🔒 Blocco: posizione già attiva
+        if symbol in posizioni_attive:
+            posizione = posizioni_attive[symbol]
+            return SignalResponse(
+                segnale="HOLD",
+                commento=(
+                    f"⏳ Simulazione già attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
+                    f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
+                ),
+                prezzo=posizione["entry"],
+                take_profit=posizione["tp"],
+                stop_loss=posizione["sl"],
+                rsi=0.0,
+                macd=0.0,
+                macd_signal=0.0,
+                atr=0.0,
+                ema7=0.0,
+                ema25=0.0,
+                ema99=0.0,
+                timeframe="15m",
+                spread=0.0
+            )
+
+        # 📊 Recupero dati
         df_15m = get_binance_df(symbol, "15m", 300)
         df_1h = get_binance_df(symbol, "1h", 300)
         df_1d = get_binance_df(symbol, "1d", 300)
@@ -36,6 +60,7 @@ def analyze(symbol: str):
 
         segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
 
+        # ⏸ Controllo conferme multitimeframe
         if segnale != segnale_1h:
             note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
             segnale = "HOLD"
@@ -49,27 +74,20 @@ def analyze(symbol: str):
             elif segnale_1d == segnale:
                 note += "\n🧭 Segnale confermato anche su 1d"
 
+        # 📉 Spread check
         book = get_bid_ask(symbol)
         spread = book["spread"]
-
         if spread > 5.0:
             return SignalResponse(
                 segnale="HOLD",
                 commento=f"Simulazione ignorata per {symbol.upper()} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
-                prezzo=0.0,
-                take_profit=0.0,
-                stop_loss=0.0,
-                rsi=0.0,
-                macd=0.0,
-                macd_signal=0.0,
-                atr=0.0,
-                ema7=0.0,
-                ema25=0.0,
-                ema99=0.0,
-                timeframe="",
+                prezzo=0.0, take_profit=0.0, stop_loss=0.0,
+                rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
+                ema7=0.0, ema25=0.0, ema99=0.0, timeframe="",
                 spread=spread
             )
 
+        # 📈 Indicatori tecnici
         ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
         if close <= 0:
@@ -85,6 +103,7 @@ def analyze(symbol: str):
 
         base_dati = f"RSI: {rsi}  |  EMA: {ema7}/{ema25}/{ema99}\nMACD: {macd}/{macd_signal}  |  ATR: {atr}"
 
+        # ✅ Posizione valida
         if segnale in ["BUY", "SELL"]:
             entry_price = close
             lunghezza_trend = distanza
@@ -138,6 +157,7 @@ def analyze(symbol: str):
                 spread=spread
             )
 
+        # 🛁 HOLD
         header = f"🛁 HOLD | {symbol.upper()} @ {close}$"
         corpo = f"{base_dati}\n📉 Supporto: {supporto15}$\n{note}"
 
@@ -336,33 +356,50 @@ def verifica_posizioni_attive():
     while True:
         time.sleep(5)
         da_rimuovere = []
+
         for symbol, posizione in list(posizioni_attive.items()):
             df = get_binance_df(symbol, "1m", 300)
             if df.empty or len(df) < 50:
                 continue
 
+            # 1. Analisi trend attuale
             segnale_corrente, hist, *_ = analizza_trend(df)
             candele_attive = conta_candele_trend(hist, rialzista=(posizione["tipo"] == "BUY"))
 
-            # Chiudi se il segnale è cambiato o il trend si è indebolito troppo
-            if segnale_corrente != posizione["tipo"] or candele_attive < 2:
-                book = get_bid_ask(symbol)
-                prezzo_attuale = round((book["bid"] + book["ask"]) / 2, 4)
-                pnl = (
-                    round(prezzo_attuale - posizione["entry"], 4)
-                    if posizione["tipo"] == "BUY"
-                    else round(posizione["entry"] - prezzo_attuale, 4)
-                )
+            # 2. Prezzo attuale
+            book = get_bid_ask(symbol)
+            prezzo_attuale = round((book["bid"] + book["ask"]) / 2, 4)
 
-                print(f"📉 CHIUSURA ANTICIPATA: {symbol} @ {prezzo_attuale} | PnL simulato: {pnl}")
-                da_rimuovere.append(symbol)
+            # 3. TP / SL raggiunti?
+            entry = posizione["entry"]
+            tp = posizione["tp"]
+            sl = posizione["sl"]
+            tipo = posizione["tipo"]
 
-                with open("log.txt", "a") as f:
-                    f.write(
-                        f"[{symbol}] Posizione chiusa anticipatamente @ {prezzo_attuale} "
-                        f"per {'cambio segnale' if segnale_corrente != posizione['tipo'] else 'trend debole (<2 candele)'}.\n"
-                    )
+            if tipo == "BUY" and prezzo_attuale >= tp:
+                motivo = "🎯 TP raggiunto"
+            elif tipo == "BUY" and prezzo_attuale <= sl:
+                motivo = "🛡 SL colpito"
+            elif tipo == "SELL" and prezzo_attuale <= tp:
+                motivo = "🎯 TP raggiunto"
+            elif tipo == "SELL" and prezzo_attuale >= sl:
+                motivo = "🛡 SL colpito"
+            elif segnale_corrente != tipo and candele_attive < 2:
+                motivo = "📉 Chiusura anticipata: cambio segnale e trend debole"
+            else:
+                continue  # Posizione ancora valida
 
+            # 4. Calcolo PnL simulato
+            pnl = round(prezzo_attuale - entry, 4) if tipo == "BUY" else round(entry - prezzo_attuale, 4)
+
+            print(f"🔔 CHIUSURA: {symbol} @ {prezzo_attuale} | {motivo} | PnL: {pnl}")
+            da_rimuovere.append(symbol)
+
+            # 5. Logging su file
+            with open("log.txt", "a") as f:
+                f.write(f"[{symbol}] Posizione chiusa @ {prezzo_attuale} | {motivo} | PnL: {pnl}\n")
+
+        # Rimuovi posizioni chiuse
         for s in da_rimuovere:
             posizioni_attive.pop(s, None)
 
