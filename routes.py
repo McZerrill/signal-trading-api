@@ -49,7 +49,7 @@ def analyze(symbol: str):
                 spread=0.0
             )
 
-        # 📊 Recupero dati
+        # 📊 Dati da Binance
         df_15m = get_binance_df(symbol, "15m", 300)
         df_1h = get_binance_df(symbol, "1h", 300)
         df_1d = get_binance_df(symbol, "1d", 300)
@@ -60,7 +60,7 @@ def analyze(symbol: str):
 
         segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
 
-        # ⏸ Controllo conferme multitimeframe
+        # ⏸ Controllo conferme
         if segnale != segnale_1h:
             note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
             segnale = "HOLD"
@@ -71,23 +71,31 @@ def analyze(symbol: str):
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
                 note += f"\n⚠️ Segnale {segnale} non confermato su 1d (1d = {segnale_1d})"
                 segnale = "HOLD"
-            elif segnale_1d == segnale:
-                note += "\n🧭 Segnale confermato anche su 1d"
+            else:
+                note += "\n📅 Timeframe 1d non contrario: segnale permesso"
 
-        # 📉 Spread check
+        # 🧮 Spread check
         book = get_bid_ask(symbol)
         spread = book["spread"]
         if spread > 5.0:
             return SignalResponse(
                 segnale="HOLD",
                 commento=f"Simulazione ignorata per {symbol.upper()} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
-                prezzo=0.0, take_profit=0.0, stop_loss=0.0,
-                rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
-                ema7=0.0, ema25=0.0, ema99=0.0, timeframe="",
+                prezzo=0.0,
+                take_profit=0.0,
+                stop_loss=0.0,
+                rsi=0.0,
+                macd=0.0,
+                macd_signal=0.0,
+                atr=0.0,
+                ema7=0.0,
+                ema25=0.0,
+                ema99=0.0,
+                timeframe="",
                 spread=spread
             )
 
-        # 📈 Indicatori tecnici
+        # 📈 Indicatori attuali
         ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
         if close <= 0:
@@ -103,7 +111,7 @@ def analyze(symbol: str):
 
         base_dati = f"RSI: {rsi}  |  EMA: {ema7}/{ema25}/{ema99}\nMACD: {macd}/{macd_signal}  |  ATR: {atr}"
 
-        # ✅ Posizione valida
+        # ✅ Simulazione
         if segnale in ["BUY", "SELL"]:
             entry_price = close
             lunghezza_trend = distanza
@@ -128,8 +136,7 @@ def analyze(symbol: str):
             tp_pct = round(abs((tp - close) / close) * 100, 1)
             sl_pct = round(abs((sl - close) / close) * 100, 1)
 
-            note_str = note.lower()
-            if "💥" in note_str:
+            if "💥" in note.lower():
                 base_dati = "💥 BREAKOUT rilevato\n" + base_dati
 
             header = "🟢 BUY confermato" if segnale == "BUY" else "🔴 SELL confermato"
