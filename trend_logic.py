@@ -1,6 +1,6 @@
-
 import pandas as pd
 from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto, calcola_ema
+
 
 def valuta_distanza(distanza: float) -> str:
     if distanza < 1:
@@ -9,6 +9,7 @@ def valuta_distanza(distanza: float) -> str:
         return "media"
     else:
         return "alta"
+
 
 def conta_candele_trend(hist: pd.DataFrame, rialzista: bool = True, max_candele: int = 20) -> int:
     count = 0
@@ -21,6 +22,7 @@ def conta_candele_trend(hist: pd.DataFrame, rialzista: bool = True, max_candele:
         else:
             break
     return count
+
 
 def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     c = df.iloc[-1]
@@ -41,6 +43,7 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     if corpo < 0 and c['close'] < df['open'].iloc[-2] and c['open'] > df['close'].iloc[-2]:
         return "🔃 Bearish Engulfing"
     return ""
+
 
 def analizza_trend(hist: pd.DataFrame):
     # --- Preparazione indicatori ---
