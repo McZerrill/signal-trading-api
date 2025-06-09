@@ -68,13 +68,18 @@ def analizza_trend(hist: pd.DataFrame):
     macd, macd_signal = ultimo['MACD'], ultimo['MACD_SIGNAL']
     supporto = calcola_supporto(hist)
 
+    # --- Filtro ATR dinamico rispetto al prezzo ---
+    note = []
+    if atr / close < 0.001:
+        note.append("⚠️ Nessun segnale: ATR troppo basso rispetto al prezzo")
+        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+
     # --- Calcoli distanza e trend ---
     dist_attuale = abs(ema7 - ema25) + abs(ema25 - ema99)
     dist_precedente = abs(penultimo['EMA_7'] - penultimo['EMA_25']) + abs(penultimo['EMA_25'] - penultimo['EMA_99'])
     dist_diff = dist_attuale - dist_precedente
     dist_level = valuta_distanza(dist_attuale)
 
-    note = []
     segnale = "HOLD"
     tp = sl = 0.0
     condizioni_verificate = 0
@@ -116,56 +121,23 @@ def analizza_trend(hist: pd.DataFrame):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume non sufficiente a confermare")
 
-    # --- BUY completo avanzato ---
-    condizioni_buy = (
-        (penultimo['EMA_7'] < penultimo['EMA_25'] < penultimo['EMA_99']
-         and trend_up and dist_diff > 0 and rsi > 50 and macd > macd_signal 
-         and macd > 0.001 and 2 <= candele_trend_up <= 6) 
-        or (trend_up and candele_trend_up in range(2, 7) and rsi > 50 and macd > macd_signal and dist_diff > 0)
-    )
+    # --- BUY con logica progressiva ---
+    if ema7 > ema25 and abs(ema7 - ema25) > 0.0005:
+        if ema7 > ema99 and ema25 > ema99:
+            if rsi > 50 and macd > macd_signal and macd > 0.001:
+                segnale = "BUY"
+                tp = round(close + atr * 1.5, 4)
+                sl = round(close - atr * 1.2, 4)
+                note.append("✅ BUY confermato: incrocio progressivo EMA7→EMA99→EMA25 con RSI e MACD in conferma")
 
-    if condizioni_buy:
-        if atr < 0.0015 or abs(ema7 - ema25) < 0.0005 or abs(ema25 - ema99) < 0.0005:
-            condizioni_buy = False
-            note.append("⚠️ BUY ignorato: volatilità o distanza EMA troppo bassa")
-
-    if condizioni_buy:
-        segnale = "BUY"
-        tp = round(close + atr * 1.5, 4)
-        sl = round(close - atr * 1.2, 4)
-        note.append("✅ BUY confermato con breakout e allargamento EMA" if breakout_confirmato else "✅ BUY confermato senza breakout ma con allargamento EMA")
-
-    # --- SELL completo avanzato ---
-    condizioni_sell = (
-        (penultimo['EMA_7'] > penultimo['EMA_25'] > penultimo['EMA_99']
-         and trend_down and dist_diff > 0 and rsi < 48 and macd < macd_signal 
-         and macd < -0.001 and 2 <= candele_trend_down <= 6) 
-        or (trend_down and candele_trend_down in range(2, 7) and rsi < 48 and macd < macd_signal and dist_diff > 0)
-    )
-
-    if condizioni_sell:
-        if atr < 0.002 or abs(ema7 - ema25) < 0.0005 or abs(ema25 - ema99) < 0.0005:
-            condizioni_sell = False
-            note.append("⚠️ SELL ignorato: volatilità o distanza EMA troppo bassa")
-
-    if condizioni_sell:
-        segnale = "SELL"
-        tp = round(close - atr * 1.5, 4)
-        sl = round(close + atr * 1.2, 4)
-        note.append("✅ SELL confermato con breakout e allargamento EMA" if breakout_confirmato else "✅ SELL confermato senza breakout ma con allargamento EMA")
-
-    # --- Presegnali e incroci EMA ---
-    else:
-        if penultimo['EMA_7'] < penultimo['EMA_25'] and ema7 > ema25:
-            if ema25 < ema99 and abs(ema7 - ema99) / ema99 < 0.015:
-                if rsi > 50: condizioni_verificate += 1
-                if macd > macd_signal: condizioni_verificate += 1
-                note.append("🟢 Presegnale BUY: EMA7 incrocia EMA25 sotto EMA99")
-        elif penultimo['EMA_7'] > penultimo['EMA_25'] and ema7 < ema25:
-            if ema25 > ema99 and abs(ema7 - ema99) / ema99 < 0.015:
-                if rsi < 50: condizioni_verificate += 1
-                if macd < macd_signal: condizioni_verificate += 1
-                note.append("🔴 Presegnale SELL: EMA7 incrocia EMA25 sopra EMA99")
+    # --- SELL con logica progressiva ---
+    if ema7 < ema25 and abs(ema7 - ema25) > 0.0005:
+        if ema7 < ema99 and ema25 < ema99:
+            if rsi < 48 and macd < macd_signal and macd < -0.001:
+                segnale = "SELL"
+                tp = round(close - atr * 1.5, 4)
+                sl = round(close + atr * 1.2, 4)
+                note.append("✅ SELL confermato: incrocio progressivo EMA7→EMA99→EMA25 con RSI e MACD in conferma")
 
     # --- Annotazioni finali ---
     if segnale in ["BUY", "SELL"]:
@@ -174,9 +146,7 @@ def analizza_trend(hist: pd.DataFrame):
         if pattern:
             note.append(f"✅ Pattern candlestick rilevato: {pattern}")
     else:
-        if condizioni_verificate >= 2:
-            note.append("🟡 Trend in formazione (presegnale attivo)")
-        elif trend_up and candele_trend_up <= 2:
+        if trend_up and candele_trend_up <= 2:
             note.append("🟡 Trend attivo ma debole")
         elif trend_down and candele_trend_down <= 2:
             note.append("🟡 Trend ribassista ma debole")
