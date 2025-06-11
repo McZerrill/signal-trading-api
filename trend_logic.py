@@ -154,39 +154,37 @@ def analizza_trend(hist: pd.DataFrame):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume non sufficiente a confermare")
 
-    trend_buy_valido = hist['EMA_7'].iloc[-2] > hist['EMA_25'].iloc[-2] > hist['EMA_99'].iloc[-2]
-    if not trend_buy_valido:
-        note.append("⚠️ BUY ignorato: allineamento EMA non presente nella candela precedente")
-        return "HOLD", hist, dist_attuale, "\n".join(note).strip(), 0.0, 0.0, supporto
-
+    # --- BUY ---
     condizioni_buy = (
-        ema7 > ema25 and ema25 > ema99 and
+        ema7 > ema25 > ema99 and
         rsi > 50 and macd > macd_signal and macd_gap > 0.0015 and
         volume_attuale > volume_medio
     )
-
     if condizioni_buy:
-        segnale = "BUY"
-        tp = round(close + atr * 1.5, 4)
-        sl = round(close - atr * 1.2, 4)
-        note.append("✅ BUY confermato con breakout e allineamento EMA" if breakout_confirmato else "✅ BUY confermato senza breakout ma con allineamento EMA")
+        trend_buy_valido = hist['EMA_7'].iloc[-2] > hist['EMA_25'].iloc[-2] > hist['EMA_99'].iloc[-2]
+        if trend_buy_valido:
+            segnale = "BUY"
+            tp = round(close + atr * 1.5, 4)
+            sl = round(close - atr * 1.2, 4)
+            note.append("✅ BUY confermato con breakout e allineamento EMA" if breakout_confirmato else "✅ BUY confermato senza breakout ma con allineamento EMA")
+        else:
+            note.append("⚠️ BUY ignorato: allineamento EMA non presente nella candela precedente")
 
-    trend_sell_valido = hist['EMA_7'].iloc[-2] < hist['EMA_25'].iloc[-2] < hist['EMA_99'].iloc[-2]
-    if not trend_sell_valido:
-        note.append("⚠️ SELL ignorato: allineamento EMA non presente nella candela precedente")
-        return "HOLD", hist, dist_attuale, "\n".join(note).strip(), 0.0, 0.0, supporto
-
+    # --- SELL ---
     condizioni_sell = (
-        ema7 < ema25 and ema25 < ema99 and
+        ema7 < ema25 < ema99 and
         rsi < 48 and macd < macd_signal and macd_gap < -0.0015 and
         volume_attuale > volume_medio
     )
-
     if condizioni_sell:
-        segnale = "SELL"
-        tp = round(close - atr * 1.5, 4)
-        sl = round(close + atr * 1.2, 4)
-        note.append("✅ SELL confermato con breakout e allineamento EMA" if breakout_confirmato else "✅ SELL confermato senza breakout ma con allineamento EMA")
+        trend_sell_valido = hist['EMA_7'].iloc[-2] < hist['EMA_25'].iloc[-2] < hist['EMA_99'].iloc[-2]
+        if trend_sell_valido:
+            segnale = "SELL"
+            tp = round(close - atr * 1.5, 4)
+            sl = round(close + atr * 1.2, 4)
+            note.append("✅ SELL confermato con breakout e allineamento EMA" if breakout_confirmato else "✅ SELL confermato senza breakout ma con allineamento EMA")
+        else:
+            note.append("⚠️ SELL ignorato: allineamento EMA non presente nella candela precedente")
 
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
