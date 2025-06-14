@@ -376,29 +376,23 @@ def verifica_posizioni_attive():
             if df.empty or len(df) < 50:
                 continue
 
-            # 1. Prezzo e spread attuali
+            # 1. Prezzo attuale e spread
             book = get_bid_ask(symbol)
             spread = book["spread"]
             prezzo_attuale = round((book["bid"] + book["ask"]) / 2, 4)
 
-            # 2. Analisi trend aggiornata
-            segnale_corrente, hist, _, _, _, _, _ = analizza_trend(df, spread)
+            # 2. Trend corrente
+            segnale_corrente, hist, *_ = analizza_trend(df, spread)
             candele_attive = conta_candele_trend(hist, rialzista=(posizione["tipo"] == "BUY"))
 
-            # 3. Dati posizione
+            # 3. Info posizione
             entry = posizione["entry"]
             tp = posizione["tp"]
             sl = posizione["sl"]
             tipo = posizione["tipo"]
+            guadagno_netto_usdc = posizione.get("guadagno_netto", 0.0)
 
-            # 4. Calcolo guadagno netto su 100 USDC simulati
-            differenza = prezzo_attuale - entry if tipo == "BUY" else entry - prezzo_attuale
-            pnl_pct = (differenza / entry) * 100
-            fee_totali = spread + 0.2  # spread stimato + commissioni (0.1% per lato)
-            pnl_netto_pct = pnl_pct - fee_totali
-            guadagno_netto_usdc = round((pnl_netto_pct / 100) * 100, 2)  # su 100 USDC simulati
-
-            # 5. Verifica condizioni di chiusura
+            # 4. Regole di chiusura
             chiudi = False
             motivo = ""
 
@@ -419,12 +413,12 @@ def verifica_posizioni_attive():
                 chiudi = True
 
             if not chiudi:
-                continue  # Posizione ancora valida
+                continue
 
             print(f"🔔 CHIUSURA: {symbol} @ {prezzo_attuale} | {motivo}")
             da_rimuovere.append(symbol)
 
-        # 6. Pulizia posizioni chiuse
+        # 5. Rimozione posizioni chiuse
         for s in da_rimuovere:
             posizioni_attive.pop(s, None)
 
