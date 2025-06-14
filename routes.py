@@ -247,6 +247,8 @@ _filtro_log = {
 
 _hot_cache = {"time": 0, "data": [], "valid_until": 0}
 
+MODALITA_TEST = True
+
 @router.get("/hotassets")
 def hot_assets():
     now = time.time()
@@ -258,6 +260,13 @@ def hot_assets():
     symbols = get_best_symbols(limit=50)
     risultati = []
 
+    # Parametri adattivi in base alla modalità
+    volume_soglia = 100 if MODALITA_TEST else 300
+    atr_minimo = 0.0005 if MODALITA_TEST else 0.0008
+    distanza_minima = 0.0008 if MODALITA_TEST else 0.0012
+    macd_rsi_range = (46, 54) if MODALITA_TEST else (48, 52)
+    macd_signal_threshold = 0.0003 if MODALITA_TEST else 0.0005
+
     for symbol in symbols:
         try:
             df = get_binance_df(symbol, "15m", 100)
@@ -266,9 +275,8 @@ def hot_assets():
 
             _filtro_log["totali"] += 1
 
-            # FILTRO VOLUME
             volume_medio = df["volume"].tail(20).mean()
-            if pd.isna(volume_medio) or volume_medio < 300:
+            if pd.isna(volume_medio) or volume_medio < volume_soglia:
                 _filtro_log["volume_basso"] += 1
                 continue
 
@@ -290,13 +298,14 @@ def hot_assets():
             if prezzo <= 0:
                 continue
 
-            if pd.isna(raw_atr) or raw_atr < 0.0008:
+            if pd.isna(raw_atr) or raw_atr < atr_minimo:
                 _filtro_log["atr"] += 1
                 continue
+
             atr = round(raw_atr, 4)
 
             distanza_relativa = abs(ema7 - ema99) / ema99
-            if distanza_relativa < 0.0012 and prezzo < 1000:
+            if distanza_relativa < distanza_minima and prezzo < 1000:
                 _filtro_log["ema_flat"] += 1
                 continue
 
@@ -305,7 +314,7 @@ def hot_assets():
                 _filtro_log["prezzo_piattissimo"] += 1
                 continue
 
-            if abs(macd - macd_signal) < 0.0005 and 48 < rsi < 52 and distanza_relativa < 0.0015:
+            if abs(macd - macd_signal) < macd_signal_threshold and macd_rsi_range[0] < rsi < macd_rsi_range[1] and distanza_relativa < 0.0015:
                 _filtro_log["macd_rsi_neutri"] += 1
                 continue
 
@@ -348,6 +357,7 @@ def hot_assets():
     _hot_cache["valid_until"] = now + 3600  # validi per 60 minuti
     _hot_cache["data"] = risultati
     return risultati
+
 
 import threading
 
