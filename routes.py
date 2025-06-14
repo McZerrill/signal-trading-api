@@ -376,8 +376,8 @@ def verifica_posizioni_attive():
             spread = book["spread"]
             prezzo_attuale = round((book["bid"] + book["ask"]) / 2, 4)
 
-            # 2. Analisi trend aggiornata con spread
-            segnale_corrente, hist, _, _, tp_adattivo, sl_adattivo, _ = analizza_trend(df, spread)
+            # 2. Analisi trend aggiornata
+            segnale_corrente, hist, _, _, _, _, _ = analizza_trend(df, spread)
             candele_attive = conta_candele_trend(hist, rialzista=(posizione["tipo"] == "BUY"))
 
             # 3. Dati posizione
@@ -386,45 +386,40 @@ def verifica_posizioni_attive():
             sl = posizione["sl"]
             tipo = posizione["tipo"]
 
-            # 4. Calcolo profitto simulato
-            pnl = round(prezzo_attuale - entry, 4) if tipo == "BUY" else round(entry - prezzo_attuale, 4)
+            # 4. Calcolo guadagno netto su 100 USDC simulati
+            differenza = prezzo_attuale - entry if tipo == "BUY" else entry - prezzo_attuale
+            pnl_pct = (differenza / entry) * 100
+            fee_totali = spread + 0.2  # spread stimato + commissioni (0.1% per lato)
+            pnl_netto_pct = pnl_pct - fee_totali
+            guadagno_netto_usdc = round((pnl_netto_pct / 100) * 100, 2)  # su 100 USDC simulati
 
-            # 5. Verifica chiusura
+            # 5. Verifica condizioni di chiusura
             chiudi = False
             motivo = ""
 
             if tipo == "BUY" and prezzo_attuale >= tp:
-                motivo = "🎯 TP raggiunto"
+                motivo = f"🎯 TP raggiunto | Guadagno netto stimato: {guadagno_netto_usdc} USDC"
                 chiudi = True
             elif tipo == "BUY" and prezzo_attuale <= sl:
-                motivo = "🛡 SL colpito"
+                motivo = f"🛡 SL colpito | Guadagno netto stimato: {guadagno_netto_usdc} USDC"
                 chiudi = True
             elif tipo == "SELL" and prezzo_attuale <= tp:
-                motivo = "🎯 TP raggiunto"
+                motivo = f"🎯 TP raggiunto | Guadagno netto stimato: {guadagno_netto_usdc} USDC"
                 chiudi = True
             elif tipo == "SELL" and prezzo_attuale >= sl:
-                motivo = "🛡 SL colpito"
+                motivo = f"🛡 SL colpito | Guadagno netto stimato: {guadagno_netto_usdc} USDC"
                 chiudi = True
             elif segnale_corrente != tipo and candele_attive < 2:
-                # Chiusura anticipata con profitto minimo
-                guadagno_minimo = 0.25  # euro
-                if pnl >= guadagno_minimo:
-                    motivo = f"⚠️ Trend cambiato ma guadagno minimo raggiunto ({pnl}€)"
-                    chiudi = True
-                else:
-                    continue
+                motivo = f"⚠️ Trend cambiato, chiusura protettiva (netto: {guadagno_netto_usdc} USDC)"
+                chiudi = True
 
             if not chiudi:
                 continue  # Posizione ancora valida
 
-            print(f"🔔 CHIUSURA: {symbol} @ {prezzo_attuale} | {motivo} | PnL: {pnl}")
+            print(f"🔔 CHIUSURA: {symbol} @ {prezzo_attuale} | {motivo}")
             da_rimuovere.append(symbol)
 
-            # 6. Logging
-            with open("log.txt", "a") as f:
-                f.write(f"[{symbol}] Posizione chiusa @ {prezzo_attuale} | {motivo} | PnL: {pnl}\n")
-
-        # 7. Pulizia posizioni chiuse
+        # 6. Pulizia posizioni chiuse
         for s in da_rimuovere:
             posizioni_attive.pop(s, None)
 
