@@ -114,13 +114,9 @@ def analyze(symbol: str):
         # ✅ Simulazione
         if segnale in ["BUY", "SELL"]:
             entry_price = close
-            if segnale == "BUY":
-                tp = round(entry_price + 0.5, 4)
-                sl = round(entry_price - 0.2, 4)
-            else:
-                tp = round(entry_price - 0.5, 4)
-                sl = round(entry_price + 0.2, 4)
-
+            tp = round(tp, 4)
+            sl = round(sl, 4)
+    
             posizioni_attive[symbol] = {
                 "tipo": segnale,
                 "entry": close,
