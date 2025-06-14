@@ -49,31 +49,6 @@ def analyze(symbol: str):
                 spread=0.0
             )
 
-        # 📊 Dati da Binance
-        df_15m = get_binance_df(symbol, "15m", 300)
-        df_1h = get_binance_df(symbol, "1h", 300)
-        df_1d = get_binance_df(symbol, "1d", 300)
-
-        segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(df_15m)
-        segnale_1h, h1h, dist_1h, note1h, tp1h, sl1h, supporto1h = analizza_trend(df_1h)
-        segnale_1d, h1d, *_ = analizza_trend(df_1d)
-
-        segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
-
-        # ⏸ Controllo conferme
-        if segnale != segnale_1h:
-            note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
-            segnale = "HOLD"
-        elif segnale == segnale_1h:
-            note += "\n🧭 Segnale confermato anche su 1h"
-
-        if segnale in ["BUY", "SELL"]:
-            if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
-                note += f"\n⚠️ Segnale {segnale} non confermato su 1d (1d = {segnale_1d})"
-                segnale = "HOLD"
-            else:
-                note += "\n📅 Timeframe 1d non contrario: segnale permesso"
-
         # 🧮 Spread check
         book = get_bid_ask(symbol)
         spread = book["spread"]
@@ -94,6 +69,31 @@ def analyze(symbol: str):
                 timeframe="",
                 spread=spread
             )
+
+        # 📊 Dati da Binance
+        df_15m = get_binance_df(symbol, "15m", 300)
+        df_1h = get_binance_df(symbol, "1h", 300)
+        df_1d = get_binance_df(symbol, "1d", 300)
+
+        segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(df_15m, spread)
+        segnale_1h, h1h, *_ = analizza_trend(df_1h, spread)
+        segnale_1d, *_ = analizza_trend(df_1d, spread)
+
+        segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
+
+        # ⏸ Conferme multi-timeframe
+        if segnale != segnale_1h:
+            note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+            segnale = "HOLD"
+        else:
+            note += "\n🧭 Segnale confermato anche su 1h"
+
+        if segnale in ["BUY", "SELL"]:
+            if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
+                note += f"\n⚠️ Segnale {segnale} non confermato su 1d (1d = {segnale_1d})"
+                segnale = "HOLD"
+            else:
+                note += "\n📅 Timeframe 1d non contrario: segnale permesso"
 
         # 📈 Indicatori attuali
         ultimo = hist.iloc[-1]
@@ -116,17 +116,17 @@ def analyze(symbol: str):
             entry_price = close
             tp = round(tp, 4)
             sl = round(sl, 4)
-    
+
             posizioni_attive[symbol] = {
                 "tipo": segnale,
-                "entry": close,
+                "entry": entry_price,
                 "tp": tp,
                 "sl": sl,
                 "ora_apertura": time.time()
             }
 
-            tp_pct = round(abs((tp - close) / close) * 100, 1)
-            sl_pct = round(abs((sl - close) / close) * 100, 1)
+            tp_pct = round(abs((tp - close) / close) * 100, 2)
+            sl_pct = round(abs((sl - close) / close) * 100, 2)
 
             if "💥" in note.lower():
                 base_dati = "💥 BREAKOUT rilevato\n" + base_dati
@@ -142,7 +142,7 @@ def analyze(symbol: str):
             return SignalResponse(
                 segnale=segnale,
                 commento=commento,
-                prezzo=close,
+                prezzo=entry_price,
                 take_profit=tp,
                 stop_loss=sl,
                 rsi=rsi,
