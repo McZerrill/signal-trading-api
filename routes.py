@@ -26,7 +26,6 @@ def read_root():
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
-        # 🔒 Blocco: posizione già attiva
         if symbol in posizioni_attive:
             posizione = posizioni_attive[symbol]
             return SignalResponse(
@@ -46,10 +45,10 @@ def analyze(symbol: str):
                 ema25=0.0,
                 ema99=0.0,
                 timeframe="15m",
-                spread=0.0
+                spread=0.0,
+                guadagnoNetto=None
             )
 
-        # 🧮 Spread check
         book = get_bid_ask(symbol)
         spread = book["spread"]
         if spread > 5.0:
@@ -67,10 +66,10 @@ def analyze(symbol: str):
                 ema25=0.0,
                 ema99=0.0,
                 timeframe="",
-                spread=spread
+                spread=spread,
+                guadagnoNetto=None
             )
 
-        # 📊 Dati da Binance
         df_15m = get_binance_df(symbol, "15m", 300)
         df_1h = get_binance_df(symbol, "1h", 300)
         df_1d = get_binance_df(symbol, "1d", 300)
@@ -81,7 +80,6 @@ def analyze(symbol: str):
 
         segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
 
-        # ⏸ Conferme multi-timeframe
         if segnale != segnale_1h:
             note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
             segnale = "HOLD"
@@ -95,7 +93,6 @@ def analyze(symbol: str):
             else:
                 note += "\n📅 Timeframe 1d non contrario: segnale permesso"
 
-        # 📈 Indicatori attuali
         ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
         if close <= 0:
@@ -111,7 +108,6 @@ def analyze(symbol: str):
 
         base_dati = f"RSI: {rsi}  |  EMA: {ema7}/{ema25}/{ema99}\nMACD: {macd}/{macd_signal}  |  ATR: {atr}"
 
-        # ✅ Simulazione
         if segnale in ["BUY", "SELL"]:
             entry_price = close
             tp = round(tp, 4)
@@ -124,6 +120,14 @@ def analyze(symbol: str):
                 "sl": sl,
                 "ora_apertura": time.time()
             }
+
+            spread_percent = spread / 100
+            commissione = 0.001
+            investimento = 100
+            diff_percent = abs((tp - entry_price) / entry_price)
+            ricavo = investimento * diff_percent
+            costi = investimento * (spread_percent + commissione)
+            guadagno_netto_euro = ricavo - costi
 
             tp_pct = round(abs((tp - close) / close) * 100, 2)
             sl_pct = round(abs((sl - close) / close) * 100, 2)
@@ -153,13 +157,12 @@ def analyze(symbol: str):
                 ema25=ema25,
                 ema99=ema99,
                 timeframe="15m",
-                spread=spread
+                spread=spread,
+                guadagnoNetto=round(guadagno_netto_euro, 2)
             )
 
-        # 🛁 HOLD
         header = f"🛁 HOLD | {symbol.upper()} @ {close}$"
         corpo = f"{base_dati}\n📉 Supporto: {supporto15}$\n{note}"
-
         return SignalResponse(
             segnale="HOLD",
             commento=f"{header}\n{corpo}",
@@ -174,7 +177,8 @@ def analyze(symbol: str):
             ema25=ema25,
             ema99=ema99,
             timeframe="15m",
-            spread=spread
+            spread=spread,
+            guadagnoNetto=None
         )
 
     except Exception as e:
@@ -192,7 +196,8 @@ def analyze(symbol: str):
             ema25=0.0,
             ema99=0.0,
             timeframe="",
-            spread=0.0
+            spread=0.0,
+            guadagnoNetto=None
         )
         
 @router.get("/price")
