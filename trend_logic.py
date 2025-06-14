@@ -131,7 +131,7 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
         return "🔃 Bearish Engulfing"
     return ""
 
-def analizza_trend(hist: pd.DataFrame):
+def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist = hist.copy()
     ema = calcola_ema(hist, [7, 25, 99])
     hist['EMA_7'] = ema[7]
@@ -204,21 +204,29 @@ def analizza_trend(hist: pd.DataFrame):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume non sufficiente a confermare")
 
+    forza_trend = (abs(ema7 - ema25) / close + abs(ema25 - ema99) / close + abs(macd_gap))
+    forza_scalata = min(max(forza_trend, 0.005), 0.01)  # tra 0.5% e 1.0%
+    guadagno_netto_euro = 100 * forza_scalata  # su 100€ investiti
+
+    # Adatta TP in base allo spread
+    guadagno_lordo = guadagno_netto_euro + (spread / 100) * close
+    perdita_lorda = guadagno_lordo / 1.5
+
     if ema7 > ema25 and abs(ema7 - ema25) / close > 0.001:
         if ema7 > ema99 and ema25 > ema99:
             if rsi > 50 and macd > macd_signal and macd_gap > 0.0015:
                 segnale = "BUY"
-                tp = round(close + 0.50, 4)
-                sl = round(close - 0.20, 4)
-                note.append("✅ BUY confermato: incrocio EMA con soglia dinamica e MACD forte")
+                tp = round(close + guadagno_lordo, 4)
+                sl = round(close - perdita_lorda, 4)
+                note.append(f"✅ BUY confermato: trend forte, TP target {forza_scalata*100:.2f}% netto")
 
     if ema7 < ema25 and abs(ema7 - ema25) / close > 0.001:
         if ema7 < ema99 and ema25 < ema99:
             if rsi < 48 and macd < macd_signal and macd_gap < -0.0015:
                 segnale = "SELL"
-                tp = round(close - 0.50, 4)
-                sl = round(close + 0.20, 4)
-                note.append("✅ SELL confermato: incrocio EMA con soglia dinamica e MACD forte")
+                tp = round(close - guadagno_lordo, 4)
+                sl = round(close + perdita_lorda, 4)
+                note.append(f"✅ SELL confermato: trend forte, TP target {forza_scalata*100:.2f}% netto")
 
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
