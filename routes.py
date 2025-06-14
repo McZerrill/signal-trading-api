@@ -371,44 +371,60 @@ def verifica_posizioni_attive():
             if df.empty or len(df) < 50:
                 continue
 
-            # 1. Analisi trend attuale
-            segnale_corrente, hist, *_ = analizza_trend(df)
-            candele_attive = conta_candele_trend(hist, rialzista=(posizione["tipo"] == "BUY"))
-
-            # 2. Prezzo attuale
+            # 1. Prezzo e spread attuali
             book = get_bid_ask(symbol)
+            spread = book["spread"]
             prezzo_attuale = round((book["bid"] + book["ask"]) / 2, 4)
 
-            # 3. TP / SL raggiunti?
+            # 2. Analisi trend aggiornata con spread
+            segnale_corrente, hist, _, _, tp_adattivo, sl_adattivo, _ = analizza_trend(df, spread)
+            candele_attive = conta_candele_trend(hist, rialzista=(posizione["tipo"] == "BUY"))
+
+            # 3. Dati posizione
             entry = posizione["entry"]
             tp = posizione["tp"]
             sl = posizione["sl"]
             tipo = posizione["tipo"]
 
+            # 4. Calcolo profitto simulato
+            pnl = round(prezzo_attuale - entry, 4) if tipo == "BUY" else round(entry - prezzo_attuale, 4)
+
+            # 5. Verifica chiusura
+            chiudi = False
+            motivo = ""
+
             if tipo == "BUY" and prezzo_attuale >= tp:
                 motivo = "🎯 TP raggiunto"
+                chiudi = True
             elif tipo == "BUY" and prezzo_attuale <= sl:
                 motivo = "🛡 SL colpito"
+                chiudi = True
             elif tipo == "SELL" and prezzo_attuale <= tp:
                 motivo = "🎯 TP raggiunto"
+                chiudi = True
             elif tipo == "SELL" and prezzo_attuale >= sl:
                 motivo = "🛡 SL colpito"
+                chiudi = True
             elif segnale_corrente != tipo and candele_attive < 2:
-                motivo = "📉 Chiusura anticipata: cambio segnale e trend debole"
-            else:
-                continue  # Posizione ancora valida
+                # Chiusura anticipata con profitto minimo
+                guadagno_minimo = 0.25  # euro
+                if pnl >= guadagno_minimo:
+                    motivo = f"⚠️ Trend cambiato ma guadagno minimo raggiunto ({pnl}€)"
+                    chiudi = True
+                else:
+                    continue
 
-            # 4. Calcolo PnL simulato
-            pnl = round(prezzo_attuale - entry, 4) if tipo == "BUY" else round(entry - prezzo_attuale, 4)
+            if not chiudi:
+                continue  # Posizione ancora valida
 
             print(f"🔔 CHIUSURA: {symbol} @ {prezzo_attuale} | {motivo} | PnL: {pnl}")
             da_rimuovere.append(symbol)
 
-            # 5. Logging su file
+            # 6. Logging
             with open("log.txt", "a") as f:
                 f.write(f"[{symbol}] Posizione chiusa @ {prezzo_attuale} | {motivo} | PnL: {pnl}\n")
 
-        # Rimuovi posizioni chiuse
+        # 7. Pulizia posizioni chiuse
         for s in da_rimuovere:
             posizioni_attive.pop(s, None)
 
