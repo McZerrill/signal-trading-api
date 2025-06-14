@@ -46,7 +46,7 @@ def analyze(symbol: str):
                 ema99=0.0,
                 timeframe="15m",
                 spread=0.0,
-                guadagnoNetto=None
+                guadagnoNetto=posizione.get("guadagno_netto")
             )
 
         book = get_bid_ask(symbol)
@@ -74,11 +74,11 @@ def analyze(symbol: str):
         df_1h = get_binance_df(symbol, "1h", 300)
         df_1d = get_binance_df(symbol, "1d", 300)
 
-        segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(df_15m, spread)
-        segnale_1h, h1h, *_ = analizza_trend(df_1h, spread)
+        segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15, guadagno_15m = analizza_trend(df_15m, spread)
+        segnale_1h, *_ = analizza_trend(df_1h, spread)
         segnale_1d, *_ = analizza_trend(df_1d, spread)
 
-        segnale, hist, distanza, note, tp, sl, supporto = segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15
+        segnale, hist, note, tp, sl, supporto, guadagno_netto = segnale_15m, h15, note15, tp15, sl15, supporto15, guadagno_15m
 
         if segnale != segnale_1h:
             note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
@@ -118,16 +118,9 @@ def analyze(symbol: str):
                 "entry": entry_price,
                 "tp": tp,
                 "sl": sl,
-                "ora_apertura": time.time()
+                "ora_apertura": time.time(),
+                "guadagno_netto": round(guadagno_netto, 2)  # ✅ SALVATO UNA SOLA VOLTA
             }
-
-            spread_percent = spread / 100
-            commissione = 0.001
-            investimento = 100
-            diff_percent = abs((tp - entry_price) / entry_price)
-            ricavo = investimento * diff_percent
-            costi = investimento * (spread_percent + commissione)
-            guadagno_netto_euro = ricavo - costi
 
             tp_pct = round(abs((tp - close) / close) * 100, 2)
             sl_pct = round(abs((sl - close) / close) * 100, 2)
@@ -158,11 +151,11 @@ def analyze(symbol: str):
                 ema99=ema99,
                 timeframe="15m",
                 spread=spread,
-                guadagnoNetto=round(guadagno_netto_euro, 2)
+                guadagnoNetto=round(guadagno_netto, 2)
             )
 
         header = f"🛁 HOLD | {symbol.upper()} @ {close}$"
-        corpo = f"{base_dati}\n📉 Supporto: {supporto15}$\n{note}"
+        corpo = f"{base_dati}\n📉 Supporto: {supporto}$\n{note}"
         return SignalResponse(
             segnale="HOLD",
             commento=f"{header}\n{corpo}",
@@ -199,6 +192,7 @@ def analyze(symbol: str):
             spread=0.0,
             guadagnoNetto=None
         )
+
         
 @router.get("/price")
 def get_price(symbol: str):
