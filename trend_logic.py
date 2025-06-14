@@ -131,6 +131,8 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
         return "🔃 Bearish Engulfing"
     return ""
 
+MODALITA_TEST = True
+
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist = hist.copy()
     ema = calcola_ema(hist, [7, 25, 99])
@@ -154,14 +156,20 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     note = []
 
+    # Parametri adattivi in base alla modalità
+    volume_multiplier = 0.8 if MODALITA_TEST else 1.0
+    macd_threshold = 0.001 if MODALITA_TEST else 0.0015
+    ema_gap_threshold = 0.0005 if MODALITA_TEST else 0.001
+    breakout_volume_factor = 1.1 if MODALITA_TEST else 1.5
+
     if atr / close < 0.001:
         note.append("⚠️ Nessun segnale: ATR troppo basso rispetto al prezzo")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     volume_attuale = hist['volume'].iloc[-1]
     volume_medio = hist['volume'].iloc[-21:-1].mean()
-    if volume_attuale < volume_medio:
-        note.append("⚠️ Volume attuale sotto la media, possibile segnale debole")
+    if volume_attuale < volume_medio * volume_multiplier:
+        note.append("⚠️ Volume attuale sotto la soglia, possibile segnale debole")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     dist_attuale = abs(ema7 - ema25) + abs(ema25 - ema99)
@@ -195,10 +203,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     massimo_20 = hist['high'].iloc[-21:-1].max()
     minimo_20 = hist['low'].iloc[-21:-1].min()
     breakout_confirmato = False
-    if close > massimo_20 and volume_attuale > volume_medio * 1.5:
+    if close > massimo_20 and volume_attuale > volume_medio * breakout_volume_factor:
         note.append("💥 Breakout rialzista confermato")
         breakout_confirmato = True
-    elif close < minimo_20 and volume_attuale > volume_medio * 1.5:
+    elif close < minimo_20 and volume_attuale > volume_medio * breakout_volume_factor:
         note.append("💥 Breakout ribassista confermato")
         breakout_confirmato = True
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
@@ -212,17 +220,17 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     guadagno_lordo = guadagno_netto_euro + (spread / 100) * close
     perdita_lorda = guadagno_lordo / 1.5
 
-    if ema7 > ema25 and abs(ema7 - ema25) / close > 0.001:
+    if ema7 > ema25 and abs(ema7 - ema25) / close > ema_gap_threshold:
         if ema7 > ema99 and ema25 > ema99:
-            if rsi > 50 and macd > macd_signal and macd_gap > 0.0015:
+            if rsi > 50 and macd > macd_signal and macd_gap > macd_threshold:
                 segnale = "BUY"
                 tp = round(close + guadagno_lordo, 4)
                 sl = round(close - perdita_lorda, 4)
                 note.append(f"✅ BUY confermato: trend forte, TP target {forza_scalata*100:.2f}% netto")
 
-    if ema7 < ema25 and abs(ema7 - ema25) / close > 0.001:
+    if ema7 < ema25 and abs(ema7 - ema25) / close > ema_gap_threshold:
         if ema7 < ema99 and ema25 < ema99:
-            if rsi < 48 and macd < macd_signal and macd_gap < -0.0015:
+            if rsi < 48 and macd < macd_signal and macd_gap < -macd_threshold:
                 segnale = "SELL"
                 tp = round(close - guadagno_lordo, 4)
                 sl = round(close + perdita_lorda, 4)
