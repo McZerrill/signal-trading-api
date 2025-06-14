@@ -1,6 +1,7 @@
 # models.py
 
 from pydantic import BaseModel
+from typing import Optional
 
 class SignalResponse(BaseModel):
     segnale: str
@@ -16,6 +17,6 @@ class SignalResponse(BaseModel):
     ema25: float
     ema99: float
     timeframe: str
-    spread: float  # ✅ Nuovo campo: spread percentuale tra bid e ask
-    guadagnoNetto: float
+    spread: float
+    guadagnoNetto: Optional[float] = None
     
