@@ -142,4 +142,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         note.append("⚠️ Pattern Hammer rilevato: possibile inversione")
         segnale = "HOLD"
 
-    return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto
+    guadagno_netto = 0.0  # puoi calcolarlo in modo avanzato se serve
+
+    return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto, guadagno_netto
+
