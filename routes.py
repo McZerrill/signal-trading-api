@@ -366,7 +366,7 @@ def hot_assets():
                     "prezzo": round(prezzo, 4),
                     "candele_trend": candele_trend
                 })
-
+                logging.info(f"✅ {symbol} inserito in /hotassets con trend {segnale}")
         except Exception as e:
             logging.error(f"❌ Errore con {symbol}: {e}")
             continue
