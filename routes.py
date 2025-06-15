@@ -422,6 +422,10 @@ def verifica_posizioni_attive():
             costi = investimento * (spread_pct + commissione * 2)
             guadagno_netto_usdc = round(guadagno_lordo - costi, 2)
 
+            # ✅ Aggiorna guadagno netto in tempo reale
+            posizione["guadagno_netto"] = guadagno_netto_usdc
+
+
             # 5. Regole di chiusura
             chiudi = False
             motivo = ""
