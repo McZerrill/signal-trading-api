@@ -270,6 +270,7 @@ def hot_assets():
         try:
             df = get_binance_df(symbol, "15m", 100)
             if df.empty or len(df) < 60:
+                print(f"❌ {symbol} scartato: dati insufficienti")
                 continue
 
             _filtro_log["totali"] += 1
@@ -277,6 +278,7 @@ def hot_assets():
             volume_medio = df["volume"].tail(20).mean()
             if pd.isna(volume_medio) or volume_medio < volume_soglia:
                 _filtro_log["volume_basso"] += 1
+                print(f"❌ {symbol} scartato: volume medio troppo basso ({volume_medio:.2f})")
                 continue
 
             df["EMA_7"] = df["close"].ewm(span=7).mean()
@@ -300,10 +302,12 @@ def hot_assets():
             print(f"📉 ATR: {raw_atr:.6f} | Volume medio: {volume_medio:.2f}")
             
             if prezzo <= 0:
+                print(f"❌ {symbol} scartato: prezzo non valido ({prezzo})")
                 continue
 
             if pd.isna(raw_atr) or raw_atr < atr_minimo:
                 _filtro_log["atr"] += 1
+                print(f"❌ {symbol} scartato: ATR troppo basso ({raw_atr:.6f})")
                 continue
 
             atr = round(raw_atr, 4)
