@@ -20,15 +20,5 @@ class SignalResponse(BaseModel):
     spread: float
     guadagnoNetto: Optional[float] = None
 
-class HotAsset(BaseModel):
-    symbol: str
-    segnali: int
-    trend: str
-    rsi: float
-    ema7: float
-    ema25: float
-    ema99: float
-    prezzo: float
-    candele_trend: int
 
     
