@@ -144,4 +144,4 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     guadagno_netto = 0.0  # calcolabile eventualmente più avanti
 
-    return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto, guadagno_netto
+    return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto, guadagno_netto 
