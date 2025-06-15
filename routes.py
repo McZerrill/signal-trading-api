@@ -267,102 +267,103 @@ def hot_assets():
     macd_signal_threshold = 0.0002 if MODALITA_TEST else 0.0005
 
     for symbol in symbols:
-        try:
-            df = get_binance_df(symbol, "15m", 100)
-            if df.empty or len(df) < 60:
-                print(f"❌ {symbol} scartato: dati insufficienti")
-                continue
-
-            _filtro_log["totali"] += 1
-
-            volume_medio = df["volume"].tail(20).mean()
-            if pd.isna(volume_medio) or volume_medio < volume_soglia:
-                _filtro_log["volume_basso"] += 1
-                print(f"❌ {symbol} scartato: volume medio troppo basso ({volume_medio:.2f})")
-                continue
-
-            df["EMA_7"] = df["close"].ewm(span=7).mean()
-            df["EMA_25"] = df["close"].ewm(span=25).mean()
-            df["EMA_99"] = df["close"].ewm(span=99).mean()
-            df["RSI"] = calcola_rsi(df["close"])
-            df["MACD"], df["MACD_SIGNAL"] = calcola_macd(df["close"])
-            df["ATR"] = calcola_atr(df)
-
-            ema7 = df["EMA_7"].iloc[-1]
-            ema25 = df["EMA_25"].iloc[-1]
-            ema99 = df["EMA_99"].iloc[-1]
-            rsi = df["RSI"].iloc[-1]
-            macd = df["MACD"].iloc[-1]
-            macd_signal = df["MACD_SIGNAL"].iloc[-1]
-            raw_atr = df["ATR"].iloc[-1]
-            prezzo = df["close"].iloc[-1]
-
-            print(f"📊 EMA: {ema7:.4f} / {ema25:.4f} / {ema99:.4f}")
-            print(f"📈 RSI: {rsi:.2f} | MACD: {macd:.5f} / Signal: {macd_signal:.5f}")
-            print(f"📉 ATR: {raw_atr:.6f} | Volume medio: {volume_medio:.2f}")
-            
-            if prezzo <= 0:
-                print(f"❌ {symbol} scartato: prezzo non valido ({prezzo})")
-                continue
-
-            if pd.isna(raw_atr) or raw_atr < atr_minimo:
-                _filtro_log["atr"] += 1
-                print(f"❌ {symbol} scartato: ATR troppo basso ({raw_atr:.6f})")
-                continue
-
-            atr = round(raw_atr, 4)
-
-            distanza_relativa = abs(ema7 - ema99) / ema99
-            if distanza_relativa < distanza_minima and prezzo < 1000:
-                _filtro_log["ema_flat"] += 1
-                continue
-
-            oscillazione = df["close"].diff().abs().tail(10).sum()
-            if oscillazione < 0.001 and prezzo < 50:
-                _filtro_log["prezzo_piattissimo"] += 1
-                continue
-
-            if abs(macd - macd_signal) < macd_signal_threshold and macd_rsi_range[0] < rsi < macd_rsi_range[1] and distanza_relativa < 0.0015:
-                _filtro_log["macd_rsi_neutri"] += 1
-                continue
-
-            recenti_rialzo = all(df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] > df["EMA_99"].iloc[-i] for i in range(1, 4))
-            recenti_ribasso = all(df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] < df["EMA_99"].iloc[-i] for i in range(1, 4))
-
-            trend_buy = recenti_rialzo and rsi > 50 and macd > macd_signal
-            trend_sell = recenti_ribasso and rsi < 50 and macd < macd_signal
-
-            presegnale_buy = (
-                df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2] and ema7 > ema25 and ema25 < ema99
-                and distanza_relativa < 0.015 and rsi > 50 and macd > macd_signal
-            )
-            presegnale_sell = (
-                df["EMA_7"].iloc[-2] > df["EMA_25"].iloc[-2] and ema7 < ema25 and ema25 > ema99
-                and distanza_relativa < 0.015 and rsi < 50 and macd < macd_signal
-            )
-            
-            print(f"🧭 Trend ➜ BUY: {trend_buy} | SELL: {trend_sell}")
-            print(f"🕵️ Pre-segnale ➜ BUY: {presegnale_buy} | SELL: {presegnale_sell}")
-            
-            if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
-                segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
-                candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
-
-                risultati.append({
-                    "symbol": symbol,
-                    "segnali": 1,
-                    "trend": segnale,
-                    "rsi": round(rsi, 2),
-                    "ema7": round(ema7, 2),
-                    "ema25": round(ema25, 2),
-                    "ema99": round(ema99, 2),
-                    "prezzo": round(prezzo, 4),
-                    "candele_trend": candele_trend
-                })
-
-        except Exception as e:
-            print(f"❌ Errore con {symbol}: {e}")
+    try:
+        df = get_binance_df(symbol, "15m", 100)
+        if df.empty or len(df) < 60:
+            print(f"❌ {symbol} scartato: dati insufficienti")
             continue
+
+        _filtro_log["totali"] += 1
+
+        volume_medio = df["volume"].tail(20).mean()
+        if pd.isna(volume_medio) or volume_medio < volume_soglia:
+            _filtro_log["volume_basso"] += 1
+            print(f"⛔ {symbol} scartato: volume medio troppo basso ({volume_medio:.2f})")
+            continue
+
+        df["EMA_7"] = df["close"].ewm(span=7).mean()
+        df["EMA_25"] = df["close"].ewm(span=25).mean()
+        df["EMA_99"] = df["close"].ewm(span=99).mean()
+        df["RSI"] = calcola_rsi(df["close"])
+        df["MACD"], df["MACD_SIGNAL"] = calcola_macd(df["close"])
+        df["ATR"] = calcola_atr(df)
+
+        ema7 = df["EMA_7"].iloc[-1]
+        ema25 = df["EMA_25"].iloc[-1]
+        ema99 = df["EMA_99"].iloc[-1]
+        rsi = df["RSI"].iloc[-1]
+        macd = df["MACD"].iloc[-1]
+        macd_signal = df["MACD_SIGNAL"].iloc[-1]
+        raw_atr = df["ATR"].iloc[-1]
+        prezzo = df["close"].iloc[-1]
+
+        print(f"📊 {symbol} ➜ EMA: {ema7:.4f} / {ema25:.4f} / {ema99:.4f}")
+        print(f"📈 RSI: {rsi:.2f} | MACD: {macd:.5f} / Signal: {macd_signal:.5f}")
+        print(f"📉 ATR: {raw_atr:.6f} | Volume medio: {volume_medio:.2f}")
+
+        if prezzo <= 0:
+            print(f"⛔ {symbol} scartato: prezzo non valido ({prezzo})")
+            continue
+
+        if pd.isna(raw_atr) or raw_atr < atr_minimo:
+            _filtro_log["atr"] += 1
+            print(f"⛔ {symbol} scartato: ATR troppo basso ({raw_atr:.6f}) < soglia {atr_minimo}")
+            continue
+
+        distanza_relativa = abs(ema7 - ema99) / ema99
+        if distanza_relativa < distanza_minima and prezzo < 1000:
+            _filtro_log["ema_flat"] += 1
+            print(f"⛔ {symbol} scartato: distanza EMA troppo bassa ({distanza_relativa:.5f}) < soglia {distanza_minima}")
+            continue
+
+        oscillazione = df["close"].diff().abs().tail(10).sum()
+        if oscillazione < 0.001 and prezzo < 50:
+            _filtro_log["prezzo_piattissimo"] += 1
+            print(f"⛔ {symbol} scartato: oscillazione troppo bassa ({oscillazione:.6f})")
+            continue
+
+        if abs(macd - macd_signal) < macd_signal_threshold and macd_rsi_range[0] < rsi < macd_rsi_range[1] and distanza_relativa < 0.0015:
+            _filtro_log["macd_rsi_neutri"] += 1
+            print(f"⛔ {symbol} scartato: MACD ≈ Signal e RSI neutro ({rsi:.2f}), MACD diff: {abs(macd - macd_signal):.6f}")
+            continue
+
+        recenti_rialzo = all(df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] > df["EMA_99"].iloc[-i] for i in range(1, 4))
+        recenti_ribasso = all(df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] < df["EMA_99"].iloc[-i] for i in range(1, 4))
+
+        trend_buy = recenti_rialzo and rsi > 50 and macd > macd_signal
+        trend_sell = recenti_ribasso and rsi < 50 and macd < macd_signal
+
+        presegnale_buy = (
+            df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2] and ema7 > ema25 and ema25 < ema99
+            and distanza_relativa < 0.015 and rsi > 50 and macd > macd_signal
+        )
+        presegnale_sell = (
+            df["EMA_7"].iloc[-2] > df["EMA_25"].iloc[-2] and ema7 < ema25 and ema25 > ema99
+            and distanza_relativa < 0.015 and rsi < 50 and macd < macd_signal
+        )
+
+        print(f"🧭 Trend ➜ BUY: {trend_buy} | SELL: {trend_sell}")
+        print(f"🕵️ Pre-segnale ➜ BUY: {presegnale_buy} | SELL: {presegnale_sell}")
+
+        if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
+            segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
+            candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
+
+            risultati.append({
+                "symbol": symbol,
+                "segnali": 1,
+                "trend": segnale,
+                "rsi": round(rsi, 2),
+                "ema7": round(ema7, 2),
+                "ema25": round(ema25, 2),
+                "ema99": round(ema99, 2),
+                "prezzo": round(prezzo, 4),
+                "candele_trend": candele_trend
+            })
+
+    except Exception as e:
+        print(f"❌ Errore con {symbol}: {e}")
+        continue
 
     _hot_cache["time"] = now
     _hot_cache["valid_until"] = now + 3600  # validi per 60 minuti
