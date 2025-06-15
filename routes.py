@@ -316,6 +316,10 @@ def hot_assets():
                 logging.info(f"⛔ {symbol} scartato: ATR troppo basso ({raw_atr:.6f}) < soglia {atr_minimo}")
                 continue
 
+            if ema99 == 0:
+                logging.info(f"⛔ {symbol} scartato: EMA99 = 0, impossibile calcolare distanza")
+                continue
+                
             distanza_relativa = abs(ema7 - ema99) / ema99
             if distanza_relativa < distanza_minima and prezzo < 1000:
                 _filtro_log["ema_flat"] += 1
