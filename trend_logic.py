@@ -66,10 +66,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     note = []
 
-    volume_multiplier = 0.8 if MODALITA_TEST else 1.0
-    macd_threshold = 0.001 if MODALITA_TEST else 0.0015
-    ema_gap_threshold = 0.0005 if MODALITA_TEST else 0.001
-    breakout_volume_factor = 1.1 if MODALITA_TEST else 1.5
+    volume_multiplier = 0.6 if MODALITA_TEST else 1.0
+    macd_threshold = 0.0005 if MODALITA_TEST else 0.0015
+    ema_gap_threshold = 0.0003 if MODALITA_TEST else 0.001
+    breakout_volume_factor = 1.0 if MODALITA_TEST else 1.5
 
     if atr / close < 0.001:
         note.append("⚠️ Nessun segnale: ATR troppo basso rispetto al prezzo")
