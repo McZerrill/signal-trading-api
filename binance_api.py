@@ -1,4 +1,4 @@
-import time
+import time 
 import requests
 import pandas as pd
 from typing import Optional
@@ -13,9 +13,13 @@ client = Client(api_key=BINANCE_API_KEY, api_secret=BINANCE_API_SECRET)
 # Cache dei simboli
 _symbol_cache = {"time": 0, "data": []}
 
-def get_best_symbols(limit=50):
+# ✅ Modalità test attiva
+MODALITA_TEST = True
+
+
+def get_best_symbols(limit=80):
     now = time.time()
-    if now - _symbol_cache["time"] < 900:  # 15 minuti cache
+    if now - _symbol_cache["time"] < 60:  # cache breve: ogni 60s
         return _symbol_cache["data"]
 
     try:
@@ -23,19 +27,19 @@ def get_best_symbols(limit=50):
         response = requests.get(url, timeout=10)
         data = response.json()
 
-        # Filtro su simboli USDT, no token a leva, volume > 5M
+        # Filtro su simboli USDC, no token a leva, volume > 1M
         filtered = [
             d for d in data
             if d["symbol"].endswith("USDC")
             and not any(x in d["symbol"] for x in ["UP", "DOWN", "BULL", "BEAR"])
-            and float(d["quoteVolume"]) > 5_000_000
+            and float(d["quoteVolume"]) > (1_000_000 if MODALITA_TEST else 5_000_000)
         ]
 
         # Ordina per volume decrescente
         sorted_pairs = sorted(filtered, key=lambda x: float(x["quoteVolume"]), reverse=True)
         top_symbols = [d["symbol"] for d in sorted_pairs[:limit]]
 
-        print(f"✅ {len(top_symbols)} simboli trovati con volume > 5M USDT")
+        print(f"✅ {len(top_symbols)} simboli trovati con volume > 1M USDC")
         _symbol_cache["time"] = now
         _symbol_cache["data"] = top_symbols
         return top_symbols
@@ -46,6 +50,7 @@ def get_best_symbols(limit=50):
             "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT",
             "SOLUSDT", "AVAXUSDT", "DOTUSDT", "DOGEUSDT", "MATICUSDT"
         ]
+
 
 def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None):
     params = {
@@ -80,6 +85,7 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
 
     return df
 
+
 def get_bid_ask(symbol: str) -> dict:
     """
     Recupera bid/ask reali dal book Binance e calcola lo spread percentuale.
@@ -103,4 +109,3 @@ def get_bid_ask(symbol: str) -> dict:
             "ask": 0.0,
             "spread": 0.0
         }
-
