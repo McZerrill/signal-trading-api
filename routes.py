@@ -384,35 +384,49 @@ def verifica_posizioni_attive():
             tp = posizione["tp"]
             sl = posizione["sl"]
             tipo = posizione["tipo"]
-            guadagno_netto_usdc = posizione.get("guadagno_netto", 0.0)
 
-            # 4. Regole di chiusura
+            # 4. Calcolo guadagno netto attuale
+            investimento = 100.0
+            commissione = 0.001  # 0.1%
+            spread_pct = spread / 100
+
+            if tipo == "BUY":
+                variazione_pct = (prezzo_attuale - entry) / entry
+            else:  # SELL
+                variazione_pct = (entry - prezzo_attuale) / entry
+
+            guadagno_lordo = investimento * variazione_pct
+            costi = investimento * (spread_pct + commissione * 2)
+            guadagno_netto_usdc = round(guadagno_lordo - costi, 2)
+
+            # 5. Regole di chiusura
             chiudi = False
             motivo = ""
 
             if tipo == "BUY" and prezzo_attuale >= tp:
-                motivo = f"🎯 TP raggiunto | Guadagno netto stimato: {guadagno_netto_usdc} USDC"
+                motivo = f"🎯 TP raggiunto | Guadagno netto: {guadagno_netto_usdc:.2f} USDC"
                 chiudi = True
             elif tipo == "BUY" and prezzo_attuale <= sl:
-                motivo = f"🛡 SL colpito | Guadagno netto stimato: {guadagno_netto_usdc} USDC"
+                motivo = f"🛡 SL colpito | Guadagno netto: {guadagno_netto_usdc:.2f} USDC"
                 chiudi = True
             elif tipo == "SELL" and prezzo_attuale <= tp:
-                motivo = f"🎯 TP raggiunto | Guadagno netto stimato: {guadagno_netto_usdc} USDC"
+                motivo = f"🎯 TP raggiunto | Guadagno netto: {guadagno_netto_usdc:.2f} USDC"
                 chiudi = True
             elif tipo == "SELL" and prezzo_attuale >= sl:
-                motivo = f"🛡 SL colpito | Guadagno netto stimato: {guadagno_netto_usdc} USDC"
+                motivo = f"🛡 SL colpito | Guadagno netto: {guadagno_netto_usdc:.2f} USDC"
                 chiudi = True
             elif segnale_corrente != tipo and candele_attive < 2:
-                motivo = f"⚠️ Trend cambiato, chiusura protettiva (netto: {guadagno_netto_usdc} USDC)"
+                motivo = f"⚠️ Trend cambiato, chiusura protettiva (netto: {guadagno_netto_usdc:.2f} USDC)"
                 chiudi = True
 
-            if not chiudi:
-                continue
+            # 6. Chiusura
+            if chiudi:
+                print(f"🔔 CHIUSURA: {symbol} @ {prezzo_attuale} | {motivo}")
+                da_rimuovere.append(symbol)
 
-            print(f"🔔 CHIUSURA: {symbol} @ {prezzo_attuale} | {motivo}")
-            da_rimuovere.append(symbol)
+                # Puoi anche loggare o salvare l'esito finale qui, se necessario
 
-        # 5. Rimozione posizioni chiuse
+        # 7. Rimozione posizioni chiuse
         for s in da_rimuovere:
             posizioni_attive.pop(s, None)
 
