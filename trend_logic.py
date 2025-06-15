@@ -54,7 +54,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['close'])
 
     if len(hist) < 22:
-        return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
+        return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0, 0.0
 
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
@@ -73,13 +73,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     if atr / close < 0.001:
         note.append("⚠️ Nessun segnale: ATR troppo basso rispetto al prezzo")
-        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto, 0.0
 
     volume_attuale = hist['volume'].iloc[-1]
     volume_medio = hist['volume'].iloc[-21:-1].mean()
     if volume_attuale < volume_medio * volume_multiplier:
         note.append("⚠️ Volume attuale sotto la soglia, possibile segnale debole")
-        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto, 0.0
 
     dist_attuale = abs(ema7 - ema25) + abs(ema25 - ema99)
     dist_precedente = abs(penultimo['EMA_7'] - penultimo['EMA_25']) + abs(penultimo['EMA_25'] - penultimo['EMA_99'])
@@ -142,7 +142,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         note.append("⚠️ Pattern Hammer rilevato: possibile inversione")
         segnale = "HOLD"
 
-    guadagno_netto = 0.0  # puoi calcolarlo in modo avanzato se serve
+    guadagno_netto = 0.0  # calcolabile eventualmente più avanti
 
     return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto, guadagno_netto
-
