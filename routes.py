@@ -260,11 +260,11 @@ def hot_assets():
     risultati = []
 
     # Parametri adattivi in base alla modalità
-    volume_soglia = 100 if MODALITA_TEST else 300
-    atr_minimo = 0.0005 if MODALITA_TEST else 0.0008
-    distanza_minima = 0.0008 if MODALITA_TEST else 0.0012
-    macd_rsi_range = (46, 54) if MODALITA_TEST else (48, 52)
-    macd_signal_threshold = 0.0003 if MODALITA_TEST else 0.0005
+    volume_soglia = 50 if MODALITA_TEST else 300
+    atr_minimo = 0.0003 if MODALITA_TEST else 0.0008
+    distanza_minima = 0.0005 if MODALITA_TEST else 0.0012
+    macd_rsi_range = (45, 55) if MODALITA_TEST else (48, 52)
+    macd_signal_threshold = 0.0002 if MODALITA_TEST else 0.0005
 
     for symbol in symbols:
         try:
@@ -294,6 +294,11 @@ def hot_assets():
             macd_signal = df["MACD_SIGNAL"].iloc[-1]
             raw_atr = df["ATR"].iloc[-1]
             prezzo = df["close"].iloc[-1]
+
+            print(f"📊 EMA: {ema7:.4f} / {ema25:.4f} / {ema99:.4f}")
+            print(f"📈 RSI: {rsi:.2f} | MACD: {macd:.5f} / Signal: {macd_signal:.5f}")
+            print(f"📉 ATR: {raw_atr:.6f} | Volume medio: {volume_medio:.2f}")
+            
             if prezzo <= 0:
                 continue
 
@@ -331,7 +336,10 @@ def hot_assets():
                 df["EMA_7"].iloc[-2] > df["EMA_25"].iloc[-2] and ema7 < ema25 and ema25 > ema99
                 and distanza_relativa < 0.015 and rsi < 50 and macd < macd_signal
             )
-
+            
+            print(f"🧭 Trend ➜ BUY: {trend_buy} | SELL: {trend_sell}")
+            print(f"🕵️ Pre-segnale ➜ BUY: {presegnale_buy} | SELL: {presegnale_sell}")
+            
             if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
                 segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
