@@ -79,8 +79,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     volume_medio = hist['volume'].iloc[-21:-1].mean()
     if volume_attuale < volume_medio * volume_multiplier:
         note.append("⚠️ Volume attuale sotto la soglia, possibile segnale debole")
-        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto, 0.0
-
+        if not MODALITA_TEST:
+            return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto, 0.0
+            
     dist_attuale = abs(ema7 - ema25) + abs(ema25 - ema99)
     dist_precedente = abs(penultimo['EMA_7'] - penultimo['EMA_25']) + abs(penultimo['EMA_25'] - penultimo['EMA_99'])
     dist_diff = dist_attuale - dist_precedente
