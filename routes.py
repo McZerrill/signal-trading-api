@@ -271,7 +271,7 @@ _filtro_log = {
 
 _hot_cache = {"time": 0, "data": [], "valid_until": 0}
 
-MODALITA_TEST = True
+MODALITA_TEST = False
 
 @router.get("/hotassets")
 def hot_assets():
