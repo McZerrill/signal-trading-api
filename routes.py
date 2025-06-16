@@ -220,26 +220,33 @@ def get_price(symbol: str):
         spread = (ask - bid) / ((ask + bid) / 2) * 100
         prezzo = round((bid + ask) / 2, 4)
 
-        # ✅ Recupera guadagno netto se presente
+        # ✅ Recupera guadagno netto se presente e logga dettagli
         guadagno_netto = None
         if symbol in posizioni_attive:
-            raw = posizioni_attive[symbol].get("guadagno_netto")
-            guadagno_netto = round(raw, 2) if isinstance(raw, (int, float)) else None
+            posizione = posizioni_attive[symbol]
+            raw = posizione.get("guadagno_netto")
+            if isinstance(raw, (int, float)):
+                guadagno_netto = round(raw, 2)
+                logging.info(f"✅ /price {symbol}: guadagno_netto presente = {guadagno_netto}")
+            else:
+                logging.warning(f"⚠️ /price {symbol}: guadagno_netto non valido ({raw})")
+        else:
+            logging.warning(f"❌ /price {symbol}: simbolo non trovato in posizioni_attive")
 
         elapsed = round(time.time() - start, 3)
-        print(f"/price {symbol} ➜ prezzo: {prezzo}, spread: {spread:.4f}%, netto: {guadagno_netto} (risposto in {elapsed}s)")
+        logging.info(f"/price {symbol} ➜ prezzo: {prezzo}, spread: {spread:.4f}%, netto: {guadagno_netto} (risposto in {elapsed}s)")
 
         return {
             "symbol": symbol,
             "prezzo": prezzo,
             "spread": round(spread, 4),
             "tempo": elapsed,
-            "guadagnoNetto": guadagno_netto  # ✅ AGGIUNTO CAMPO NECESSARIO
+            "guadagnoNetto": guadagno_netto  # ✅ CAMPO NECESSARIO
         }
 
     except Exception as e:
         elapsed = round(time.time() - start, 3)
-        print(f"/price {symbol} ERRORE: {e} (in {elapsed}s)")
+        logging.error(f"/price {symbol} ERRORE: {e} (in {elapsed}s)")
         return {
             "symbol": symbol,
             "prezzo": 0.0,
@@ -247,6 +254,7 @@ def get_price(symbol: str):
             "errore": str(e),
             "tempo": elapsed
         }
+
 
 _hot_cache = {"time": 0, "data": []}
 
