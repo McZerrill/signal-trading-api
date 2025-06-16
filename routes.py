@@ -206,6 +206,8 @@ def analyze(symbol: str):
 def get_price(symbol: str):
     import time
     start = time.time()
+    symbol = symbol.upper()  # ✅ Normalizza il simbolo appena entra
+
     try:
         url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
         response = requests.get(url, timeout=3)
@@ -213,7 +215,6 @@ def get_price(symbol: str):
 
         bid = float(data["bidPrice"])
         ask = float(data["askPrice"])
-        # Protezione contro valori non validi
         if bid <= 0 or ask <= 0:
             raise ValueError(f"Prezzo non valido: bid={bid}, ask={ask}")
 
@@ -241,7 +242,7 @@ def get_price(symbol: str):
             "prezzo": prezzo,
             "spread": round(spread, 4),
             "tempo": elapsed,
-            "guadagnoNetto": guadagno_netto  # ✅ CAMPO NECESSARIO
+            "guadagnoNetto": guadagno_netto
         }
 
     except Exception as e:
@@ -254,6 +255,7 @@ def get_price(symbol: str):
             "errore": str(e),
             "tempo": elapsed
         }
+
 
 
 _hot_cache = {"time": 0, "data": []}
