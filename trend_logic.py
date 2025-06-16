@@ -81,7 +81,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         note.append("⚠️ Volume attuale sotto la soglia, possibile segnale debole")
         if not MODALITA_TEST:
             return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto, 0.0
-            
+
     dist_attuale = abs(ema7 - ema25) + abs(ema25 - ema99)
     dist_precedente = abs(penultimo['EMA_7'] - penultimo['EMA_25']) + abs(penultimo['EMA_25'] - penultimo['EMA_99'])
     dist_diff = dist_attuale - dist_precedente
@@ -107,21 +107,26 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume non sufficiente a confermare")
 
+    commissione = 0.001  # 0.1% per lato
+    guadagno_target = 0.5  # profitto netto desiderato in USDC
+    costi_totali = (commissione * 2) + spread
+    percentuale_guadagno = (guadagno_target / 100) + costi_totali  # su 100 USDC
+
     if ema7 > ema25 and abs(ema7 - ema25) / close > ema_gap_threshold:
         if ema7 > ema99 and ema25 > ema99:
             if rsi > 50 and macd > macd_signal and macd_gap > macd_threshold:
                 segnale = "BUY"
-                tp = round(close + close * 0.005, 4)
-                sl = round(close - close * 0.0033, 4)
-                note.append(f"✅ BUY confermato: trend forte")
+                tp = round(close * (1 + percentuale_guadagno), 4)
+                sl = round(close * (1 - percentuale_guadagno / 1.5), 4)
+                note.append("✅ BUY confermato: trend forte")
 
     if ema7 < ema25 and abs(ema7 - ema25) / close > ema_gap_threshold:
         if ema7 < ema99 and ema25 < ema99:
             if rsi < 48 and macd < macd_signal and macd_gap < -macd_threshold:
                 segnale = "SELL"
-                tp = round(close - close * 0.005, 4)
-                sl = round(close + close * 0.0033, 4)
-                note.append(f"✅ SELL confermato: trend forte")
+                tp = round(close * (1 - percentuale_guadagno), 4)
+                sl = round(close * (1 + percentuale_guadagno / 1.5), 4)
+                note.append("✅ SELL confermato: trend forte")
 
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
@@ -143,6 +148,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         note.append("⚠️ Pattern Hammer rilevato: possibile inversione")
         segnale = "HOLD"
 
-    guadagno_netto = 0.0  # calcolabile eventualmente più avanti
+    guadagno_netto = 0.0
 
-    return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto, guadagno_netto 
+    return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto, guadagno_netto
