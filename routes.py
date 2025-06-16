@@ -227,6 +227,7 @@ def get_price(symbol: str):
             "symbol": symbol,
             "prezzo": prezzo,
             "spread": round(spread, 4),
+            "guadagnoNetto": guadagno,
             "tempo": elapsed
         }
 
