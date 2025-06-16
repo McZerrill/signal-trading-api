@@ -220,14 +220,21 @@ def get_price(symbol: str):
         spread = (ask - bid) / ((ask + bid) / 2) * 100
         prezzo = round((bid + ask) / 2, 4)
 
+        # ✅ Recupera guadagno netto se presente
+        guadagno_netto = None
+        if symbol in posizioni_attive:
+            raw = posizioni_attive[symbol].get("guadagno_netto")
+            guadagno_netto = round(raw, 2) if isinstance(raw, (int, float)) else None
+
         elapsed = round(time.time() - start, 3)
-        print(f"/price {symbol} ➜ prezzo: {prezzo}, spread: {spread:.4f}% (risposto in {elapsed}s)")
+        print(f"/price {symbol} ➜ prezzo: {prezzo}, spread: {spread:.4f}%, netto: {guadagno_netto} (risposto in {elapsed}s)")
 
         return {
             "symbol": symbol,
             "prezzo": prezzo,
             "spread": round(spread, 4),
-            "tempo": elapsed
+            "tempo": elapsed,
+            "guadagnoNetto": guadagno_netto  # ✅ AGGIUNTO CAMPO NECESSARIO
         }
 
     except Exception as e:
