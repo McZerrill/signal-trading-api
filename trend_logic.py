@@ -1,7 +1,7 @@
 import pandas as pd
 from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto, calcola_ema
 
-MODALITA_TEST = True
+MODALITA_TEST = False
 
 def valuta_distanza(distanza: float) -> str:
     if distanza < 1:
