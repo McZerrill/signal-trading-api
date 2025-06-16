@@ -230,7 +230,7 @@ def get_price(symbol: str):
         print(f"/price {symbol} ➜ prezzo: {prezzo}, spread: {spread:.4f}%, netto: {guadagno_netto} (risposto in {elapsed}s)")
 
         return {
-            "simbolo": symbol,
+            "symbol": symbol,
             "prezzo": prezzo,
             "spread": round(spread, 4),
             "tempo": elapsed,
