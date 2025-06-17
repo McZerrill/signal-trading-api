@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from pytz import timezone
 from datetime import datetime, timezone as dt_timezone
 import time
-
+from trend_logic import trend_continuativo
 from binance_api import get_binance_df, get_best_symbols
 from trend_logic import analizza_trend, conta_candele_trend, riconosci_pattern_candela
 from indicators import calcola_rsi, calcola_macd, calcola_atr  # se usi anche questi esplicitamente
@@ -92,7 +92,16 @@ def analyze(symbol: str):
             note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
             segnale = "HOLD"
         else:
-            note += "\n🧭 Segnale confermato anche su 1h"
+            df_conf_1h = df_1h.copy()
+            ema = calcola_ema(df_conf_1h, [7, 25, 99])
+            df_conf_1h["EMA_7"] = ema[7]
+            df_conf_1h["EMA_25"] = ema[25]
+            df_conf_1h["EMA_99"] = ema[99]
+            if trend_continuativo(df_conf_1h, tipo=segnale, min_candele=2):
+                note += "\n🧭 Segnale confermato anche su 1h (trend attivo)"
+            else:
+                note += "\n⚠️ 1h non mostra trend continuo, segnale non affidabile"
+                segnale = "HOLD"
 
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
@@ -271,7 +280,7 @@ _filtro_log = {
 
 _hot_cache = {"time": 0, "data": [], "valid_until": 0}
 
-MODALITA_TEST = False
+MODALITA_TEST = True
 
 @router.get("/hotassets")
 def hot_assets():
@@ -283,11 +292,11 @@ def hot_assets():
     symbols = get_best_symbols(limit=50)
     risultati = []
 
-    volume_soglia = 30 if MODALITA_TEST else 300
-    atr_minimo = 0.00015 if MODALITA_TEST else 0.0008
-    distanza_minima = 0.0003 if MODALITA_TEST else 0.0012
-    macd_rsi_range = (43, 57) if MODALITA_TEST else (48, 52)
-    macd_signal_threshold = 0.0001 if MODALITA_TEST else 0.0005
+    volume_soglia = 100 if MODALITA_TEST else 300
+    atr_minimo = 0.0005 if MODALITA_TEST else 0.0008
+    distanza_minima = 0.0008 if MODALITA_TEST else 0.0012
+    macd_rsi_range = (45, 55) if MODALITA_TEST else (48, 52)
+    macd_signal_threshold = 0.0003 if MODALITA_TEST else 0.0005
 
     for symbol in symbols:
         try:
