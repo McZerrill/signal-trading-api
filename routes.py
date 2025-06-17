@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from pytz import timezone
 from datetime import datetime, timezone as dt_timezone
 import time
-
+from trend_logic import trend_continuativo
 from binance_api import get_binance_df, get_best_symbols
 from trend_logic import analizza_trend, conta_candele_trend, riconosci_pattern_candela
 from indicators import calcola_rsi, calcola_macd, calcola_atr  # se usi anche questi esplicitamente
@@ -89,10 +89,40 @@ def analyze(symbol: str):
         segnale, hist, note, tp, sl, supporto, guadagno_netto = segnale_15m, h15, note15, tp15, sl15, supporto15, guadagno_15m
 
         if segnale != segnale_1h:
-            note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
-            segnale = "HOLD"
+            _, h1_df, *_ = analizza_trend(df_1h, spread)
+            macd_1h = h1_df["MACD"].iloc[-1]
+            macd_signal_1h = h1_df["MACD_SIGNAL"].iloc[-1]
+            rsi_1h = h1_df["RSI"].iloc[-1]
+
+            if segnale == "SELL":
+                if macd_1h < 0 and (macd_1h - macd_signal_1h) < 0.005 and rsi_1h < 45:
+                    note += f"\n⚠️ SELL su 1h ancora in conferma: MACD ≈ signal ({macd_1h:.4f}/{macd_signal_1h:.4f})"
+                else:
+                    note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+                    segnale = "HOLD"
+
+            elif segnale == "BUY":
+                if macd_1h > 0 and (macd_1h - macd_signal_1h) > -0.005 and rsi_1h > 50:
+                    note += f"\n⚠️ BUY su 1h ancora in conferma: MACD ≈ signal ({macd_1h:.4f}/{macd_signal_1h:.4f})"
+                else:
+                    note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+                    segnale = "HOLD"
+
+            else:
+                note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+                segnale = "HOLD"
+
         else:
-            note += "\n🧭 Segnale confermato anche su 1h"
+            df_conf_1h = df_1h.copy()
+            ema = calcola_ema(df_conf_1h, [7, 25, 99])
+            df_conf_1h["EMA_7"] = ema[7]
+            df_conf_1h["EMA_25"] = ema[25]
+            df_conf_1h["EMA_99"] = ema[99]
+            if trend_continuativo(df_conf_1h, tipo=segnale, min_candele=2):
+                note += "\n🧭 Segnale confermato anche su 1h (trend attivo)"
+            else:
+                note += "\n⚠️ 1h non mostra trend continuo, segnale non affidabile"
+                segnale = "HOLD"
 
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
@@ -127,7 +157,7 @@ def analyze(symbol: str):
                 "tp": tp,
                 "sl": sl,
                 "ora_apertura": time.time(),
-                "guadagno_netto": round(guadagno_netto, 2)  # ✅ SALVATO UNA SOLA VOLTA
+                "guadagno_netto": round(guadagno_netto, 2)
             }
 
             tp_pct = round(abs((tp - close) / close) * 100, 2)
@@ -283,11 +313,11 @@ def hot_assets():
     symbols = get_best_symbols(limit=50)
     risultati = []
 
-    volume_soglia = 30 if MODALITA_TEST else 300
-    atr_minimo = 0.00015 if MODALITA_TEST else 0.0008
-    distanza_minima = 0.0003 if MODALITA_TEST else 0.0012
-    macd_rsi_range = (43, 57) if MODALITA_TEST else (48, 52)
-    macd_signal_threshold = 0.0001 if MODALITA_TEST else 0.0005
+    volume_soglia = 100 if MODALITA_TEST else 300
+    atr_minimo = 0.0005 if MODALITA_TEST else 0.0008
+    distanza_minima = 0.0008 if MODALITA_TEST else 0.0012
+    macd_rsi_range = (45, 55) if MODALITA_TEST else (48, 52)
+    macd_signal_threshold = 0.0003 if MODALITA_TEST else 0.0005
 
     for symbol in symbols:
         try:
@@ -436,7 +466,10 @@ def verifica_posizioni_attive():
                 variazione_pct = (entry - prezzo_attuale) / entry
 
             guadagno_lordo = investimento * variazione_pct
-            costi = investimento * (spread_pct + commissione * 2)
+            from indicators import calcola_percentuale_guadagno
+            percentuale_totale = calcola_percentuale_guadagno(spread=spread)
+            costi = investimento * percentuale_totale
+
             guadagno_netto_usdc = round(guadagno_lordo - costi, 2)
 
             # ✅ Aggiorna guadagno netto in tempo reale
