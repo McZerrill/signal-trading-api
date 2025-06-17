@@ -112,22 +112,27 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     from indicators import calcola_percentuale_guadagno
     percentuale_guadagno = calcola_percentuale_guadagno(spread=spread)
 
-
     # ✅ BUY
     if ema7 > ema25 and ema25 > ema99 and abs(ema7 - ema25) / close > ema_gap_threshold:
-        if rsi > 50 and macd > macd_signal and macd_gap > macd_threshold:
+        macd_gap_ok = (macd > macd_signal and macd_gap > macd_threshold)
+        macd_debole = (macd > 0 and macd - macd_signal > -0.005)
+
+        if rsi > 50 and (macd_gap_ok or macd_debole):
             segnale = "BUY"
             tp = round(close * (1 + percentuale_guadagno), 4)
             sl = round(close * (1 - percentuale_guadagno / 1.5), 4)
-            note.append("✅ BUY confermato: trend forte")
+            note.append("✅ BUY confermato: trend forte" if macd_gap_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
     # ✅ SELL
     if ema7 < ema25 and ema25 < ema99 and abs(ema7 - ema25) / close > ema_gap_threshold:
-        if rsi < 50 and macd < macd_signal and macd < 0 and macd_gap < -macd_threshold:
+        macd_gap_ok = (macd < macd_signal and macd_gap < -macd_threshold)
+        macd_debole = (macd < 0 and macd - macd_signal < 0.005)
+
+        if rsi < 45 and (macd_gap_ok or macd_debole):
             segnale = "SELL"
             tp = round(close * (1 - percentuale_guadagno), 4)
             sl = round(close * (1 + percentuale_guadagno / 1.5), 4)
-            note.append("✅ SELL confermato: trend forte")
+            note.append("✅ SELL confermato: trend forte" if macd_gap_ok else "⚠️ SELL anticipato: MACD ≈ signal")
 
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
@@ -151,3 +156,4 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     guadagno_netto = 0.0
 
     return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto, guadagno_netto
+
