@@ -89,8 +89,29 @@ def analyze(symbol: str):
         segnale, hist, note, tp, sl, supporto, guadagno_netto = segnale_15m, h15, note15, tp15, sl15, supporto15, guadagno_15m
 
         if segnale != segnale_1h:
-            note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
-            segnale = "HOLD"
+            _, h1_df, *_ = analizza_trend(df_1h, spread)
+            macd_1h = h1_df["MACD"].iloc[-1]
+            macd_signal_1h = h1_df["MACD_SIGNAL"].iloc[-1]
+            rsi_1h = h1_df["RSI"].iloc[-1]
+
+            if segnale == "SELL":
+                if macd_1h < 0 and (macd_1h - macd_signal_1h) < 0.005 and rsi_1h < 45:
+                    note += f"\n⚠️ SELL su 1h ancora in conferma: MACD ≈ signal ({macd_1h:.4f}/{macd_signal_1h:.4f})"
+                else:
+                    note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+                    segnale = "HOLD"
+
+            elif segnale == "BUY":
+                if macd_1h > 0 and (macd_1h - macd_signal_1h) > -0.005 and rsi_1h > 50:
+                    note += f"\n⚠️ BUY su 1h ancora in conferma: MACD ≈ signal ({macd_1h:.4f}/{macd_signal_1h:.4f})"
+                else:
+                    note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+                    segnale = "HOLD"
+
+            else:
+                note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+                segnale = "HOLD"
+
         else:
             df_conf_1h = df_1h.copy()
             ema = calcola_ema(df_conf_1h, [7, 25, 99])
@@ -136,7 +157,7 @@ def analyze(symbol: str):
                 "tp": tp,
                 "sl": sl,
                 "ora_apertura": time.time(),
-                "guadagno_netto": round(guadagno_netto, 2)  # ✅ SALVATO UNA SOLA VOLTA
+                "guadagno_netto": round(guadagno_netto, 2)
             }
 
             tp_pct = round(abs((tp - close) / close) * 100, 2)
@@ -209,6 +230,7 @@ def analyze(symbol: str):
             spread=0.0,
             guadagnoNetto=None
         )
+
 
         
 @router.get("/price")
