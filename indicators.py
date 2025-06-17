@@ -55,3 +55,19 @@ def calcola_ema(df: pd.DataFrame, colonne: list[int]) -> dict[int, pd.Series]:
     for periodo in colonne:
         ema_dict[periodo] = df["close"].ewm(span=periodo, adjust=False).mean()
     return ema_dict
+
+def calcola_percentuale_guadagno(
+    guadagno_target: float = 0.5,
+    investimento: float = 100.0,
+    commissione: float = 0.001,
+    spread: float = 0.0
+) -> float:
+    """
+    Calcola la percentuale totale necessaria per raggiungere un guadagno netto desiderato,
+    includendo le commissioni e lo spread.
+
+    Restituisce una percentuale decimale (es: 0.0075 = +0.75%)
+    """
+    costi_totali = (commissione * 2) + spread
+    percentuale_guadagno = (guadagno_target / investimento) + costi_totali
+    return percentuale_guadagno
