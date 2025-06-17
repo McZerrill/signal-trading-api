@@ -100,18 +100,15 @@ def analyze(symbol: str):
                 else:
                     note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
                     segnale = "HOLD"
-
             elif segnale == "BUY":
                 if macd_1h > 0 and (macd_1h - macd_signal_1h) > -0.005 and rsi_1h > 50:
                     note += f"\n⚠️ BUY su 1h ancora in conferma: MACD ≈ signal ({macd_1h:.4f}/{macd_signal_1h:.4f})"
                 else:
                     note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
                     segnale = "HOLD"
-
             else:
                 note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
                 segnale = "HOLD"
-
         else:
             df_conf_1h = df_1h.copy()
             ema = calcola_ema(df_conf_1h, [7, 25, 99])
@@ -156,9 +153,23 @@ def analyze(symbol: str):
                 "entry": entry_price,
                 "tp": tp,
                 "sl": sl,
-                "ora_apertura": time.time(),
-                "guadagno_netto": round(guadagno_netto, 2)
+                "ora_apertura": time.time()
             }
+
+            # Calcolo immediato del guadagno netto
+            investimento = 100.0
+            commissione = 0.001
+            spread_pct = spread / 100
+
+            if segnale == "BUY":
+                variazione_pct = (close - entry_price) / entry_price
+            else:
+                variazione_pct = (entry_price - close) / entry_price
+
+            guadagno_lordo = investimento * variazione_pct
+            costi = investimento * (spread_pct + commissione * 2)
+            guadagno_netto_usdc = round(guadagno_lordo - costi, 2)
+            posizioni_attive[symbol]["guadagno_netto"] = guadagno_netto_usdc
 
             tp_pct = round(abs((tp - close) / close) * 100, 2)
             sl_pct = round(abs((sl - close) / close) * 100, 2)
@@ -189,7 +200,7 @@ def analyze(symbol: str):
                 ema99=ema99,
                 timeframe="15m",
                 spread=spread,
-                guadagnoNetto=round(guadagno_netto, 2)
+                guadagnoNetto=guadagno_netto_usdc
             )
 
         header = f"🛁 HOLD | {symbol.upper()} @ {close}$"
