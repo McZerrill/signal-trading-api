@@ -445,7 +445,10 @@ def verifica_posizioni_attive():
                 variazione_pct = (entry - prezzo_attuale) / entry
 
             guadagno_lordo = investimento * variazione_pct
-            costi = investimento * (spread_pct + commissione * 2)
+            from indicators import calcola_percentuale_guadagno
+            percentuale_totale = calcola_percentuale_guadagno(spread=spread)
+            costi = investimento * percentuale_totale
+
             guadagno_netto_usdc = round(guadagno_lordo - costi, 2)
 
             # ✅ Aggiorna guadagno netto in tempo reale
