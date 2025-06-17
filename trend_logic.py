@@ -109,10 +109,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume non sufficiente a confermare")
 
-    commissione = 0.001
-    guadagno_target = 0.5
-    costi_totali = (commissione * 2) + spread
-    percentuale_guadagno = (guadagno_target / 100) + costi_totali
+    from indicators import calcola_percentuale_guadagno
+    percentuale_guadagno = calcola_percentuale_guadagno(spread=spread)
+
 
     # ✅ BUY
     if ema7 > ema25 and ema25 > ema99 and abs(ema7 - ema25) / close > ema_gap_threshold:
