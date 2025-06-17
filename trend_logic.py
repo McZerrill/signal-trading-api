@@ -23,6 +23,9 @@ def conta_candele_trend(hist: pd.DataFrame, rialzista: bool = True, max_candele:
             break
     return count
 
+def trend_continuativo(hist: pd.DataFrame, tipo: str = "BUY", min_candele: int = 2) -> bool:
+    return conta_candele_trend(hist, rialzista=(tipo == "BUY")) >= min_candele
+
 def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     c = df.iloc[-1]
     o, h, l, close = c['open'], c['high'], c['low'], c['close']
@@ -67,9 +70,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     note = []
 
     volume_multiplier = 0.6 if MODALITA_TEST else 1.0
-    macd_threshold = 0.0005 if MODALITA_TEST else 0.0015
-    ema_gap_threshold = 0.0003 if MODALITA_TEST else 0.001
-    breakout_volume_factor = 1.0 if MODALITA_TEST else 1.5
+    macd_threshold = 0.0004 if MODALITA_TEST else 0.0012
+    ema_gap_threshold = 0.0002 if MODALITA_TEST else 0.001
+    breakout_volume_factor = 1.0 if MODALITA_TEST else 1.4
 
     if atr / close < 0.001:
         note.append("⚠️ Nessun segnale: ATR troppo basso rispetto al prezzo")
@@ -84,7 +87,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     dist_attuale = abs(ema7 - ema25) + abs(ema25 - ema99)
     dist_precedente = abs(penultimo['EMA_7'] - penultimo['EMA_25']) + abs(penultimo['EMA_25'] - penultimo['EMA_99'])
-    dist_diff = dist_attuale - dist_precedente
     dist_level = valuta_distanza(dist_attuale)
 
     segnale = "HOLD"
@@ -107,32 +109,36 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume non sufficiente a confermare")
 
-    commissione = 0.001  # 0.1% per lato
-    guadagno_target = 0.5  # profitto netto desiderato in USDC
-    costi_totali = (commissione * 2) + spread
-    percentuale_guadagno = (guadagno_target / 100) + costi_totali  # su 100 USDC
+    from indicators import calcola_percentuale_guadagno
+    percentuale_guadagno = calcola_percentuale_guadagno(spread=spread)
 
-    if ema7 > ema25 and abs(ema7 - ema25) / close > ema_gap_threshold:
-        if ema7 > ema99 and ema25 > ema99:
-            if rsi > 50 and macd > macd_signal and macd_gap > macd_threshold:
-                segnale = "BUY"
-                tp = round(close * (1 + percentuale_guadagno), 4)
-                sl = round(close * (1 - percentuale_guadagno / 1.5), 4)
-                note.append("✅ BUY confermato: trend forte")
+    # ✅ BUY
+    if ema7 > ema25 and ema25 > ema99 and abs(ema7 - ema25) / close > ema_gap_threshold:
+        macd_gap_ok = (macd > macd_signal and macd_gap > macd_threshold)
+        macd_debole = (macd > 0 and macd - macd_signal > -0.005)
 
-    if ema7 < ema25 and abs(ema7 - ema25) / close > ema_gap_threshold:
-        if ema7 < ema99 and ema25 < ema99:
-            if rsi < 48 and macd < macd_signal and macd_gap < -macd_threshold:
-                segnale = "SELL"
-                tp = round(close * (1 - percentuale_guadagno), 4)
-                sl = round(close * (1 + percentuale_guadagno / 1.5), 4)
-                note.append("✅ SELL confermato: trend forte")
+        if rsi > 50 and (macd_gap_ok or macd_debole):
+            segnale = "BUY"
+            tp = round(close * (1 + percentuale_guadagno), 4)
+            sl = round(close * (1 - percentuale_guadagno / 1.5), 4)
+            note.append("✅ BUY confermato: trend forte" if macd_gap_ok else "⚠️ BUY anticipato: MACD ≈ signal")
+
+    # ✅ SELL
+    if ema7 < ema25 and ema25 < ema99 and abs(ema7 - ema25) / close > ema_gap_threshold:
+        macd_gap_ok = (macd < macd_signal and macd_gap < -macd_threshold)
+        macd_debole = (macd < 0 and macd - macd_signal < 0.005)
+
+        if rsi < 45 and (macd_gap_ok or macd_debole):
+            segnale = "SELL"
+            tp = round(close * (1 - percentuale_guadagno), 4)
+            sl = round(close * (1 + percentuale_guadagno / 1.5), 4)
+            note.append("✅ SELL confermato: trend forte" if macd_gap_ok else "⚠️ SELL anticipato: MACD ≈ signal")
 
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
         note.insert(0, f"📊 Trend attivo da {n_candele} candele | Distanza: {dist_level}")
         if pattern:
-            note.append(f"✅ Pattern candlestick rilevato: {pattern}")
+            note.append(f"📌 Pattern candlestick: {pattern}")
     else:
         if trend_up and candele_trend_up <= 2:
             note.append("🟡 Trend attivo ma debole")
@@ -141,13 +147,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         elif candele_trend_up <= 1 and not trend_up:
             note.append("⚠️ Trend terminato")
 
-    if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
-        note.append("⚠️ Pattern ribassista rilevato: possibile inversione")
-        segnale = "HOLD"
-    if segnale == "SELL" and pattern and "Hammer" in pattern:
-        note.append("⚠️ Pattern Hammer rilevato: possibile inversione")
-        segnale = "HOLD"
+    # 🧠 Pattern non più bloccanti
+    if segnale == "BUY" and pattern in ["🌠 Shooting Star", "🔃 Bearish Engulfing"]:
+        note.append("⚠️ Pattern ribassista rilevato: prudenza")
+    if segnale == "SELL" and pattern == "🪓 Hammer":
+        note.append("⚠️ Pattern Hammer rilevato: prudenza")
 
     guadagno_netto = 0.0
 
     return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto, guadagno_netto
+
