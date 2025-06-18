@@ -18,7 +18,7 @@ class SignalResponse(BaseModel):
     ema99: float
     timeframe: str
     spread: float
-    guadagnoNetto: Optional[float] = None
+    
 
 
     
