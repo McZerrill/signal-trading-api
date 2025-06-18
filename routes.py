@@ -29,6 +29,23 @@ posizioni_attive = {}
 def read_root():
     return {"status": "API Segnali di Borsa attiva"}
 
+from fastapi import APIRouter
+from pytz import timezone
+from datetime import datetime, timezone as dt_timezone
+import time
+import requests
+import logging
+import pandas as pd
+
+from binance_api import get_binance_df, get_best_symbols, get_bid_ask
+from trend_logic import analizza_trend, conta_candele_trend, riconosci_pattern_candela
+from indicators import calcola_rsi, calcola_macd, calcola_atr
+from models import SignalResponse
+
+router = APIRouter()
+
+posizioni_attive = {}
+
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
@@ -37,7 +54,7 @@ def analyze(symbol: str):
             return SignalResponse(
                 segnale="HOLD",
                 commento=(
-                    f"⏳ Simulazione già attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
+                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
                     f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
                 ),
                 prezzo=posizione["entry"],
@@ -85,8 +102,23 @@ def analyze(symbol: str):
         segnale, hist, note, tp, sl, supporto = segnale_15m, h15, note15, tp15, sl15, supporto15
 
         if segnale != segnale_1h:
-            note += f"\n⚠️ Segnale {segnale} non confermato sul timeframe 1h (attuale: {segnale_1h})"
-            segnale = "HOLD"
+            ultimo_1h = df_1h.iloc[-1]
+            macd_1h = ultimo_1h['MACD']
+            signal_1h = ultimo_1h['MACD_SIGNAL']
+            rsi_1h = ultimo_1h['RSI']
+
+            if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
+                note += "\n⚠️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL"
+            elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
+                note += "\n⚠️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY"
+            else:
+                note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+                segnale = "HOLD"
+
+            trend_1h = conta_candele_trend(df_1h, rialzista=(segnale == "BUY"))
+            if trend_1h < 2:
+                note += f"\n⚠️ Trend su 1h troppo debole ({trend_1h} candele), segnale annullato"
+                segnale = "HOLD"
         else:
             note += "\n🧭 Segnale confermato anche su 1h"
 
@@ -156,7 +188,7 @@ def analyze(symbol: str):
                 spread=spread
             )
 
-        header = f"🛁 HOLD | {symbol.upper()} @ {close}$"
+        header = f"🚱 HOLD | {symbol.upper()} @ {close}$"
         corpo = f"{base_dati}\n📉 Supporto: {supporto}$\n{note}"
         return SignalResponse(
             segnale="HOLD",
@@ -192,6 +224,7 @@ def analyze(symbol: str):
             timeframe="",
             spread=0.0
         )
+        
 @router.get("/price")
 def get_price(symbol: str):
     import time
