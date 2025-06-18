@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from pytz import timezone
 from datetime import datetime, timezone as dt_timezone
 import time
-from trend_logic import trend_continuativo
+
 from binance_api import get_binance_df, get_best_symbols
 from trend_logic import analizza_trend, conta_candele_trend, riconosci_pattern_candela
 from indicators import calcola_rsi, calcola_macd, calcola_atr  # se usi anche questi esplicitamente
@@ -12,17 +12,8 @@ from models import SignalResponse
 import pandas as pd
 from binance_api import get_bid_ask
 import requests
-import logging
-logging.basicConfig(
-    filename="log.txt",
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
-    force=True
-)
 
-# Stato simulazioni attive
-posizioni_attive = {}  # Esempio: { "ADAUSDC": {"tipo": "BUY", "prezzo": 0.45, "ora_apertura": time.time()} }
+
 
 router = APIRouter()
 utc = dt_timezone.utc
@@ -34,36 +25,78 @@ def read_root():
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
-        if symbol in posizioni_attive:
-            posizione = posizioni_attive[symbol]
-            return SignalResponse(
-                segnale="HOLD",
-                commento=(
-                    f"⏳ Simulazione già attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
-                    f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
-                ),
-                prezzo=posizione["entry"],
-                take_profit=posizione["tp"],
-                stop_loss=posizione["sl"],
-                rsi=0.0,
-                macd=0.0,
-                macd_signal=0.0,
-                atr=0.0,
-                ema7=0.0,
-                ema25=0.0,
-                ema99=0.0,
-                timeframe="15m",
-                spread=0.0,
-                guadagnoNetto=posizione.get("guadagno_netto")
-            )
+        df_1m = get_binance_df(symbol, "1m", 300)
+        df_5m = get_binance_df(symbol, "5m", 300)
+        df_15m = get_binance_df(symbol, "15m", 200)
+
+        segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1 = analizza_trend(df_1m)
+        segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5 = analizza_trend(df_5m)
+        segnale_15m, h15, *_ = analizza_trend(df_15m)
+
+        segnale, hist, distanza, note, tp, sl, supporto = segnale_1m, h1, dist_1m, note1, tp1, sl1, supporto1
 
         book = get_bid_ask(symbol)
         spread = book["spread"]
+        
+        #if segnale == "SELL":
+            #return SignalResponse(
+                #segnale="HOLD",
+                #commento=f"🚫 Simulazione SELL disattivata temporaneamente per {symbol.upper()}.\n{note}",
+                #prezzo=hist['close'].iloc[-1],
+                #take_profit=0.0,
+                #stop_loss=0.0,
+                #rsi=round(hist['RSI'].iloc[-1], 2),
+                #macd=round(hist['MACD'].iloc[-1], 4),
+                #macd_signal=round(hist['MACD_SIGNAL'].iloc[-1], 4),
+                #atr=round(hist['ATR'].iloc[-1], 2),
+                #ema7=round(hist['EMA_7'].iloc[-1], 2),
+                #ema25=round(hist['EMA_25'].iloc[-1], 2),
+                #ema99=round(hist['EMA_99'].iloc[-1], 2),
+                #timeframe="",
+                #spread=spread
+            #)
+
+        timeframe = "1m"
+
+        if segnale in ["BUY", "SELL"]:
+            if segnale_5m != segnale:
+                note += f"\n⚠️ Segnale {segnale} non confermato su 5m (5m = {segnale_5m})"
+                segnale = "HOLD"
+            else:
+                note += "\n🧭 Segnale confermato anche su 5m"
+
+        if segnale in ["BUY", "SELL"]:
+            trend_1m = sum(1 for i in range(-10, 0) if h1['EMA_7'].iloc[i] > h1['EMA_25'].iloc[i] > h1['EMA_99'].iloc[i] or h1['EMA_7'].iloc[i] < h1['EMA_25'].iloc[i] < h1['EMA_99'].iloc[i])
+            trend_5m = sum(1 for i in range(-10, 0) if h5['EMA_7'].iloc[i] > h5['EMA_25'].iloc[i] > h5['EMA_99'].iloc[i] or h5['EMA_7'].iloc[i] < h5['EMA_25'].iloc[i] < h5['EMA_99'].iloc[i])
+            if trend_5m > trend_1m:
+                segnale, hist, distanza, note, tp, sl, supporto = segnale_5m, h5, dist_5m, note5, tp5, sl5, supporto5
+                timeframe = "5m"
+
+        if segnale in ["BUY", "SELL"]:
+            if (segnale == "BUY" and segnale_15m == "SELL") or (segnale == "SELL" and segnale_15m == "BUY"):
+                note += f"\n⚠️ Segnale {segnale} non confermato su 15m (15m = {segnale_15m})"
+                segnale = "HOLD"
+            elif segnale_15m == segnale:
+                note += "\n🧭 Segnale confermato anche su 15m"
+
+        ultima_candela = hist.index[-1].to_pydatetime().replace(second=0, microsecond=0, tzinfo=utc)
+        orario_utc = ultima_candela.strftime("%H:%M UTC")
+        orario_roma = ultima_candela.astimezone(timezone("Europe/Rome")).strftime("%H:%M ora italiana")
+        data_candela = ultima_candela.strftime("(%d/%m)")
+        ritardo = f"🕒 Dati riferiti alla candela chiusa alle {orario_utc} / {orario_roma} {data_candela}"
+
+        ultimo = hist.iloc[-1]
+        close = round(ultimo['close'], 4)
+        if close <= 0:
+            raise ValueError(f"Prezzo di chiusura nullo o non valido per {symbol}: close={close}")
+
+        
         if spread > 5.0:
+            note += f"\n⚠️ Spread troppo elevato: {spread:.2f}% — segnale ignorato"
             return SignalResponse(
                 segnale="HOLD",
                 commento=f"Simulazione ignorata per {symbol.upper()} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
-                prezzo=0.0,
+                prezzo=close,
                 take_profit=0.0,
                 stop_loss=0.0,
                 rsi=0.0,
@@ -74,67 +107,11 @@ def analyze(symbol: str):
                 ema25=0.0,
                 ema99=0.0,
                 timeframe="",
-                spread=spread,
-                guadagnoNetto=None
+                spread=spread
             )
 
-        df_15m = get_binance_df(symbol, "15m", 300)
-        df_1h = get_binance_df(symbol, "1h", 300)
-        df_1d = get_binance_df(symbol, "1d", 300)
-
-        segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15, guadagno_15m = analizza_trend(df_15m, spread)
-        segnale_1h, *_ = analizza_trend(df_1h, spread)
-        segnale_1d, *_ = analizza_trend(df_1d, spread)
-
-        segnale, hist, note, tp, sl, supporto, guadagno_netto = segnale_15m, h15, note15, tp15, sl15, supporto15, guadagno_15m
-
-        if segnale != segnale_1h:
-            _, h1_df, *_ = analizza_trend(df_1h, spread)
-            macd_1h = h1_df["MACD"].iloc[-1]
-            macd_signal_1h = h1_df["MACD_SIGNAL"].iloc[-1]
-            rsi_1h = h1_df["RSI"].iloc[-1]
-
-            if segnale == "SELL":
-                if macd_1h < 0 and (macd_1h - macd_signal_1h) < 0.005 and rsi_1h < 45:
-                    note += f"\n⚠️ SELL su 1h ancora in conferma: MACD ≈ signal ({macd_1h:.4f}/{macd_signal_1h:.4f})"
-                else:
-                    note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
-                    segnale = "HOLD"
-
-            elif segnale == "BUY":
-                if macd_1h > 0 and (macd_1h - macd_signal_1h) > -0.005 and rsi_1h > 50:
-                    note += f"\n⚠️ BUY su 1h ancora in conferma: MACD ≈ signal ({macd_1h:.4f}/{macd_signal_1h:.4f})"
-                else:
-                    note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
-                    segnale = "HOLD"
-
-            else:
-                note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
-                segnale = "HOLD"
-
-        else:
-            df_conf_1h = df_1h.copy()
-            ema = calcola_ema(df_conf_1h, [7, 25, 99])
-            df_conf_1h["EMA_7"] = ema[7]
-            df_conf_1h["EMA_25"] = ema[25]
-            df_conf_1h["EMA_99"] = ema[99]
-            if trend_continuativo(df_conf_1h, tipo=segnale, min_candele=2):
-                note += "\n🧭 Segnale confermato anche su 1h (trend attivo)"
-            else:
-                note += "\n⚠️ 1h non mostra trend continuo, segnale non affidabile"
-                segnale = "HOLD"
-
-        if segnale in ["BUY", "SELL"]:
-            if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
-                note += f"\n⚠️ Segnale {segnale} non confermato su 1d (1d = {segnale_1d})"
-                segnale = "HOLD"
-            else:
-                note += "\n📅 Timeframe 1d non contrario: segnale permesso"
-
-        ultimo = hist.iloc[-1]
-        close = round(ultimo['close'], 4)
-        if close <= 0:
-            raise ValueError(f"Prezzo non valido: {close}")
+        with open("log.txt", "a") as f:
+            f.write(f"📊 Spread calcolato per {symbol}: {spread}\n")
 
         rsi = round(ultimo['RSI'], 2)
         ema7 = round(ultimo['EMA_7'], 2)
@@ -146,40 +123,65 @@ def analyze(symbol: str):
 
         base_dati = f"RSI: {rsi}  |  EMA: {ema7}/{ema25}/{ema99}\nMACD: {macd}/{macd_signal}  |  ATR: {atr}"
 
+        # ✅ BLOCCO MIGLIORATO
         if segnale in ["BUY", "SELL"]:
-            entry_price = close
-            tp = round(tp, 4)
-            sl = round(sl, 4)
+            commissione = 0.1
+            profitto_minimo = 0.3
+            margine_fisso = spread + 2 * commissione + profitto_minimo
+            entry_price = close  
 
-            posizioni_attive[symbol] = {
-                "tipo": segnale,
-                "entry": entry_price,
-                "tp": tp,
-                "sl": sl,
-                "ora_apertura": time.time(),
-                "guadagno_netto": round(guadagno_netto, 2)
-            }
 
-            tp_pct = round(abs((tp - close) / close) * 100, 2)
-            sl_pct = round(abs((sl - close) / close) * 100, 2)
+            atr = max(atr, 0.0008)
+            volatilita_pct = (atr / entry_price) * 100
+            rapporto_rr = 1.2 if atr < 0.002 else 1.8 if atr > 0.05 else 1.5
+            rischio_pct = max(volatilita_pct * 1.1, 0.8)
 
-            if "💥" in note.lower():
-                base_dati = "💥 BREAKOUT rilevato\n" + base_dati
+            # Target massimo adattivo in base al timeframe
+            max_tp_pct = 1.5 if timeframe == "1m" else 2.5 if timeframe == "5m" else 3.5
+            # 🔁 TP più facilmente raggiungibile
+            tp_pct_originale = rischio_pct * rapporto_rr + margine_fisso
+            tp_pct = min(tp_pct_originale * 0.65, max_tp_pct)  # ridotto del 35%
+            sl_pct = tp_pct / rapporto_rr
+            note += "\n🎯 TP ottimizzato per raggiungibilità più rapida"
 
-            header = "🟢 BUY confermato" if segnale == "BUY" else "🔴 SELL confermato"
 
-            commento = (
-                f"{header} | {symbol.upper()} @ {close}$\n"
-                f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
-                f"{base_dati}\n{note}"
-            )
+            if segnale == "BUY":
+                sl = round(entry_price * (1 - sl_pct / 100), 4)
+                tp = round(entry_price * (1 + tp_pct / 100), 4)
+            else:
+                sl = round(entry_price * (1 + sl_pct / 100), 4)
+                tp = round(entry_price * (1 - tp_pct / 100), 4)
+        else:
+            tp = sl = 0.0
 
+        # ✅ Percentuali corrette anche per SELL
+        if tp and sl:
+            if segnale == "BUY":
+                tp_pct = round(((tp - entry_price) / entry_price) * 100, 1)
+                sl_pct = round(((sl - entry_price) / entry_price) * 100, 1)
+            else:
+                tp_pct = round(((entry_price - tp) / entry_price) * 100, 1)
+                sl_pct = round(((sl - entry_price) / entry_price) * 100, 1)
+        else:
+            tp_pct = sl_pct = 0.0
+            
+        note_str = note.lower() if isinstance(note, str) else "\n".join(note).lower()
+        if "💥" in note_str:
+            base_dati = "💥 BREAKOUT rilevato\n" + base_dati
+
+        if segnale == "BUY":
+            header = "🟢 BUY confermato" if "anticipato" not in note_str else "⚡ BUY anticipato"
+        elif segnale == "SELL":
+            header = "🔴 SELL confermato" if "anticipato" not in note_str else "⚡ SELL anticipato"
+        else:
+            header = f"🛁 HOLD | {symbol.upper()} @ {close}$"
+            corpo = f"{base_dati}\n📉 Supporto: {supporto}$\n{note}\n{ritardo}"
             return SignalResponse(
                 segnale=segnale,
-                commento=commento,
-                prezzo=entry_price,
-                take_profit=tp,
-                stop_loss=sl,
+                commento="\n".join([header, corpo]),
+                prezzo=close,
+                take_profit=0.0,
+                stop_loss=0.0,
                 rsi=rsi,
                 macd=macd,
                 macd_signal=macd_signal,
@@ -187,19 +189,22 @@ def analyze(symbol: str):
                 ema7=ema7,
                 ema25=ema25,
                 ema99=ema99,
-                timeframe="15m",
-                spread=spread,
-                guadagnoNetto=round(guadagno_netto, 2)
+                timeframe=timeframe,
+                spread=spread
             )
 
-        header = f"🛁 HOLD | {symbol.upper()} @ {close}$"
-        corpo = f"{base_dati}\n📉 Supporto: {supporto}$\n{note}"
+        commento = (
+            f"{header} | {symbol.upper()} @ {close}$\n"
+            f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
+            f"{base_dati}\n{note}\n{ritardo}"
+        )
+
         return SignalResponse(
-            segnale="HOLD",
-            commento=f"{header}\n{corpo}",
+            segnale=segnale,
+            commento="\n".join([r.strip() for r in commento.splitlines() if r.strip()]),
             prezzo=close,
-            take_profit=0.0,
-            stop_loss=0.0,
+            take_profit=tp,
+            stop_loss=sl,
             rsi=rsi,
             macd=macd,
             macd_signal=macd_signal,
@@ -207,12 +212,12 @@ def analyze(symbol: str):
             ema7=ema7,
             ema25=ema25,
             ema99=ema99,
-            timeframe="15m",
-            spread=spread,
-            guadagnoNetto=None
+            timeframe=timeframe,
+            spread=spread
         )
 
     except Exception as e:
+        print(f"Errore: {e}")
         return SignalResponse(
             segnale="ERROR",
             commento=f"Errore durante l'analisi di {symbol.upper()}: {e}",
@@ -227,17 +232,13 @@ def analyze(symbol: str):
             ema25=0.0,
             ema99=0.0,
             timeframe="",
-            spread=0.0,
-            guadagnoNetto=None
+            spread=0.0
         )
-
         
 @router.get("/price")
 def get_price(symbol: str):
     import time
     start = time.time()
-    symbol = symbol.upper()  # ✅ Normalizza il simbolo appena entra
-
     try:
         url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
         response = requests.get(url, timeout=3)
@@ -245,39 +246,26 @@ def get_price(symbol: str):
 
         bid = float(data["bidPrice"])
         ask = float(data["askPrice"])
+        # Protezione contro valori non validi
         if bid <= 0 or ask <= 0:
             raise ValueError(f"Prezzo non valido: bid={bid}, ask={ask}")
 
         spread = (ask - bid) / ((ask + bid) / 2) * 100
         prezzo = round((bid + ask) / 2, 4)
 
-        # ✅ Recupera guadagno netto se presente e logga dettagli
-        guadagno_netto = None
-        if symbol in posizioni_attive:
-            posizione = posizioni_attive[symbol]
-            raw = posizione.get("guadagno_netto")
-            if isinstance(raw, (int, float)):
-                guadagno_netto = round(raw, 2)
-                logging.info(f"✅ /price {symbol}: guadagno_netto presente = {guadagno_netto}")
-            else:
-                logging.warning(f"⚠️ /price {symbol}: guadagno_netto non valido ({raw})")
-        else:
-            logging.warning(f"❌ /price {symbol}: simbolo non trovato in posizioni_attive")
-
         elapsed = round(time.time() - start, 3)
-        logging.info(f"/price {symbol} ➜ prezzo: {prezzo}, spread: {spread:.4f}%, netto: {guadagno_netto} (risposto in {elapsed}s)")
+        print(f"/price {symbol} ➜ prezzo: {prezzo}, spread: {spread:.4f}% (risposto in {elapsed}s)")
 
         return {
             "symbol": symbol,
             "prezzo": prezzo,
             "spread": round(spread, 4),
-            "tempo": elapsed,
-            "guadagnoNetto": guadagno_netto
+            "tempo": elapsed
         }
 
     except Exception as e:
         elapsed = round(time.time() - start, 3)
-        logging.error(f"/price {symbol} ERRORE: {e} (in {elapsed}s)")
+        print(f"/price {symbol} ERRORE: {e} (in {elapsed}s)")
         return {
             "symbol": symbol,
             "prezzo": 0.0,
@@ -285,8 +273,6 @@ def get_price(symbol: str):
             "errore": str(e),
             "tempo": elapsed
         }
-
-
 
 _hot_cache = {"time": 0, "data": []}
 
@@ -299,39 +285,27 @@ _filtro_log = {
     "macd_rsi_neutri": 0
 }
 
-_hot_cache = {"time": 0, "data": [], "valid_until": 0}
-
-MODALITA_TEST = True
-
 @router.get("/hotassets")
 def hot_assets():
     now = time.time()
-
-    if now < _hot_cache["valid_until"] and now - _hot_cache["time"] < 180:
+    if now - _hot_cache["time"] < 30:
         return _hot_cache["data"]
 
     symbols = get_best_symbols(limit=50)
     risultati = []
 
-    volume_soglia = 30 if MODALITA_TEST else 300
-    atr_minimo = 0.00015 if MODALITA_TEST else 0.0008
-    distanza_minima = 0.0005 if MODALITA_TEST else 0.0012
-    macd_rsi_range = (45, 55) if MODALITA_TEST else (48, 52)
-    macd_signal_threshold = 0.0001 if MODALITA_TEST else 0.0005
-
     for symbol in symbols:
         try:
-            df = get_binance_df(symbol, "15m", 100)
+            df = get_binance_df(symbol, "1m", 100)
             if df.empty or len(df) < 60:
-                logging.info(f"❌ {symbol} scartato: dati insufficienti")
                 continue
 
             _filtro_log["totali"] += 1
 
+            # FILTRO VOLUME
             volume_medio = df["volume"].tail(20).mean()
-            if pd.isna(volume_medio) or volume_medio < volume_soglia:
+            if pd.isna(volume_medio) or volume_medio < 500:
                 _filtro_log["volume_basso"] += 1
-                logging.info(f"⛔ {symbol} scartato: volume medio troppo basso ({volume_medio:.2f})")
                 continue
 
             df["EMA_7"] = df["close"].ewm(span=7).mean()
@@ -349,41 +323,30 @@ def hot_assets():
             macd_signal = df["MACD_SIGNAL"].iloc[-1]
             raw_atr = df["ATR"].iloc[-1]
             prezzo = df["close"].iloc[-1]
-
-            logging.info(f"📊 {symbol} ➜ EMA: {ema7:.4f} / {ema25:.4f} / {ema99:.4f}")
-            logging.info(f"📈 RSI: {rsi:.2f} | MACD: {macd:.5f} / Signal: {macd_signal:.5f}")
-            logging.info(f"📉 ATR: {raw_atr:.6f} | Volume medio: {volume_medio:.2f}")
-
             if prezzo <= 0:
-                logging.info(f"⛔ {symbol} scartato: prezzo non valido ({prezzo})")
-                continue
+                continue  # Ignora asset con prezzo nullo o negativo
 
-            if pd.isna(raw_atr) or raw_atr < atr_minimo:
+            if pd.isna(raw_atr) or raw_atr < 0.001:
                 _filtro_log["atr"] += 1
-                logging.info(f"⛔ {symbol} scartato: ATR troppo basso ({raw_atr:.6f}) < soglia {atr_minimo}")
                 continue
+            atr = round(raw_atr, 4)
 
-            if ema99 == 0:
-                logging.info(f"⛔ {symbol} scartato: EMA99 = 0, impossibile calcolare distanza")
-                continue
-                
+            # Filtro su distanza EMA: più tollerante per asset ad alto prezzo
             distanza_relativa = abs(ema7 - ema99) / ema99
-            if distanza_relativa < distanza_minima and prezzo < 1000:
+            if distanza_relativa < 0.0015 and prezzo < 1000:
                 _filtro_log["ema_flat"] += 1
-                logging.info(f"⛔ {symbol} scartato: distanza EMA troppo bassa ({distanza_relativa:.5f}) < soglia {distanza_minima}")
                 continue
-
+            # Filtro su variazione prezzo: salta se il prezzo è alto
             oscillazione = df["close"].diff().abs().tail(10).sum()
             if oscillazione < 0.001 and prezzo < 50:
                 _filtro_log["prezzo_piattissimo"] += 1
-                logging.info(f"⛔ {symbol} scartato: oscillazione troppo bassa ({oscillazione:.6f})")
                 continue
-
-            if abs(macd - macd_signal) < macd_signal_threshold and macd_rsi_range[0] < rsi < macd_rsi_range[1] and distanza_relativa < 0.0015:
+            # Filtro su MACD e RSI neutri: solo se EMA sono piatte e tutto è "piatto"
+            if abs(macd - macd_signal) < 0.0005 and 48 < rsi < 52 and distanza_relativa < 0.0015:
                 _filtro_log["macd_rsi_neutri"] += 1
-                logging.info(f"⛔ {symbol} scartato: MACD ≈ Signal e RSI neutro ({rsi:.2f}), MACD diff: {abs(macd - macd_signal):.6f}")
                 continue
 
+            distanza_percentuale = abs(ema7 - ema99) / ema99
             recenti_rialzo = all(df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] > df["EMA_99"].iloc[-i] for i in range(1, 4))
             recenti_ribasso = all(df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] < df["EMA_99"].iloc[-i] for i in range(1, 4))
 
@@ -392,15 +355,12 @@ def hot_assets():
 
             presegnale_buy = (
                 df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2] and ema7 > ema25 and ema25 < ema99
-                and distanza_relativa < 0.015 and rsi > 50 and macd > macd_signal
+                and distanza_percentuale < 0.015 and rsi > 50 and macd > macd_signal
             )
             presegnale_sell = (
                 df["EMA_7"].iloc[-2] > df["EMA_25"].iloc[-2] and ema7 < ema25 and ema25 > ema99
-                and distanza_relativa < 0.015 and rsi < 50 and macd < macd_signal
+                and distanza_percentuale < 0.015 and rsi < 50 and macd < macd_signal
             )
-
-            logging.info(f"🧭 Trend ➜ BUY: {trend_buy} | SELL: {trend_sell}")
-            logging.info(f"🕵️ Pre-segnale ➜ BUY: {presegnale_buy} | SELL: {presegnale_sell}")
 
             if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
                 segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
@@ -417,100 +377,14 @@ def hot_assets():
                     "prezzo": round(prezzo, 4),
                     "candele_trend": candele_trend
                 })
-                logging.info(f"✅ {symbol} inserito in /hotassets con trend {segnale}")
+
         except Exception as e:
-            logging.error(f"❌ Errore con {symbol}: {e}")
+            print(f"❌ Errore con {symbol}: {e}")
             continue
 
     _hot_cache["time"] = now
-    _hot_cache["valid_until"] = now + 3600
     _hot_cache["data"] = risultati
     return risultati
-
-
-import threading
-
-def verifica_posizioni_attive():
-    while True:
-        time.sleep(5)
-        da_rimuovere = []
-
-        for symbol, posizione in list(posizioni_attive.items()):
-            df = get_binance_df(symbol, "1m", 300)
-            if df.empty or len(df) < 50:
-                continue
-
-            # 1. Prezzo attuale e spread
-            book = get_bid_ask(symbol)
-            spread = book["spread"]
-            prezzo_attuale = round((book["bid"] + book["ask"]) / 2, 4)
-
-            # 2. Trend corrente
-            segnale_corrente, hist, *_ = analizza_trend(df, spread)
-            candele_attive = conta_candele_trend(hist, rialzista=(posizione["tipo"] == "BUY"))
-
-            # 3. Info posizione
-            entry = posizione["entry"]
-            tp = posizione["tp"]
-            sl = posizione["sl"]
-            tipo = posizione["tipo"]
-
-            # 4. Calcolo guadagno netto attuale
-            investimento = 100.0
-            commissione = 0.001  # 0.1%
-            spread_pct = spread / 100
-
-            if tipo == "BUY":
-                variazione_pct = (prezzo_attuale - entry) / entry
-            else:  # SELL
-                variazione_pct = (entry - prezzo_attuale) / entry
-
-            guadagno_lordo = investimento * variazione_pct
-            from indicators import calcola_percentuale_guadagno
-            percentuale_totale = calcola_percentuale_guadagno(spread=spread)
-            costi = investimento * percentuale_totale
-
-            guadagno_netto_usdc = round(guadagno_lordo - costi, 2)
-
-            # ✅ Aggiorna guadagno netto in tempo reale
-            posizione["guadagno_netto"] = guadagno_netto_usdc
-
-
-            # 5. Regole di chiusura
-            chiudi = False
-            motivo = ""
-
-            if tipo == "BUY" and prezzo_attuale >= tp:
-                motivo = f"🎯 TP raggiunto | Guadagno netto: {guadagno_netto_usdc:.2f} USDC"
-                chiudi = True
-            elif tipo == "BUY" and prezzo_attuale <= sl:
-                motivo = f"🛡 SL colpito | Guadagno netto: {guadagno_netto_usdc:.2f} USDC"
-                chiudi = True
-            elif tipo == "SELL" and prezzo_attuale <= tp:
-                motivo = f"🎯 TP raggiunto | Guadagno netto: {guadagno_netto_usdc:.2f} USDC"
-                chiudi = True
-            elif tipo == "SELL" and prezzo_attuale >= sl:
-                motivo = f"🛡 SL colpito | Guadagno netto: {guadagno_netto_usdc:.2f} USDC"
-                chiudi = True
-            elif segnale_corrente != tipo and candele_attive < 2:
-                motivo = f"⚠️ Trend cambiato, chiusura protettiva (netto: {guadagno_netto_usdc:.2f} USDC)"
-                chiudi = True
-
-            # 6. Chiusura
-            if chiudi:
-                print(f"🔔 CHIUSURA: {symbol} @ {prezzo_attuale} | {motivo}")
-                da_rimuovere.append(symbol)
-
-                # Puoi anche loggare o salvare l'esito finale qui, se necessario
-
-        # 7. Rimozione posizioni chiuse
-        for s in da_rimuovere:
-            posizioni_attive.pop(s, None)
-
-# Avvia il thread all'avvio del backend
-monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
-monitor_thread.start()
-
 
 @router.get("/debuglog")
 def get_debug_log():
