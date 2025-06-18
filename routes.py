@@ -85,17 +85,17 @@ def analyze(symbol: str):
         segnale, hist, note, tp, sl, supporto = segnale_15m, h15, note15, tp15, sl15, supporto15
 
         if segnale != segnale_1h:
-            note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+            note += f"\n⚠️ Segnale {segnale} non confermato sul timeframe 1h (attuale: {segnale_1h})"
             segnale = "HOLD"
         else:
             note += "\n🧭 Segnale confermato anche su 1h"
 
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
-                note += f"\n⚠️ Segnale {segnale} non confermato su 1d (1d = {segnale_1d})"
+                note += f"\n⚠️ Segnale {segnale} annullato: conflitto con il timeframe 1d (attuale: {segnale_1d})"
                 segnale = "HOLD"
             else:
-                note += "\n📅 Timeframe 1d non contrario: segnale permesso"
+                note += "\n📅 Nessuna opposizione dal timeframe 1d: segnale valido"
 
         ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
