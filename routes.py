@@ -272,7 +272,7 @@ _filtro_log = {
     "prezzo_piattissimo": 0,
     "macd_rsi_neutri": 0
 }
-MODALITA_TEST = False
+MODALITA_TEST = True
 
 @router.get("/hotassets")
 def hot_assets():
