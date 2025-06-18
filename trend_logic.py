@@ -72,13 +72,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     breakout_volume_factor = 1.0 if MODALITA_TEST else 1.5
 
     if atr / close < 0.001:
-        note.append("⚠️ Nessun segnale: ATR troppo basso rispetto al prezzo")
+        note.append("⚠️ ATR troppo basso: mercato poco volatile")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     volume_attuale = hist['volume'].iloc[-1]
     volume_medio = hist['volume'].iloc[-21:-1].mean()
     if volume_attuale < volume_medio * volume_multiplier:
-        note.append("⚠️ Volume attuale sotto la soglia, possibile segnale debole")
+        note.append("⚠️ Volume basso: segnale debole")
         if not MODALITA_TEST:
             return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
@@ -101,11 +101,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     massimo_20 = hist['high'].iloc[-21:-1].max()
     minimo_20 = hist['low'].iloc[-21:-1].min()
     if close > massimo_20 and volume_attuale > volume_medio * breakout_volume_factor:
-        note.append("💥 Breakout rialzista confermato")
+        note.append("💥 Breakout rialzista con volume alto")
     elif close < minimo_20 and volume_attuale > volume_medio * breakout_volume_factor:
-        note.append("💥 Breakout ribassista confermato")
+        note.append("💥 Breakout ribassista con volume alto")
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
-        note.append("⚠️ Breakout sospetto: volume non sufficiente a confermare")
+        note.append("⚠️ Breakout sospetto: volume insufficiente")
 
     # Calcolo TP/SL standard basato su ATR
     if trend_up and abs(ema7 - ema25) / close > ema_gap_threshold:
@@ -133,13 +133,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         elif trend_down and candele_trend_down <= 2:
             note.append("🟡 Trend ribassista ma debole")
         elif candele_trend_up <= 1 and not trend_up:
-            note.append("⚠️ Trend terminato")
+            note.append("⚠️ Trend concluso: attenzione a inversioni")
 
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
-        note.append("⚠️ Pattern ribassista rilevato: possibile inversione")
+        note.append("⚠️ Pattern contrario: possibile inversione (${pattern})")
         segnale = "HOLD"
     if segnale == "SELL" and pattern and "Hammer" in pattern:
-        note.append("⚠️ Pattern Hammer rilevato: possibile inversione")
+        note.append("⚠️ Pattern contrario: possibile inversione (${pattern})")
         segnale = "HOLD"
 
     return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto
