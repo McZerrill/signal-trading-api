@@ -14,7 +14,7 @@ client = Client(api_key=BINANCE_API_KEY, api_secret=BINANCE_API_SECRET)
 _symbol_cache = {"time": 0, "data": []}
 
 # ✅ Modalità test attiva
-MODALITA_TEST = True
+MODALITA_TEST = False
 
 
 def get_best_symbols(limit=80):
