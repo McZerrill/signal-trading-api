@@ -107,21 +107,28 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume insufficiente")
 
-    # Calcolo TP/SL standard basato su ATR
+    # Tolleranza MACD ≈ Signal (aggiunta)
+    macd_buy_ok = macd > macd_signal and macd_gap > macd_threshold
+    macd_buy_debole = macd > 0 and macd_gap > -0.005
+
+    macd_sell_ok = macd < macd_signal and macd_gap < -macd_threshold
+    macd_sell_debole = macd < 0 and macd_gap < 0.005
+
+    # BUY
     if trend_up and abs(ema7 - ema25) / close > ema_gap_threshold:
-        if rsi > 50 and macd > macd_signal and macd_gap > macd_threshold:
+        if rsi > 50 and (macd_buy_ok or macd_buy_debole):
             segnale = "BUY"
             tp = round(close + atr * 1.5, 4)
             sl = round(close - atr * 1.0, 4)
-            note.append("✅ BUY confermato: trend forte")
+            note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
+    # SELL
     if trend_down and abs(ema7 - ema25) / close > ema_gap_threshold:
-        if rsi < 48 and macd < macd_signal and macd_gap < -macd_threshold:
+        if rsi < 45 and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
             tp = round(close - atr * 1.5, 4)
             sl = round(close + atr * 1.0, 4)
-            note.append("✅ SELL confermato: trend forte")
-
+            note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
         note.insert(0, f"📊 Trend attivo da {n_candele} candele | Distanza: {dist_level}")
@@ -136,10 +143,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             note.append("⚠️ Trend concluso: attenzione a inversioni")
 
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
-        note.append("⚠️ Pattern contrario: possibile inversione (${pattern})")
+        note.append("⚠️ Pattern contrario: possibile inversione ({pattern})")
         segnale = "HOLD"
     if segnale == "SELL" and pattern and "Hammer" in pattern:
-        note.append("⚠️ Pattern contrario: possibile inversione (${pattern})")
+        note.append("⚠️ Pattern contrario: possibile inversione ({pattern})")
         segnale = "HOLD"
 
     return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto
