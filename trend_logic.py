@@ -119,7 +119,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         if rsi > 50 and (macd_buy_ok or macd_buy_debole):
             segnale = "BUY"
             tp = round(close + atr * 1.5, 4)
-            sl = round(close - atr * 1.0, 4)
+            sl = round(hist['EMA_25'].iloc[-1] - atr * 0.3, 4)
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
     # SELL
@@ -127,7 +127,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         if rsi < 45 and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
             tp = round(close - atr * 1.5, 4)
-            sl = round(close + atr * 1.0, 4)
+            sl = round(hist['EMA_25'].iloc[-1] + atr * 0.3, 4)
             note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
