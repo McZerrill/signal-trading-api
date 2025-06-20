@@ -120,14 +120,14 @@ def analyze(symbol: str):
                 note += f"\n⚠️ Trend su 1h troppo debole ({trend_1h} candele), segnale annullato"
                 segnale = "HOLD"
         else:
-            note += "\n🧭 Segnale confermato anche su 1h"
+            note += "\n🧭 1h✓"
 
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
                 note += f"\n⚠️ Segnale {segnale} annullato: conflitto con il timeframe 1d (attuale: {segnale_1d})"
                 segnale = "HOLD"
             else:
-                note += "\n📅 Nessuna opposizione dal timeframe 1d: segnale valido"
+                note += "\n📅 1d✓"
 
         ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
@@ -142,7 +142,7 @@ def analyze(symbol: str):
         macd = round(ultimo['MACD'], 4)
         macd_signal = round(ultimo['MACD_SIGNAL'], 4)
 
-        base_dati = f"RSI: {rsi}  |  EMA: {ema7}/{ema25}/{ema99}\nMACD: {macd}/{macd_signal}  |  ATR: {atr}"
+        base_dati = f"RSI {rsi} | MACD {macd}/{macd_signal} | EMA {ema7}/{ema25}/{ema99} | ATR {atr}"
 
         if segnale in ["BUY", "SELL"]:
             entry_price = close
@@ -284,7 +284,7 @@ def hot_assets():
     risultati = []
 
     volume_soglia = 30 if MODALITA_TEST else 300
-    atr_minimo = 0.00015 if MODALITA_TEST else 0.0008
+    atr_minimo = 0.0003 if MODALITA_TEST else 0.0008
     distanza_minima = 0.0003 if MODALITA_TEST else 0.0012
     macd_rsi_range = (43, 57) if MODALITA_TEST else (48, 52)
     macd_signal_threshold = 0.0001 if MODALITA_TEST else 0.0005
