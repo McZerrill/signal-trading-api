@@ -43,24 +43,25 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
         return "🔃 Bearish Engulfing"
     return ""
 
-def verifica_follow_through(df, direzione: str, index_breakout: int, candele=2, soglia_volume=1.1):
-    volume_medio = df['volume'].rolling(20).mean().iloc[index_breakout]
-    for i in range(1, candele + 1):
-        if index_breakout + i >= len(df):
-            return False
-        row = df.iloc[index_breakout + i]
-        vol_ok = row['volume'] > soglia_volume * volume_medio
-        if direzione == 'BUY':
-            corpo = row['close'] - row['open']
-            direzione_ok = corpo > 0 and row['close'] > df.iloc[index_breakout]['close']
-        elif direzione == 'SELL':
-            corpo = row['open'] - row['close']
-            direzione_ok = corpo > 0 and row['close'] < df.iloc[index_breakout]['close']
-        else:
-            return False
-        if not (vol_ok and direzione_ok):
-            return False
-    return True
+def rileva_pattern_v(hist: pd.DataFrame) -> bool:
+    if len(hist) < 4:
+        return False
+    sub = hist.iloc[-4:]
+    rsi_start = sub['RSI'].iloc[0]
+    rsi_end = sub['RSI'].iloc[-1]
+    macd = sub['MACD'].iloc[-1]
+    pattern = False
+
+    for i in range(-3, 0):
+        rossa = sub.iloc[i]['close'] < sub.iloc[i]['open']
+        verde = sub.iloc[i+1]['close'] > sub.iloc[i+1]['open']
+        corpo_rossa = abs(sub.iloc[i]['close'] - sub.iloc[i]['open'])
+        corpo_verde = abs(sub.iloc[i+1]['close'] - sub.iloc[i+1]['open'])
+        if rossa and verde and corpo_verde >= corpo_rossa:
+            pattern = True
+            break
+
+    return pattern and rsi_start < 30 and rsi_end > 50 and abs(macd) < 0.01
 
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist = hist.copy()
@@ -85,19 +86,22 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     note = []
 
-    volume_multiplier = 0.6 if MODALITA_TEST else 1.0
-    macd_threshold = 0.0005 if MODALITA_TEST else 0.0015
-    ema_gap_threshold = 0.0003 if MODALITA_TEST else 0.001
-    breakout_volume_factor = 1.0 if MODALITA_TEST else 1.5
+    volume_soglia = 30 if MODALITA_TEST else 500
+    atr_minimo = 0.00015 if MODALITA_TEST else 0.001
+    distanza_minima = 0.0003 if MODALITA_TEST else 0.0015
+    macd_rsi_range = (43, 57) if MODALITA_TEST else (45, 55)
+    macd_signal_threshold = 0.0001 if MODALITA_TEST else 0.001
 
-    if atr / close < 0.001:
+    if atr / close < atr_minimo:
         note.append("⚠️ ATR troppo basso: mercato poco volatile")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     volume_attuale = hist['volume'].iloc[-1]
     volume_medio = hist['volume'].iloc[-21:-1].mean()
-    if volume_attuale < volume_medio * volume_multiplier:
+    if volume_attuale < volume_medio * (volume_soglia / 100):
         note.append("⚠️ Volume basso: segnale debole")
+        if not MODALITA_TEST:
+            return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     dist_attuale = abs(ema7 - ema25) + abs(ema25 - ema99)
     dist_precedente = abs(penultimo['EMA_7'] - penultimo['EMA_25']) + abs(penultimo['EMA_25'] - penultimo['EMA_99'])
@@ -109,6 +113,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     trend_up = ema7 > ema25 > ema99
     trend_down = ema7 < ema25 < ema99
+    recupero_buy = ema7 > ema25 and close > ema25 and ema25 > penultimo['EMA_25']
+    recupero_sell = ema7 < ema25 and close < ema25 and ema25 < penultimo['EMA_25']
+
     candele_trend_up = conta_candele_trend(hist, rialzista=True)
     candele_trend_down = conta_candele_trend(hist, rialzista=False)
 
@@ -117,56 +124,60 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     massimo_20 = hist['high'].iloc[-21:-1].max()
     minimo_20 = hist['low'].iloc[-21:-1].min()
-    breakout_index = len(hist) - 2
-
-    if close > massimo_20 and volume_attuale > volume_medio * breakout_volume_factor:
-        note.append("💥 Breakout rialzista")
-        if verifica_follow_through(hist, 'BUY', breakout_index):
-            note.append("📈 Follow-through confermato: breakout solido")
-        else:
-            note.append("⚠️ Nessun follow-through: breakout non confermato")
-    elif close < minimo_20 and volume_attuale > volume_medio * breakout_volume_factor:
-        note.append("💥 Breakout ribassista")
-        if verifica_follow_through(hist, 'SELL', breakout_index):
-            note.append("📉 Follow-through confermato: breakout solido")
-        else:
-            note.append("⚠️ Nessun follow-through: breakout non confermato")
+    breakout_valido = False
+    corpo_candela = abs(ultimo['close'] - ultimo['open'])
+    if close > massimo_20 and volume_attuale > volume_medio * 1.5:
+        note.append("💥 Breakout rialzista con volume alto")
+        if corpo_candela > atr:
+            note.append("🚀 Spike rialzista con breakout solido")
+            breakout_valido = True
+    elif close < minimo_20 and volume_attuale > volume_medio * 1.5:
+        note.append("💥 Breakout ribassista con volume alto")
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume insufficiente")
 
-    macd_buy_ok = macd > macd_signal and macd_gap > macd_threshold
+    macd_buy_ok = macd > macd_signal and macd_gap > macd_signal_threshold
     macd_buy_debole = macd > 0 and macd_gap > -0.005
-    macd_sell_ok = macd < macd_signal and macd_gap < -macd_threshold
+
+    macd_sell_ok = macd < macd_signal and macd_gap < -macd_signal_threshold
     macd_sell_debole = macd < 0 and macd_gap < 0.005
 
-    if trend_up and abs(ema7 - ema25) / close > ema_gap_threshold:
-        if rsi > 50 and (macd_buy_ok or macd_buy_debole):
+    if (trend_up or recupero_buy or breakout_valido) and abs(ema7 - ema25) / close > distanza_minima:
+        if rsi > macd_rsi_range[0] and (macd_buy_ok or macd_buy_debole):
             segnale = "BUY"
             tp = round(close + atr * 1.5, 4)
-            sl_candidato = min(close - atr, ema25 - ema25 * 0.005)
+            buffer = ema25 * 0.005
+            sl_candidato = min(close - atr, ema25 - buffer)
             sl = round(sl_candidato, 4)
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
-    if trend_down and abs(ema7 - ema25) / close > ema_gap_threshold:
-        if rsi < 45 and (macd_sell_ok or macd_sell_debole):
+    if (trend_down or recupero_sell) and abs(ema7 - ema25) / close > distanza_minima:
+        if rsi < macd_rsi_range[1] and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
             tp = round(close - atr * 1.5, 4)
-            sl_candidato = max(close + atr, ema25 + ema25 * 0.005)
+            buffer = ema25 * 0.005
+            sl_candidato = max(close + atr, ema25 + buffer)
             sl = round(sl_candidato, 4)
             note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
+
+    if segnale == "HOLD" and rileva_pattern_v(hist):
+        segnale = "BUY"
+        tp = round(close + atr * 1.5, 4)
+        sl = round(close - atr, 4)
+        note.append("📈 Pattern V rilevato: BUY da inversione rapida")
 
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
         note.insert(0, f"📊 Trend attivo da {n_candele} candele | Distanza: {dist_level}")
         if pattern:
-            note.append(f"✅ Pattern: {pattern}")
+            note.append(f"✅ Pattern candlestick rilevato: {pattern}")
     else:
         if trend_up and candele_trend_up <= 2:
             note.append("🟡 Trend attivo ma debole")
         elif trend_down and candele_trend_down <= 2:
             note.append("🟡 Trend ribassista ma debole")
         elif candele_trend_up <= 1 and not trend_up:
-            note.append("⚠️ ⚠️ Trend finito")
+            note.append("⚠️ Trend concluso: attenzione a inversioni")
 
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
