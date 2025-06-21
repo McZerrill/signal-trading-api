@@ -86,7 +86,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     note = []
 
-    volume_soglia = 100 if MODALITA_TEST else 500
+    volume_soglia = 200 if MODALITA_TEST else 500
     atr_minimo = 0.0003 if MODALITA_TEST else 0.001
     distanza_minima = 0.0008 if MODALITA_TEST else 0.0015
     macd_rsi_range = (45, 55) if MODALITA_TEST else (45, 55)
