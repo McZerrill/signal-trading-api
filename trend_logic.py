@@ -86,6 +86,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     note = []
 
+    from config import MODALITA_TEST
     volume_soglia = 300 if MODALITA_TEST else 300
     atr_minimo = 0.0003 if MODALITA_TEST else 0.001
     distanza_minima = 0.0012 if MODALITA_TEST else 0.0015
@@ -145,18 +146,40 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     if (trend_up or recupero_buy or breakout_valido) and abs(ema7 - ema25) / close > distanza_minima:
         if rsi > macd_rsi_range[0] and (macd_buy_ok or macd_buy_debole):
             segnale = "BUY"
-            tp = round(close + atr * 1.5, 4)
             buffer = ema25 * 0.005
             sl_candidato = min(close - atr, ema25 - buffer)
+
+            # Curvatura EMA25 e canale
+            curvatura_ema25 = hist['EMA_25'].iloc[-4:-1].diff().mean()
+            ampiezza_canale = abs(ema7 - ema25)
+
+            tp_candidato = close + atr * 1.5
+            if curvatura_ema25 < 0:
+                tp_candidato *= 0.9
+            if ampiezza_canale < close * 0.003:
+                sl_candidato = close - atr * 0.8
+
+            tp = round(tp_candidato, 4)
             sl = round(sl_candidato, 4)
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
     if (trend_down or recupero_sell) and abs(ema7 - ema25) / close > distanza_minima:
         if rsi < macd_rsi_range[1] and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
-            tp = round(close - atr * 1.5, 4)
             buffer = ema25 * 0.005
             sl_candidato = max(close + atr, ema25 + buffer)
+
+            # Curvatura EMA25 e canale
+            curvatura_ema25 = hist['EMA_25'].iloc[-4:-1].diff().mean()
+            ampiezza_canale = abs(ema7 - ema25)
+
+            tp_candidato = close - atr * 1.5
+            if curvatura_ema25 < 0:
+                tp_candidato *= 0.9
+            if ampiezza_canale < close * 0.003:
+                sl_candidato = close + atr * 0.8
+
+            tp = round(tp_candidato, 4)
             sl = round(sl_candidato, 4)
             note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
 
