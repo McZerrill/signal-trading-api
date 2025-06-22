@@ -379,50 +379,81 @@ import threading
 def verifica_posizioni_attive():
     while True:
         time.sleep(5)
-        da_rimuovere = []
 
-        for symbol, posizione in list(posizioni_attive.items()):
-            df = get_binance_df(symbol, "1m", 300)
-            if df.empty or len(df) < 50:
-                continue
+        simboli_attivi = list(posizioni_attive.keys())
+        for symbol in simboli_attivi:
+            simulazione_attiva = posizioni_attive[symbol]
+            tipo = simulazione_attiva["tipo"]
+            entry = simulazione_attiva["entry"]
+            tp = simulazione_attiva["tp"]
+            sl = simulazione_attiva["sl"]
+            spread = simulazione_attiva["spread"]  # ⚠️ in percentuale (%)
+            investimento = simulazione_attiva.get("investimento", 100.0)
+            commissione = simulazione_attiva.get("commissione", 0.1)  # in percentuale (%)
 
-            book = get_bid_ask(symbol)
-            prezzo_attuale = round((book["bid"] + book["ask"]) / 2, 4)
+            try:
+                # 1. Prezzo corrente aggiornato
+                book = get_bid_ask(symbol)
+                prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
-            segnale_corrente, hist, *_ = analizza_trend(df, book["spread"])
-            candele_attive = conta_candele_trend(hist, rialzista=(posizione["tipo"] == "BUY"))
+                # 2. Calcolo guadagno netto identico al frontend
+                prezzo_effettivo = prezzo_corrente * (1 - spread / 100) if tipo == "BUY" else prezzo_corrente * (1 + spread / 100)
+                ingresso_effettivo = entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
 
-            entry = posizione["entry"]
-            tp = posizione["tp"]
-            sl = posizione["sl"]
-            tipo = posizione["tipo"]
+                rendimento = prezzo_effettivo / ingresso_effettivo if tipo == "BUY" else ingresso_effettivo / prezzo_effettivo
+                lordo = investimento * rendimento - investimento
+                commissioni = investimento * 2 * (commissione / 100)
+                guadagno_netto_attuale = lordo - commissioni
 
-            chiudi = False
-            motivo = ""
+                simulazione_attiva["guadagno_netto"] = round(guadagno_netto_attuale, 4)
 
-            if tipo == "BUY" and prezzo_attuale >= tp:
-                motivo = "🎯 TP raggiunto"
-                chiudi = True
-            elif tipo == "BUY" and prezzo_attuale <= sl:
-                motivo = "🛡 SL colpito"
-                chiudi = True
-            elif tipo == "SELL" and prezzo_attuale <= tp:
-                motivo = "🎯 TP raggiunto"
-                chiudi = True
-            elif tipo == "SELL" and prezzo_attuale >= sl:
-                motivo = "🛡 SL colpito"
-                chiudi = True
-            elif segnale_corrente != tipo and candele_attive < 2:
-                motivo = "⚠️ Trend cambiato, chiusura protettiva"
-                chiudi = True
+                # 3. Trend attuale (su timeframe 15m)
+                df = get_binance_df(symbol, "15m", 100)
+                nuovo_segnale, commento, _, _, _ = analizza_trend(df, symbol)
 
-            if chiudi:
-                print(f"🔔 CHIUSURA: {symbol} @ {prezzo_attuale} | {motivo}")
-                da_rimuovere.append(symbol)
+                # 4. Condizioni di uscita
+                chiudere = False
+                esito = "In corso"
+                motivo = ""
 
-        for s in da_rimuovere:
-            posizioni_attive.pop(s, None)
+                if tipo == "BUY":
+                    if prezzo_corrente >= tp:
+                        motivo = "Take Profit raggiunto"
+                        esito = "Profitto"
+                        chiudere = True
+                    elif prezzo_corrente <= sl:
+                        motivo = "Stop Loss raggiunto"
+                        esito = "Perdita"
+                        chiudere = True
+                    elif nuovo_segnale != "BUY" and guadagno_netto_attuale > 0:
+                        motivo = f"Trend cambiato, chiusura anticipata con profitto di {round(guadagno_netto_attuale, 2)} USDC"
+                        esito = "Profitto"
+                        chiudere = True
 
+                elif tipo == "SELL":
+                    if prezzo_corrente <= tp:
+                        motivo = "Take Profit raggiunto"
+                        esito = "Profitto"
+                        chiudere = True
+                    elif prezzo_corrente >= sl:
+                        motivo = "Stop Loss raggiunto"
+                        esito = "Perdita"
+                        chiudere = True
+                    elif nuovo_segnale != "SELL" and guadagno_netto_attuale > 0:
+                        motivo = f"Trend cambiato, chiusura anticipata con profitto di {round(guadagno_netto_attuale, 2)} USDC"
+                        esito = "Profitto"
+                        chiudere = True
+
+                # 5. Aggiorna se necessario
+                if chiudere:
+                    simulazione_attiva["prezzo_finale"] = prezzo_corrente
+                    simulazione_attiva["esito"] = esito
+                    simulazione_attiva["motivo"] = motivo
+                    print(f"[Chiusa] {symbol} - {motivo}")
+
+            except Exception as e:
+                print(f"❌ Errore in verifica {symbol}: {e}")
+                
 monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
 monitor_thread.start()
 
