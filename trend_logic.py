@@ -78,6 +78,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
+    antepenultimo = hist.iloc[-3]
 
     ema7, ema25, ema99 = ultimo['EMA_7'], ultimo['EMA_25'], ultimo['EMA_99']
     close, rsi, atr = ultimo['close'], ultimo['RSI'], ultimo['ATR']
@@ -86,11 +87,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     note = []
 
-    from config import MODALITA_TEST
-    volume_soglia = 200 if MODALITA_TEST else 300
+    # Soglie fisse o adattive in base alla modalità
+    volume_soglia = 300 if MODALITA_TEST else 300
     atr_minimo = 0.0003 if MODALITA_TEST else 0.001
     distanza_minima = 0.0012 if MODALITA_TEST else 0.0015
-    macd_rsi_range = (45, 55) if MODALITA_TEST else (45, 55)
+    macd_rsi_range = (45, 55)
     macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.001
 
     if atr / close < atr_minimo:
@@ -104,10 +105,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         if not MODALITA_TEST:
             return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-    dist_attuale = abs(ema7 - ema25) + abs(ema25 - ema99)
-    dist_precedente = abs(penultimo['EMA_7'] - penultimo['EMA_25']) + abs(penultimo['EMA_25'] - penultimo['EMA_99'])
-    dist_diff = dist_attuale - dist_precedente
-    dist_level = valuta_distanza(dist_attuale)
+    # Calcolo distanza e curvatura
+    distanza_ema = abs(ema7 - ema25)
+    curvatura_ema25 = ema25 - penultimo['EMA_25']
+    curvatura_precedente = penultimo['EMA_25'] - antepenultimo['EMA_25']
+    accelerazione = curvatura_ema25 - curvatura_precedente
+
+    dist_level = valuta_distanza(distanza_ema)
 
     segnale = "HOLD"
     tp = sl = 0.0
@@ -123,9 +127,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     pattern = riconosci_pattern_candela(hist)
     macd_gap = macd - macd_signal
 
+    breakout_valido = False
     massimo_20 = hist['high'].iloc[-21:-1].max()
     minimo_20 = hist['low'].iloc[-21:-1].min()
-    breakout_valido = False
     corpo_candela = abs(ultimo['close'] - ultimo['open'])
     if close > massimo_20 and volume_attuale > volume_medio * 1.5:
         note.append("💥 Breakout rialzista con volume alto")
@@ -139,50 +143,40 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     macd_buy_ok = macd > macd_signal and macd_gap > macd_signal_threshold
     macd_buy_debole = macd > 0 and macd_gap > -0.005
-
     macd_sell_ok = macd < macd_signal and macd_gap < -macd_signal_threshold
     macd_sell_debole = macd < 0 and macd_gap < 0.005
 
-    if (trend_up or recupero_buy or breakout_valido) and abs(ema7 - ema25) / close > distanza_minima:
+    # ✅ Logica BUY
+    if (trend_up or recupero_buy or breakout_valido) and distanza_ema / close > distanza_minima:
         if rsi > macd_rsi_range[0] and (macd_buy_ok or macd_buy_debole):
             segnale = "BUY"
-            buffer = ema25 * 0.005
-            sl_candidato = min(close - atr, ema25 - buffer)
 
-            # Curvatura EMA25 e canale
-            curvatura_ema25 = hist['EMA_25'].iloc[-4:-1].diff().mean()
-            ampiezza_canale = abs(ema7 - ema25)
+            forza_trend = min(max(distanza_ema / close, 0.001), 0.01)  # tra 0.1% e 1%
+            coeff_tp = 1.5 + (accelerazione * 10)  # maggiore accelerazione → TP più lontano
+            coeff_sl = 1.0 - (accelerazione * 5)   # maggiore accelerazione → SL più stretto (protezione)
 
-            tp_candidato = close + atr * 1.5
-            if curvatura_ema25 < 0:
-                tp_candidato *= 0.9
-            if ampiezza_canale < close * 0.003:
-                sl_candidato = close - atr * 0.8
-
-            tp = round(tp_candidato, 4)
+            tp = round(close + atr * coeff_tp, 4)
+            sl_candidato = min(close - atr * coeff_sl, ema25 - (ema25 * 0.005))
             sl = round(sl_candidato, 4)
+
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
-    if (trend_down or recupero_sell) and abs(ema7 - ema25) / close > distanza_minima:
+    # ✅ Logica SELL
+    if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
         if rsi < macd_rsi_range[1] and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
-            buffer = ema25 * 0.005
-            sl_candidato = max(close + atr, ema25 + buffer)
 
-            # Curvatura EMA25 e canale
-            curvatura_ema25 = hist['EMA_25'].iloc[-4:-1].diff().mean()
-            ampiezza_canale = abs(ema7 - ema25)
+            forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
+            coeff_tp = 1.5 + (accelerazione * 10)
+            coeff_sl = 1.0 - (accelerazione * 5)
 
-            tp_candidato = close - atr * 1.5
-            if curvatura_ema25 < 0:
-                tp_candidato *= 0.9
-            if ampiezza_canale < close * 0.003:
-                sl_candidato = close + atr * 0.8
-
-            tp = round(tp_candidato, 4)
+            tp = round(close - atr * coeff_tp, 4)
+            sl_candidato = max(close + atr * coeff_sl, ema25 + (ema25 * 0.005))
             sl = round(sl_candidato, 4)
+
             note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
 
+    # Pattern V
     if segnale == "HOLD" and rileva_pattern_v(hist):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
@@ -209,4 +203,4 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
         segnale = "HOLD"
 
-    return segnale, hist, dist_attuale, "\n".join(note).strip(), tp, sl, supporto
+    return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
