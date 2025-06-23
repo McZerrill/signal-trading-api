@@ -82,7 +82,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     tp = sl = 0.0
 
     # Parametri
-    volume_soglia = 300
+    volume_soglia = 200
     atr_minimo = 0.001
     distanza_minima = 0.0015
     macd_rsi_range = (45, 55)
