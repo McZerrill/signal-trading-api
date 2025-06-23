@@ -133,20 +133,24 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     if (trend_up or recupero_buy or breakout_valido) and distanza_ema / close > distanza_minima:
         if rsi > macd_rsi_range[0] and (macd_buy_ok or macd_buy_debole):
             segnale = "BUY"
-            rendimento_lordo = (guadagno_target + 2 * commissione / 100 * investimento) / investimento
-            tp = round(close * (1 + rendimento_lordo) / (1 - spread / 100), 4)
-            perdita_lorda = (-guadagno_target - 2 * commissione / 100 * investimento) / investimento
-            sl = round(close * (1 + perdita_lorda) / (1 - spread / 100), 4)
+            commissioni = investimento * 2 * (commissione / 100)
+            rendimento_lordo = (guadagno_target + commissioni) / investimento
+
+            tp = round(close * (1 + rendimento_lordo), 4)
+            sl = round(close * (1 - rendimento_lordo), 4)
+
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
     # SELL
     if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
         if rsi < macd_rsi_range[1] and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
-            rendimento_lordo = (guadagno_target + 2 * commissione / 100 * investimento) / investimento
-            tp = round(close / (1 + rendimento_lordo) / (1 + spread / 100), 4)
-            perdita_lorda = (-guadagno_target - 2 * commissione / 100 * investimento) / investimento
-            sl = round(close / (1 + perdita_lorda) / (1 - spread / 100), 4)
+            commissioni = investimento * 2 * (commissione / 100)
+            rendimento_lordo = (guadagno_target + commissioni) / investimento
+
+            tp = round(close / (1 + rendimento_lordo), 4)
+            sl = round(close / (1 - rendimento_lordo), 4)
+
             note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
 
     # Pattern V (fallback)
