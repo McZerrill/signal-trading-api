@@ -387,27 +387,26 @@ def verifica_posizioni_attive():
             entry = simulazione_attiva["entry"]
             tp = simulazione_attiva["tp"]
             sl = simulazione_attiva["sl"]
-            spread = simulazione_attiva["spread"]  # ⚠️ in percentuale (%)
+            spread = simulazione_attiva["spread"]  # ⚠️ solo informativo
             investimento = simulazione_attiva.get("investimento", 100.0)
-            commissione = simulazione_attiva.get("commissione", 0.1)  # in percentuale (%)
+            commissione = simulazione_attiva.get("commissione", 0.1)  # percentuale
 
             try:
-                # 1. Prezzo corrente aggiornato
+                # 1. Prezzo corrente aggiornato (bid o ask, già include lo spread reale)
                 book = get_bid_ask(symbol)
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
-                # 2. Calcolo guadagno netto identico al frontend
-                prezzo_effettivo = prezzo_corrente * (1 - spread / 100) if tipo == "BUY" else prezzo_corrente * (1 + spread / 100)
-                ingresso_effettivo = entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
-
-                rendimento = prezzo_effettivo / ingresso_effettivo if tipo == "BUY" else ingresso_effettivo / prezzo_effettivo
+                # 2. Calcolo guadagno netto realistico (come Binance)
+                # entry = prezzo al momento della simulazione (ask per BUY, bid per SELL)
+                # prezzo_corrente = bid per BUY, ask per SELL
+                rendimento = prezzo_corrente / entry if tipo == "BUY" else entry / prezzo_corrente
                 lordo = investimento * rendimento - investimento
                 commissioni = investimento * 2 * (commissione / 100)
                 guadagno_netto_attuale = lordo - commissioni
 
                 simulazione_attiva["guadagno_netto"] = round(guadagno_netto_attuale, 4)
 
-                # 3. Trend attuale (su timeframe 15m)
+                # 3. Trend attuale (15m)
                 df = get_binance_df(symbol, "15m", 100)
                 nuovo_segnale, commento, _, _, _ = analizza_trend(df, symbol)
 
