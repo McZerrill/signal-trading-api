@@ -1,8 +1,6 @@
 import pandas as pd
 from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto, calcola_ema
 
-MODALITA_TEST = True
-
 def valuta_distanza(distanza: float) -> str:
     if distanza < 1:
         return "bassa"
@@ -50,18 +48,14 @@ def rileva_pattern_v(hist: pd.DataFrame) -> bool:
     rsi_start = sub['RSI'].iloc[0]
     rsi_end = sub['RSI'].iloc[-1]
     macd = sub['MACD'].iloc[-1]
-    pattern = False
-
     for i in range(-3, 0):
         rossa = sub.iloc[i]['close'] < sub.iloc[i]['open']
-        verde = sub.iloc[i+1]['close'] > sub.iloc[i+1]['open']
+        verde = sub.iloc[i + 1]['close'] > sub.iloc[i + 1]['open']
         corpo_rossa = abs(sub.iloc[i]['close'] - sub.iloc[i]['open'])
-        corpo_verde = abs(sub.iloc[i+1]['close'] - sub.iloc[i+1]['open'])
+        corpo_verde = abs(sub.iloc[i + 1]['close'] - sub.iloc[i + 1]['open'])
         if rossa and verde and corpo_verde >= corpo_rossa:
-            pattern = True
-            break
-
-    return pattern and rsi_start < 30 and rsi_end > 50 and abs(macd) < 0.01
+            return rsi_start < 30 and rsi_end > 50 and abs(macd) < 0.01
+    return False
 
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist = hist.copy()
@@ -78,21 +72,25 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
-    antepenultimo = hist.iloc[-3]
-
     ema7, ema25, ema99 = ultimo['EMA_7'], ultimo['EMA_25'], ultimo['EMA_99']
     close, rsi, atr = ultimo['close'], ultimo['RSI'], ultimo['ATR']
     macd, macd_signal = ultimo['MACD'], ultimo['MACD_SIGNAL']
     supporto = calcola_supporto(hist)
 
     note = []
+    segnale = "HOLD"
+    tp = sl = 0.0
 
-    # Soglie fisse o adattive in base alla modalità
-    volume_soglia = 300 if MODALITA_TEST else 300
-    atr_minimo = 0.0003 if MODALITA_TEST else 0.001
-    distanza_minima = 0.0012 if MODALITA_TEST else 0.0015
+    # Parametri
+    volume_soglia = 300
+    atr_minimo = 0.001
+    distanza_minima = 0.0015
     macd_rsi_range = (45, 55)
-    macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.001
+    macd_signal_threshold = 0.001
+
+    investimento = 100.0
+    commissione = 0.1  # percentuale
+    guadagno_target = 0.5  # USDC
 
     if atr / close < atr_minimo:
         note.append("⚠️ ATR troppo basso: mercato poco volatile")
@@ -102,19 +100,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     volume_medio = hist['volume'].iloc[-21:-1].mean()
     if volume_attuale < volume_medio * (volume_soglia / 100):
         note.append("⚠️ Volume basso: segnale debole")
-        if not MODALITA_TEST:
-            return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-    # Calcolo distanza e curvatura
     distanza_ema = abs(ema7 - ema25)
-    curvatura_ema25 = ema25 - penultimo['EMA_25']
-    curvatura_precedente = penultimo['EMA_25'] - antepenultimo['EMA_25']
-    accelerazione = curvatura_ema25 - curvatura_precedente
-
     dist_level = valuta_distanza(distanza_ema)
-
-    segnale = "HOLD"
-    tp = sl = 0.0
 
     trend_up = ema7 > ema25 > ema99
     trend_down = ema7 < ema25 < ema99
@@ -131,58 +120,43 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     massimo_20 = hist['high'].iloc[-21:-1].max()
     minimo_20 = hist['low'].iloc[-21:-1].min()
     corpo_candela = abs(ultimo['close'] - ultimo['open'])
-    if close > massimo_20 and volume_attuale > volume_medio * 1.5:
+    if close > massimo_20 and volume_attuale > volume_medio * 1.5 and corpo_candela > atr:
+        breakout_valido = True
         note.append("💥 Breakout rialzista con volume alto")
-        if corpo_candela > atr:
-            note.append("🚀 Spike rialzista con breakout solido")
-            breakout_valido = True
-    elif close < minimo_20 and volume_attuale > volume_medio * 1.5:
-        note.append("💥 Breakout ribassista con volume alto")
-    elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
-        note.append("⚠️ Breakout sospetto: volume insufficiente")
 
     macd_buy_ok = macd > macd_signal and macd_gap > macd_signal_threshold
     macd_buy_debole = macd > 0 and macd_gap > -0.005
     macd_sell_ok = macd < macd_signal and macd_gap < -macd_signal_threshold
     macd_sell_debole = macd < 0 and macd_gap < 0.005
 
-    # ✅ Logica BUY
+    # BUY
     if (trend_up or recupero_buy or breakout_valido) and distanza_ema / close > distanza_minima:
         if rsi > macd_rsi_range[0] and (macd_buy_ok or macd_buy_debole):
             segnale = "BUY"
-
-            forza_trend = min(max(distanza_ema / close, 0.001), 0.01)  # tra 0.1% e 1%
-            coeff_tp = 1.5 + (accelerazione * 10)  # maggiore accelerazione → TP più lontano
-            coeff_sl = 1.0 - (accelerazione * 5)   # maggiore accelerazione → SL più stretto (protezione)
-
-            tp = round(close + atr * coeff_tp, 4)
-            sl_candidato = min(close - atr * coeff_sl, ema25 - (ema25 * 0.005))
-            sl = round(sl_candidato, 4)
-
+            rendimento_lordo = (guadagno_target + 2 * commissione / 100 * investimento) / investimento
+            tp = round(close * (1 + rendimento_lordo) / (1 - spread / 100), 4)
+            perdita_lorda = (-guadagno_target - 2 * commissione / 100 * investimento) / investimento
+            sl = round(close * (1 + perdita_lorda) / (1 - spread / 100), 4)
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
-    # ✅ Logica SELL
+    # SELL
     if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
         if rsi < macd_rsi_range[1] and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
-
-            forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
-            coeff_tp = 1.5 + (accelerazione * 10)
-            coeff_sl = 1.0 - (accelerazione * 5)
-
-            tp = round(close - atr * coeff_tp, 4)
-            sl_candidato = max(close + atr * coeff_sl, ema25 + (ema25 * 0.005))
-            sl = round(sl_candidato, 4)
-
+            rendimento_lordo = (guadagno_target + 2 * commissione / 100 * investimento) / investimento
+            tp = round(close / (1 + rendimento_lordo) / (1 + spread / 100), 4)
+            perdita_lorda = (-guadagno_target - 2 * commissione / 100 * investimento) / investimento
+            sl = round(close / (1 + perdita_lorda) / (1 - spread / 100), 4)
             note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
 
-    # Pattern V
+    # Pattern V (fallback)
     if segnale == "HOLD" and rileva_pattern_v(hist):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
         sl = round(close - atr, 4)
         note.append("📈 Pattern V rilevato: BUY da inversione rapida")
 
+    # Annotazioni
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
         note.insert(0, f"📊 Trend attivo da {n_candele} candele | Distanza: {dist_level}")
@@ -193,8 +167,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             note.append("🟡 Trend attivo ma debole")
         elif trend_down and candele_trend_down <= 2:
             note.append("🟡 Trend ribassista ma debole")
-        elif candele_trend_up <= 1 and not trend_up:
-            note.append("⚠️ Trend concluso: attenzione a inversioni")
 
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
