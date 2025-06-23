@@ -105,11 +105,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     distanza_ema = abs(ema7 - ema25)
     dist_level = valuta_distanza(distanza_ema)
 
-    trend_up = ema7 > ema25 > ema99
-    trend_down = ema7 < ema25 < ema99
-    recupero_buy = ema7 > ema25 and close > ema25 and ema25 > penultimo['EMA_25']
-    recupero_sell = ema7 < ema25 and close < ema25 and ema25 < penultimo['EMA_25']
-
     candele_trend_up = conta_candele_trend(hist, rialzista=True)
     candele_trend_down = conta_candele_trend(hist, rialzista=False)
 
@@ -129,29 +124,35 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     macd_sell_ok = macd < macd_signal and macd_gap < -macd_signal_threshold
     macd_sell_debole = macd < 0 and macd_gap < 0.005
 
-    # BUY
-    if (trend_up or recupero_buy or breakout_valido) and distanza_ema / close > distanza_minima:
+    # BUY (basato su incroci progressivi + allargamento EMA7/EMA25)
+    incrocio_25_sopra_99 = ema25 > ema99 and penultimo['EMA_25'] <= penultimo['EMA_99']
+    incrocio_7_sopra_25 = ema7 > ema25 and penultimo['EMA_7'] > penultimo['EMA_25']
+    incrocio_7_sopra_99 = ema7 > ema99 and penultimo['EMA_7'] > penultimo['EMA_99']
+    allargamento_buy = (ema7 - ema25) > (penultimo['EMA_7'] - penultimo['EMA_25'])
+
+    if incrocio_7_sopra_25 and incrocio_7_sopra_99 and incrocio_25_sopra_99 and allargamento_buy:
         if rsi > macd_rsi_range[0] and (macd_buy_ok or macd_buy_debole):
             segnale = "BUY"
             commissioni = investimento * 2 * (commissione / 100)
             rendimento_lordo = (guadagno_target + commissioni) / investimento
-
             tp = round(close * (1 + rendimento_lordo), 4)
             sl = round(close * (1 - rendimento_lordo), 4)
+            note.append("🟢 BUY confermato: incrocio progressivo + allargamento")
 
-            note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
+    # SELL (basato su incroci progressivi ribassisti + allargamento EMA25/EMA7)
+    incrocio_25_sotto_99 = ema25 < ema99 and penultimo['EMA_25'] >= penultimo['EMA_99']
+    incrocio_7_sotto_25 = ema7 < ema25 and penultimo['EMA_7'] < penultimo['EMA_25']
+    incrocio_7_sotto_99 = ema7 < ema99 and penultimo['EMA_7'] < penultimo['EMA_99']
+    allargamento_sell = (ema25 - ema7) > (penultimo['EMA_25'] - penultimo['EMA_7'])
 
-    # SELL
-    if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
+    if incrocio_7_sotto_25 and incrocio_7_sotto_99 and incrocio_25_sotto_99 and allargamento_sell:
         if rsi < macd_rsi_range[1] and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
             commissioni = investimento * 2 * (commissione / 100)
             rendimento_lordo = (guadagno_target + commissioni) / investimento
-
             tp = round(close / (1 + rendimento_lordo), 4)
             sl = round(close / (1 - rendimento_lordo), 4)
-
-            note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
+            note.append("🔴 SELL confermato: incrocio progressivo + allargamento")
 
     # Pattern V (fallback)
     if segnale == "HOLD" and rileva_pattern_v(hist):
@@ -167,9 +168,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         if pattern:
             note.append(f"✅ Pattern candlestick rilevato: {pattern}")
     else:
-        if trend_up and candele_trend_up <= 2:
+        if candele_trend_up <= 2:
             note.append("🟡 Trend attivo ma debole")
-        elif trend_down and candele_trend_down <= 2:
+        elif candele_trend_down <= 2:
             note.append("🟡 Trend ribassista ma debole")
 
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
@@ -180,3 +181,5 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         segnale = "HOLD"
 
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
+
