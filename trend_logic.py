@@ -1,6 +1,8 @@
 import pandas as pd
 from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto, calcola_ema
 
+MODALITA_TEST = True
+
 def valuta_distanza(distanza: float) -> str:
     if distanza < 1:
         return "bassa"
@@ -48,14 +50,18 @@ def rileva_pattern_v(hist: pd.DataFrame) -> bool:
     rsi_start = sub['RSI'].iloc[0]
     rsi_end = sub['RSI'].iloc[-1]
     macd = sub['MACD'].iloc[-1]
+    pattern = False
+
     for i in range(-3, 0):
         rossa = sub.iloc[i]['close'] < sub.iloc[i]['open']
-        verde = sub.iloc[i + 1]['close'] > sub.iloc[i + 1]['open']
+        verde = sub.iloc[i+1]['close'] > sub.iloc[i+1]['open']
         corpo_rossa = abs(sub.iloc[i]['close'] - sub.iloc[i]['open'])
-        corpo_verde = abs(sub.iloc[i + 1]['close'] - sub.iloc[i + 1]['open'])
+        corpo_verde = abs(sub.iloc[i+1]['close'] - sub.iloc[i+1]['open'])
         if rossa and verde and corpo_verde >= corpo_rossa:
-            return rsi_start < 30 and rsi_end > 50 and abs(macd) < 0.01
-    return False
+            pattern = True
+            break
+
+    return pattern and rsi_start < 30 and rsi_end > 50 and abs(macd) < 0.01
 
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist = hist.copy()
@@ -72,26 +78,20 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
+    antepenultimo = hist.iloc[-3]
+
     ema7, ema25, ema99 = ultimo['EMA_7'], ultimo['EMA_25'], ultimo['EMA_99']
-    
     close, rsi, atr = ultimo['close'], ultimo['RSI'], ultimo['ATR']
     macd, macd_signal = ultimo['MACD'], ultimo['MACD_SIGNAL']
     supporto = calcola_supporto(hist)
 
     note = []
-    segnale = "HOLD"
-    tp = sl = 0.0
 
-    # Parametri
-    volume_soglia = 120
-    atr_minimo = 0.0015
-    distanza_minima = 0.0012
+    volume_soglia = 120 if MODALITA_TEST else 300
+    atr_minimo = 0.0015 if MODALITA_TEST else 0.001
+    distanza_minima = 0.0012 if MODALITA_TEST else 0.0015
     macd_rsi_range = (45, 55)
-    macd_signal_threshold = 0.0005
-
-    investimento = 100.0
-    commissione = 0.1  # percentuale
-    guadagno_target = 0.5  # USDC
+    macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.001
 
     if atr / close < atr_minimo:
         note.append("⚠️ ATR troppo basso: mercato poco volatile")
@@ -101,78 +101,89 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     volume_medio = hist['volume'].iloc[-21:-1].mean()
     if volume_attuale < volume_medio * (volume_soglia / 100):
         note.append("⚠️ Volume basso: segnale debole")
-        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+        if not MODALITA_TEST:
+            return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     distanza_ema = abs(ema7 - ema25)
+    curvatura_ema25 = ema25 - penultimo['EMA_25']
+    curvatura_precedente = penultimo['EMA_25'] - antepenultimo['EMA_25']
+    accelerazione = curvatura_ema25 - curvatura_precedente
     dist_level = valuta_distanza(distanza_ema)
 
-    candele_trend_up = conta_candele_trend(hist, rialzista=True)
-    candele_trend_down = conta_candele_trend(hist, rialzista=False)
+    segnale = "HOLD"
+    tp = sl = 0.0
 
-    pattern = riconosci_pattern_candela(hist)
-    macd_gap = macd - macd_signal
-
-    breakout_valido = False
     massimo_20 = hist['high'].iloc[-21:-1].max()
     minimo_20 = hist['low'].iloc[-21:-1].min()
     corpo_candela = abs(ultimo['close'] - ultimo['open'])
-    if close > massimo_20 and volume_attuale > volume_medio * 1.5 and corpo_candela > atr:
-        breakout_valido = True
+    breakout_valido = False
+
+    if close > massimo_20 and volume_attuale > volume_medio * 1.5:
         note.append("💥 Breakout rialzista con volume alto")
+        if corpo_candela > atr:
+            note.append("🚀 Spike rialzista con breakout solido")
+            breakout_valido = True
+    elif close < minimo_20 and volume_attuale > volume_medio * 1.5:
+        note.append("💥 Breakout ribassista con volume alto")
+    elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
+        note.append("⚠️ Breakout sospetto: volume insufficiente")
 
-    macd_buy_ok = macd > macd_signal and macd_gap > macd_signal_threshold
-    macd_buy_debole = macd > 0 and macd_gap > -0.005
-    macd_sell_ok = macd < macd_signal and macd_gap < -macd_signal_threshold
-    macd_sell_debole = macd < 0 and macd_gap < 0.005
-
-    # BUY (basato su incroci progressivi + allargamento EMA7/EMA25)
     incrocio_25_sopra_99 = ema25 > ema99 and penultimo['EMA_25'] <= penultimo['EMA_99']
     ema7_sopra_25 = ema7 > ema25
     ema7_sopra_99 = ema7 > ema99
     allargamento_buy = (ema7 - ema25) > (penultimo['EMA_7'] - penultimo['EMA_25'])
 
     if ema7_sopra_25 and ema7_sopra_99 and incrocio_25_sopra_99 and allargamento_buy:
-        if rsi > macd_rsi_range[0] and (macd_buy_ok or (macd_gap > -0.002 and macd > 0)):
+        if rsi > macd_rsi_range[0] and (macd > macd_signal or (macd > 0 and macd - macd_signal > -0.005)):
             segnale = "BUY"
+            investimento = 100
+            commissione = 0.1
+            guadagno_target = 0.5
             commissioni = investimento * 2 * (commissione / 100)
             rendimento_lordo = (guadagno_target + commissioni) / investimento
             tp = round(close * (1 + rendimento_lordo) / (1 - spread / 100), 4)
             sl = round(close * (1 - rendimento_lordo) / (1 - spread / 100), 4)
-            note.append("🟢 BUY confermato: allineamento EMA e condizioni buone (MACD tollerante)")
-        
-    # SELL (basato su incroci progressivi ribassisti + allargamento EMA25/EMA7)
+            note.append("✅ BUY confermato: incrocio progressivo + allargamento")
+
     incrocio_25_sotto_99 = ema25 < ema99 and penultimo['EMA_25'] >= penultimo['EMA_99']
     ema7_sotto_25 = ema7 < ema25
     ema7_sotto_99 = ema7 < ema99
     allargamento_sell = (ema25 - ema7) > (penultimo['EMA_25'] - penultimo['EMA_7'])
 
     if ema7_sotto_25 and ema7_sotto_99 and incrocio_25_sotto_99 and allargamento_sell:
-        if rsi < macd_rsi_range[1] and (macd_sell_ok or (macd_gap < 0.002 and macd < 0)):
+        if rsi < macd_rsi_range[1] and (macd < macd_signal or (macd < 0 and macd - macd_signal < 0.005)):
             segnale = "SELL"
+            investimento = 100
+            commissione = 0.1
+            guadagno_target = 0.5
             commissioni = investimento * 2 * (commissione / 100)
             rendimento_lordo = (guadagno_target + commissioni) / investimento
             tp = round(close / ((1 + rendimento_lordo) * (1 + spread / 100)), 4)
             sl = round(close / ((1 - rendimento_lordo) * (1 - spread / 100)), 4)
-            note.append("🔴 SELL confermato: allineamento EMA e condizioni buone (MACD tollerante)")
+            note.append("✅ SELL confermato: incrocio progressivo + allargamento")
 
-    # Pattern V (fallback)
     if segnale == "HOLD" and rileva_pattern_v(hist):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
         sl = round(close - atr, 4)
         note.append("📈 Pattern V rilevato: BUY da inversione rapida")
 
-    # Annotazioni
+    pattern = riconosci_pattern_candela(hist)
+
     if segnale in ["BUY", "SELL"]:
-        n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
+        n_candele = conta_candele_trend(hist, rialzista=(segnale == "BUY"))
         note.insert(0, f"📊 Trend attivo da {n_candele} candele | Distanza: {dist_level}")
         if pattern:
             note.append(f"✅ Pattern candlestick rilevato: {pattern}")
     else:
-        if candele_trend_up <= 2:
+        candele_trend_up = conta_candele_trend(hist, rialzista=True)
+        candele_trend_down = conta_candele_trend(hist, rialzista=False)
+        if ema7 > ema25 > ema99 and candele_trend_up <= 2:
             note.append("🟡 Trend attivo ma debole")
-        elif candele_trend_down <= 2:
+        elif ema7 < ema25 < ema99 and candele_trend_down <= 2:
             note.append("🟡 Trend ribassista ma debole")
+        elif candele_trend_up <= 1 and not (ema7 > ema25 > ema99):
+            note.append("⚠️ Trend concluso: attenzione a inversioni")
 
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
@@ -182,5 +193,3 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         segnale = "HOLD"
 
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
-
-
