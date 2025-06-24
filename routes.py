@@ -396,13 +396,16 @@ def verifica_posizioni_attive():
                 book = get_bid_ask(symbol)
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
-                # 2. Calcolo guadagno netto realistico (come Binance)
-                # entry = prezzo al momento della simulazione (ask per BUY, bid per SELL)
-                # prezzo_corrente = bid per BUY, ask per SELL
-                rendimento = prezzo_corrente / entry if tipo == "BUY" else entry / prezzo_corrente
+                # Prezzo effettivo in uscita (con spread)
+                prezzo_effettivo = prezzo_corrente * (1 - spread / 100) if tipo == "BUY" else prezzo_corrente * (1 + spread / 100)
+                # Prezzo effettivo in entrata (con spread)
+                ingresso_effettivo = entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
+
+                rendimento = prezzo_effettivo / ingresso_effettivo if tipo == "BUY" else ingresso_effettivo / prezzo_effettivo
                 lordo = investimento * rendimento - investimento
                 commissioni = investimento * 2 * (commissione / 100)
                 guadagno_netto_attuale = lordo - commissioni
+
 
                 simulazione_attiva["guadagno_netto"] = round(guadagno_netto_attuale, 4)
 
