@@ -83,10 +83,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     # Parametri
     volume_soglia = 200
-    atr_minimo = 0.001
-    distanza_minima = 0.0015
+    atr_minimo = 0.003
+    distanza_minima = 0.0012
     macd_rsi_range = (45, 55)
-    macd_signal_threshold = 0.001
+    macd_signal_threshold = 0.0005
 
     investimento = 100.0
     commissione = 0.1  # percentuale
@@ -135,8 +135,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             segnale = "BUY"
             commissioni = investimento * 2 * (commissione / 100)
             rendimento_lordo = (guadagno_target + commissioni) / investimento
-            tp = round(close * (1 + rendimento_lordo), 4)
-            sl = round(close * (1 - rendimento_lordo), 4)
+            tp = round(close * (1 + rendimento_lordo) / (1 - spread / 100), 4)
+            sl = round(close * (1 - rendimento_lordo) / (1 - spread / 100), 4)
+
             note.append("🟢 BUY confermato: incrocio progressivo + allargamento")
 
     # SELL (basato su incroci progressivi ribassisti + allargamento EMA25/EMA7)
@@ -150,8 +151,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             segnale = "SELL"
             commissioni = investimento * 2 * (commissione / 100)
             rendimento_lordo = (guadagno_target + commissioni) / investimento
-            tp = round(close / (1 + rendimento_lordo), 4)
-            sl = round(close / (1 - rendimento_lordo), 4)
+            tp = round(close / ((1 + rendimento_lordo) * (1 + spread / 100)), 4)
+            sl = round(close / ((1 - rendimento_lordo) * (1 - spread / 100)), 4)
             note.append("🔴 SELL confermato: incrocio progressivo + allargamento")
 
     # Pattern V (fallback)
