@@ -73,6 +73,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
     ema7, ema25, ema99 = ultimo['EMA_7'], ultimo['EMA_25'], ultimo['EMA_99']
+    
     close, rsi, atr = ultimo['close'], ultimo['RSI'], ultimo['ATR']
     macd, macd_signal = ultimo['MACD'], ultimo['MACD_SIGNAL']
     supporto = calcola_supporto(hist)
@@ -126,34 +127,33 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     # BUY (basato su incroci progressivi + allargamento EMA7/EMA25)
     incrocio_25_sopra_99 = ema25 > ema99 and penultimo['EMA_25'] <= penultimo['EMA_99']
-    incrocio_7_sopra_25 = ema7 > ema25 and penultimo['EMA_7'] > penultimo['EMA_25']
-    incrocio_7_sopra_99 = ema7 > ema99 and penultimo['EMA_7'] > penultimo['EMA_99']
+    ema7_sopra_25 = ema7 > ema25
+    ema7_sopra_99 = ema7 > ema99
     allargamento_buy = (ema7 - ema25) > (penultimo['EMA_7'] - penultimo['EMA_25'])
 
-    if incrocio_7_sopra_25 and incrocio_7_sopra_99 and incrocio_25_sopra_99 and allargamento_buy:
-        if rsi > macd_rsi_range[0] and (macd_buy_ok or macd_buy_debole):
+    if ema7_sopra_25 and ema7_sopra_99 and incrocio_25_sopra_99 and allargamento_buy:
+        if rsi > macd_rsi_range[0] and (macd_buy_ok or (macd_gap > -0.002 and macd > 0)):
             segnale = "BUY"
             commissioni = investimento * 2 * (commissione / 100)
             rendimento_lordo = (guadagno_target + commissioni) / investimento
             tp = round(close * (1 + rendimento_lordo) / (1 - spread / 100), 4)
             sl = round(close * (1 - rendimento_lordo) / (1 - spread / 100), 4)
-
-            note.append("🟢 BUY confermato: incrocio progressivo + allargamento")
-
+            note.append("🟢 BUY confermato: allineamento EMA e condizioni buone (MACD tollerante)")
+        
     # SELL (basato su incroci progressivi ribassisti + allargamento EMA25/EMA7)
     incrocio_25_sotto_99 = ema25 < ema99 and penultimo['EMA_25'] >= penultimo['EMA_99']
-    incrocio_7_sotto_25 = ema7 < ema25 and penultimo['EMA_7'] < penultimo['EMA_25']
-    incrocio_7_sotto_99 = ema7 < ema99 and penultimo['EMA_7'] < penultimo['EMA_99']
+    ema7_sotto_25 = ema7 < ema25
+    ema7_sotto_99 = ema7 < ema99
     allargamento_sell = (ema25 - ema7) > (penultimo['EMA_25'] - penultimo['EMA_7'])
 
-    if incrocio_7_sotto_25 and incrocio_7_sotto_99 and incrocio_25_sotto_99 and allargamento_sell:
-        if rsi < macd_rsi_range[1] and (macd_sell_ok or macd_sell_debole):
+    if ema7_sotto_25 and ema7_sotto_99 and incrocio_25_sotto_99 and allargamento_sell:
+        if rsi < macd_rsi_range[1] and (macd_sell_ok or (macd_gap < 0.002 and macd < 0)):
             segnale = "SELL"
             commissioni = investimento * 2 * (commissione / 100)
             rendimento_lordo = (guadagno_target + commissioni) / investimento
             tp = round(close / ((1 + rendimento_lordo) * (1 + spread / 100)), 4)
             sl = round(close / ((1 - rendimento_lordo) * (1 - spread / 100)), 4)
-            note.append("🔴 SELL confermato: incrocio progressivo + allargamento")
+            note.append("🔴 SELL confermato: allineamento EMA e condizioni buone (MACD tollerante)")
 
     # Pattern V (fallback)
     if segnale == "HOLD" and rileva_pattern_v(hist):
