@@ -73,7 +73,7 @@ def analyze(symbol: str):
 
         book = get_bid_ask(symbol)
         spread = book["spread"]
-        if spread > 5.0:
+        if spread > 7.0:
             return SignalResponse(
                 segnale="HOLD",
                 commento=f"Simulazione ignorata per {symbol.upper()} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
@@ -116,7 +116,7 @@ def analyze(symbol: str):
                 segnale = "HOLD"
 
             trend_1h = conta_candele_trend(df_1h, rialzista=(segnale == "BUY"))
-            if trend_1h < 2:
+            if trend_1h < 1:
                 note += f"\n⚠️ Trend su 1h troppo debole ({trend_1h} candele), segnale annullato"
                 segnale = "HOLD"
         else:
@@ -283,11 +283,11 @@ def hot_assets():
     symbols = get_best_symbols(limit=50)
     risultati = []
 
-    volume_soglia = 30 if MODALITA_TEST else 300
-    atr_minimo = 0.0003 if MODALITA_TEST else 0.0008
-    distanza_minima = 0.0003 if MODALITA_TEST else 0.0012
-    macd_rsi_range = (43, 57) if MODALITA_TEST else (48, 52)
-    macd_signal_threshold = 0.0001 if MODALITA_TEST else 0.0005
+    volume_soglia = 20 if MODALITA_TEST else 300
+    atr_minimo = 0.00015 if MODALITA_TEST else 0.0008
+    distanza_minima = 0.00015 if MODALITA_TEST else 0.0012
+    macd_rsi_range = (40, 60) if MODALITA_TEST else (48, 52)
+    macd_signal_threshold = 0.00005 if MODALITA_TEST else 0.0005
 
     for symbol in symbols:
         try:
