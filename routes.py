@@ -284,10 +284,10 @@ def hot_assets():
     risultati = []
 
     volume_soglia = 20 if MODALITA_TEST else 300
-    atr_minimo = 0.00015 if MODALITA_TEST else 0.0008
-    distanza_minima = 0.00015 if MODALITA_TEST else 0.0012
+    atr_minimo = 0.00005 if MODALITA_TEST else 0.0008
+    distanza_minima = 0.00005 if MODALITA_TEST else 0.0012
     macd_rsi_range = (40, 60) if MODALITA_TEST else (48, 52)
-    macd_signal_threshold = 0.00005 if MODALITA_TEST else 0.0005
+    macd_signal_threshold = 0.00001 if MODALITA_TEST else 0.0005
 
     for symbol in symbols:
         try:
