@@ -3,13 +3,10 @@ from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto,
 
 MODALITA_TEST = True
 
-def valuta_distanza(distanza: float) -> str:
-    if distanza < 1:
-        return "bassa"
-    elif distanza < 3:
-        return "media"
-    else:
-        return "alta"
+def valuta_distanza(d):
+    if d < 0.002: return "🔹 Bassa"
+    elif d < 0.005: return "🔸 Media"
+    return "🔺 Alta"
 
 def conta_candele_trend(hist: pd.DataFrame, rialzista: bool = True, max_candele: int = 20) -> int:
     count = 0
@@ -54,16 +51,6 @@ def conta_candele_dall_incrocio(hist, direzione: str = "buy") -> int:
         if direzione == "sell" and ema25_prev >= ema99_prev and ema25_now < ema99_now:
             return abs(i + 1)
     return None
-
-import pandas as pd
-from indicators import calcola_ema, calcola_rsi, calcola_atr, calcola_macd, calcola_supporto
-from pattern import riconosci_pattern_candela, conta_candele_trend
-from config import MODALITA_TEST
-
-def valuta_distanza(d):
-    if d < 0.002: return "🔹 Bassa"
-    elif d < 0.005: return "🔸 Media"
-    return "🔺 Alta"
 
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist = hist.copy()
