@@ -4,7 +4,6 @@ from pydantic import BaseModel
 from typing import Optional
 
 class SignalResponse(BaseModel):
-    simbolo: str
     segnale: str
     commento: str
     prezzo: float
