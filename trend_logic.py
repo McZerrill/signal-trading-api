@@ -43,6 +43,18 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
         return "🔃 Bearish Engulfing"
     return ""
 
+def conta_candele_dall_incrocio(hist, direzione: str = "buy") -> int:
+    for i in range(-2, -6, -1):  # Ultime 3 candele (esclude quella attuale)
+        ema25_now = hist['EMA_25'].iloc[i+1]
+        ema99_now = hist['EMA_99'].iloc[i+1]
+        ema25_prev = hist['EMA_25'].iloc[i]
+        ema99_prev = hist['EMA_99'].iloc[i]
+        if direzione == "buy" and ema25_prev <= ema99_prev and ema25_now > ema99_now:
+            return abs(i + 1)
+        if direzione == "sell" and ema25_prev >= ema99_prev and ema25_now < ema99_now:
+            return abs(i + 1)
+    return None
+
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist = hist.copy()
     ema = calcola_ema(hist, [7, 25, 99])
@@ -103,13 +115,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume insufficiente")
 
-    # --- LOGICA EMA: UNICA CONDIZIONE PER ATTIVARE IL SEGNALE ---
-    incrocio_25_sopra_99 = ema25 > ema99 and penultimo['EMA_25'] <= penultimo['EMA_99']
-    ema7_sopra_25 = ema7 > ema25
-    ema7_sopra_99 = ema7 > ema99
-    allargamento_buy = (ema7 - ema25) > (penultimo['EMA_7'] - penultimo['EMA_25'])
-
-    if ema7_sopra_25 and ema7_sopra_99 and incrocio_25_sopra_99 and allargamento_buy:
+    # --- BUY ---
+    candele_buy = conta_candele_dall_incrocio(hist, "buy")
+    if ema7 > ema25 > ema99 and candele_buy is not None and candele_buy <= 3 and (ema7 - ema25) > (penultimo['EMA_7'] - penultimo['EMA_25']):
         segnale = "BUY"
         investimento = 100
         commissione = 0.1
@@ -118,14 +126,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         rendimento_lordo = (guadagno_target + commissioni) / investimento
         tp = round(close * (1 + rendimento_lordo) / (1 - spread / 100), 4)
         sl = round(close * (1 - rendimento_lordo) / (1 - spread / 100), 4)
-        note.append("✅ BUY confermato: incrocio progressivo + allargamento")
+        note.append(f"✅ BUY confermato: incrocio EMA25>99 avvenuto {candele_buy} candele fa + allargamento EMA")
 
-    incrocio_25_sotto_99 = ema25 < ema99 and penultimo['EMA_25'] >= penultimo['EMA_99']
-    ema7_sotto_25 = ema7 < ema25
-    ema7_sotto_99 = ema7 < ema99
-    allargamento_sell = (ema25 - ema7) > (penultimo['EMA_25'] - penultimo['EMA_7'])
-
-    if ema7_sotto_25 and ema7_sotto_99 and incrocio_25_sotto_99 and allargamento_sell:
+    # --- SELL ---
+    candele_sell = conta_candele_dall_incrocio(hist, "sell")
+    if ema7 < ema25 < ema99 and candele_sell is not None and candele_sell <= 3 and (ema25 - ema7) > (penultimo['EMA_25'] - penultimo['EMA_7']):
         segnale = "SELL"
         investimento = 100
         commissione = 0.1
@@ -134,7 +139,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         rendimento_lordo = (guadagno_target + commissioni) / investimento
         tp = round(close / ((1 + rendimento_lordo) * (1 + spread / 100)), 4)
         sl = round(close / ((1 - rendimento_lordo) * (1 - spread / 100)), 4)
-        note.append("✅ SELL confermato: incrocio progressivo + allargamento")
+        note.append(f"✅ SELL confermato: incrocio EMA25<99 avvenuto {candele_sell} candele fa + allargamento EMA")
 
     pattern = riconosci_pattern_candela(hist)
 
@@ -158,7 +163,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     if segnale == "SELL" and pattern and "Hammer" in pattern:
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
 
-    # --- Nota su eventuale pullback ---
+    # --- Pullback note ---
     if ema7 > ema25 > ema99:
         if close < ema7 and close >= ema25:
             note.append("🔁 Possibile pullback durante trend rialzista")
@@ -166,5 +171,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         if close > ema7 and close <= ema25:
             note.append("🔁 Possibile pullback durante trend ribassista")
 
-    
+    # Rimuove note duplicate
+    note = list(dict.fromkeys(note))
+
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
