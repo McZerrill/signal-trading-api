@@ -29,23 +29,6 @@ posizioni_attive = {}
 def read_root():
     return {"status": "API Segnali di Borsa attiva"}
 
-from fastapi import APIRouter
-from pytz import timezone
-from datetime import datetime, timezone as dt_timezone
-import time
-import requests
-import logging
-import pandas as pd
-
-from binance_api import get_binance_df, get_best_symbols, get_bid_ask
-from trend_logic import analizza_trend, conta_candele_trend, riconosci_pattern_candela
-from indicators import calcola_rsi, calcola_macd, calcola_atr
-from models import SignalResponse
-
-router = APIRouter()
-
-posizioni_attive = {}
-
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
