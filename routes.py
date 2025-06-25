@@ -79,35 +79,30 @@ def analyze(symbol: str):
         df_1d = get_binance_df(symbol, "1d", 300)
 
         segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(df_15m, spread)
-        segnale_1h, *_ = analizza_trend(df_1h, spread)
         segnale_1d, *_ = analizza_trend(df_1d, spread)
 
         segnale, hist, note, tp, sl, supporto = segnale_15m, h15, note15, tp15, sl15, supporto15
 
+        # Conferma su 1h basata su logica EMA/MACD/RSI
         ultimo_1h = df_1h.iloc[-1]
         ema7_1h = ultimo_1h['EMA_7']
         ema25_1h = ultimo_1h['EMA_25']
         macd_1h = ultimo_1h['MACD']
-        signal_1h = ultimo_1h['MACD_SIGNAL']
         rsi_1h = ultimo_1h['RSI']
 
         conferma_1h = False
-        if segnale == "BUY":
-            if ema7_1h > ema25_1h and macd_1h > 0 and rsi_1h > 50:
-                conferma_1h = True
-            else:
-                note += "\n⚠️ 1h non confermato: EMA7<EMA25 o MACD/RSI non favorevoli per BUY"
-        elif segnale == "SELL":
-            if ema7_1h < ema25_1h and macd_1h < 0 and rsi_1h < 50:
-                conferma_1h = True
-            else:
-                note += "\n⚠️ 1h non confermato: EMA7>EMA25 o MACD/RSI non favorevoli per SELL"
+        if segnale == "BUY" and ema7_1h > ema25_1h and macd_1h > 0 and rsi_1h > 50:
+            conferma_1h = True
+        elif segnale == "SELL" and ema7_1h < ema25_1h and macd_1h < 0 and rsi_1h < 50:
+            conferma_1h = True
 
         if not conferma_1h:
+            note += "\n⚠️ Timeframe 1h non confermato (EMA/MACD/RSI non coerenti)"
             segnale = "HOLD"
         else:
             note += "\n🧭 1h✓"
 
+        # Verifica conflitto con 1d
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
                 note += f"\n⚠️ Segnale {segnale} annullato: conflitto con il timeframe 1d (attuale: {segnale_1d})"
