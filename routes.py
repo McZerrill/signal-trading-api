@@ -91,18 +91,22 @@ def analyze(symbol: str):
         signal_1h = ultimo_1h['MACD_SIGNAL']
         rsi_1h = ultimo_1h['RSI']
 
+        conferma_1h = False
         if segnale == "BUY":
             if ema7_1h > ema25_1h and macd_1h > 0 and rsi_1h > 50:
-                note += "\n🧭 1h✓"
+                conferma_1h = True
             else:
                 note += "\n⚠️ 1h non confermato: EMA7<EMA25 o MACD/RSI non favorevoli per BUY"
-                segnale = "HOLD"
         elif segnale == "SELL":
             if ema7_1h < ema25_1h and macd_1h < 0 and rsi_1h < 50:
-                note += "\n🧭 1h✓"
+                conferma_1h = True
             else:
                 note += "\n⚠️ 1h non confermato: EMA7>EMA25 o MACD/RSI non favorevoli per SELL"
-                segnale = "HOLD"
+
+        if not conferma_1h:
+            segnale = "HOLD"
+        else:
+            note += "\n🧭 1h✓"
 
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
