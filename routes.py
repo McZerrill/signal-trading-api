@@ -35,9 +35,10 @@ def analyze(symbol: str):
         if symbol in posizioni_attive:
             posizione = posizioni_attive[symbol]
             return SignalResponse(
+                simbolo=symbol.upper(),
                 segnale="HOLD",
                 commento=(
-                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
+                    f"\u23f3 Simulazione già attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
                     f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
                 ),
                 prezzo=posizione["entry"],
@@ -58,6 +59,7 @@ def analyze(symbol: str):
         spread = book["spread"]
         if spread > 7.0:
             return SignalResponse(
+                simbolo=symbol.upper(),
                 segnale="HOLD",
                 commento=f"Simulazione ignorata per {symbol.upper()} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
                 prezzo=0.0,
@@ -107,7 +109,6 @@ def analyze(symbol: str):
             segnale = "HOLD"
         else:
             note += "\n🧭 1h✓"
-
 
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
@@ -159,6 +160,7 @@ def analyze(symbol: str):
             )
 
             return SignalResponse(
+                simbolo=symbol.upper(),
                 segnale=segnale,
                 commento=commento,
                 prezzo=entry_price,
@@ -178,6 +180,7 @@ def analyze(symbol: str):
         header = f"🚱 HOLD | {symbol.upper()} @ {close}$"
         corpo = f"{base_dati}\n📉 Supporto: {supporto}$\n{note}"
         return SignalResponse(
+            simbolo=symbol.upper(),
             segnale="HOLD",
             commento=f"{header}\n{corpo}",
             prezzo=close,
@@ -196,6 +199,7 @@ def analyze(symbol: str):
 
     except Exception as e:
         return SignalResponse(
+            simbolo=symbol.upper(),
             segnale="ERROR",
             commento=f"Errore durante l'analisi di {symbol.upper()}: {e}",
             prezzo=0.0,
