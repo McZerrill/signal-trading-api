@@ -84,7 +84,6 @@ def analyze(symbol: str):
 
         segnale, hist, note, tp, sl, supporto = segnale_15m, h15, note15, tp15, sl15, supporto15
 
-        # 🔁 Nuova logica di conferma su 1h
         ultimo_1h = df_1h.iloc[-1]
         ema7_1h = ultimo_1h['EMA_7']
         ema25_1h = ultimo_1h['EMA_25']
@@ -92,22 +91,18 @@ def analyze(symbol: str):
         signal_1h = ultimo_1h['MACD_SIGNAL']
         rsi_1h = ultimo_1h['RSI']
 
-        conferma_1h = False
         if segnale == "BUY":
             if ema7_1h > ema25_1h and macd_1h > 0 and rsi_1h > 50:
-                conferma_1h = True
+                note += "\n🧭 1h✓"
             else:
                 note += "\n⚠️ 1h non confermato: EMA7<EMA25 o MACD/RSI non favorevoli per BUY"
+                segnale = "HOLD"
         elif segnale == "SELL":
             if ema7_1h < ema25_1h and macd_1h < 0 and rsi_1h < 50:
-                conferma_1h = True
+                note += "\n🧭 1h✓"
             else:
                 note += "\n⚠️ 1h non confermato: EMA7>EMA25 o MACD/RSI non favorevoli per SELL"
-
-        if not conferma_1h:
-            segnale = "HOLD"
-        else:
-            note += "\n🧭 1h✓"
+                segnale = "HOLD"
 
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
@@ -211,6 +206,7 @@ def analyze(symbol: str):
             timeframe="",
             spread=0.0
         )
+
         
 @router.get("/price")
 def get_price(symbol: str):
