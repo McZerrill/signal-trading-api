@@ -91,19 +91,18 @@ def analyze(symbol: str):
             rsi_1h = ultimo_1h['RSI']
 
             if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
-                note += "\n⚠️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL"
+                note += "\nℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL"
             elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
-                note += "\n⚠️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY"
+                note += "\nℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY"
             else:
-                note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
-                segnale = "HOLD"
+                note += f"\nℹ️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
 
             trend_1h = conta_candele_trend(df_1h, rialzista=(segnale == "BUY"))
             if trend_1h < 2:
-                note += f"\n⚠️ Trend su 1h troppo debole ({trend_1h} candele), segnale annullato"
-                segnale = "HOLD"
+                note += f"\nℹ️ Trend su 1h debole ({trend_1h} candele)"
         else:
             note += "\n🧭 1h✓"
+
 
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
