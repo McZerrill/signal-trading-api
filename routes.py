@@ -104,12 +104,12 @@ def analyze(symbol: str):
             note += "\n🧭 1h✓"
 
 
-        if segnale in ["BUY", "SELL"]:
-            if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
-                note += f"\n⚠️ Segnale {segnale} annullato: conflitto con il timeframe 1d (attuale: {segnale_1d})"
-                segnale = "HOLD"
-            else:
-                note += "\n📅 1d✓"
+       if segnale in ["BUY", "SELL"]:
+           if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
+               note += f"\nℹ️ Attenzione: il timeframe 1d è in conflitto ({segnale_1d})"
+           else:
+               note += "\n📅 1d✓"
+
 
         ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
