@@ -54,14 +54,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
 
     ultimo = hist.iloc[-1]
-    penultimo = hist.iloc[-2]
-    antepenultimo = hist.iloc[-3]
-
-    ema7, ema25, ema99 = ultimo['EMA_7'], ultimo['EMA_25'], ultimo['EMA_99']
     close, rsi, atr = ultimo['close'], ultimo['RSI'], ultimo['ATR']
     macd, macd_signal = ultimo['MACD'], ultimo['MACD_SIGNAL']
+    ema7, ema25, ema99 = ultimo['EMA_7'], ultimo['EMA_25'], ultimo['EMA_99']
     supporto = calcola_supporto(hist)
-
     note = []
 
     volume_soglia = 120 if MODALITA_TEST else 300
@@ -100,16 +96,16 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout con volume debole")
 
+    # Nuova logica incrocio su ultime 8 candele
+    incrocio_buy = any(hist['EMA_7'].iloc[-i] > hist['EMA_25'].iloc[-i] and
+                       hist['EMA_7'].iloc[-i - 1] <= hist['EMA_25'].iloc[-i - 1]
+                       for i in range(1, 9))
+    incrocio_sell = any(hist['EMA_7'].iloc[-i] < hist['EMA_25'].iloc[-i] and
+                        hist['EMA_7'].iloc[-i - 1] >= hist['EMA_25'].iloc[-i - 1]
+                        for i in range(1, 9))
+
     segnale = "HOLD"
     tp = sl = 0.0
-
-    ultime8 = hist.iloc[-8:]
-    incrocio_buy = any(ultime8['EMA_7'] > ultime8['EMA_25']) and penultimo['EMA_7'] <= penultimo['EMA_25'] and ema7 > ema25
-    incrocio_sell = any(ultime8['EMA_7'] < ultime8['EMA_25']) and penultimo['EMA_7'] >= penultimo['EMA_25'] and ema7 < ema25
-    
-    # Debug incrocio ultime 8 candele
-    differenze_ema = [round(hist['EMA_7'].iloc[-i] - hist['EMA_25'].iloc[-i], 6) for i in range(1, 9)]
-    note.append(f"🧪 Debug differenza EMA7 - EMA25 (ultime 8): {differenze_ema}")
 
     if incrocio_buy:
         segnale = "BUY"
