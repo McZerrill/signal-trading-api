@@ -83,7 +83,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     macd_rsi_range = (45, 55)
     macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.001
 
-    # Note informativo/diagnostiche (non bloccano il segnale)
+    # Diagnostica
     if atr / close < atr_minimo:
         note.append("⚠️ ATR troppo basso: mercato poco volatile")
 
@@ -98,7 +98,22 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     accelerazione = curvatura_ema25 - curvatura_precedente
     dist_level = valuta_distanza(distanza_ema)
 
-    # Breakout note
+    # Nota sull'accelerazione della EMA25
+    if accelerazione > 0:
+        note.append("📈 EMA25 in accelerazione: trend in rafforzamento")
+    elif accelerazione < 0:
+        note.append("📉 EMA25 in rallentamento: possibile indebolimento del trend")
+
+    # Nuove note informative sui parametri
+    if distanza_ema < distanza_minima:
+        note.append("ℹ️ EMA7 e EMA25 molto vicine")
+
+    if abs(macd - macd_signal) < macd_signal_threshold:
+        note.append("ℹ️ MACD vicino alla signal: momentum debole")
+
+    if macd_rsi_range[0] <= rsi <= macd_rsi_range[1]:
+        note.append("ℹ️ RSI neutro: possibile fase laterale")
+
     massimo_20 = hist['high'].iloc[-21:-1].max()
     minimo_20 = hist['low'].iloc[-21:-1].min()
     corpo_candela = abs(ultimo['close'] - ultimo['open'])
@@ -112,24 +127,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume insufficiente")
 
-    # Incroci EMA25/EMA99 recenti
-    incrocio_25_sopra_99_recentemente = any(
-        hist['EMA_25'].iloc[i] > hist['EMA_99'].iloc[i] and
-        hist['EMA_25'].iloc[i - 1] <= hist['EMA_99'].iloc[i - 1]
-        for i in range(-1, -4, -1)
-    )
-
-    incrocio_25_sotto_99_recentemente = any(
-        hist['EMA_25'].iloc[i] < hist['EMA_99'].iloc[i] and
-        hist['EMA_25'].iloc[i - 1] >= hist['EMA_99'].iloc[i - 1]
-        for i in range(-1, -4, -1)
-    )
+    # Verifica incrocio EMA7 vs EMA25 (ultima candela)
+    incrocio_buy = penultimo['EMA_7'] <= penultimo['EMA_25'] and ema7 > ema25
+    incrocio_sell = penultimo['EMA_7'] >= penultimo['EMA_25'] and ema7 < ema25
 
     segnale = "HOLD"
     tp = sl = 0.0
 
-    # Logica BUY
-    if ema7 > ema25 > ema99 and incrocio_25_sopra_99_recentemente and (ema7 - ema25) > (penultimo['EMA_7'] - penultimo['EMA_25']):
+    if incrocio_buy:
         segnale = "BUY"
         investimento = 100
         commissione = 0.1
@@ -138,10 +143,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         rendimento_lordo = (guadagno_target + commissioni) / investimento
         tp = round(close * (1 + rendimento_lordo) / (1 - spread / 100), 4)
         sl = round(close * (1 - rendimento_lordo) / (1 - spread / 100), 4)
-        note.append("✅ BUY confermato: incrocio EMA25>EMA99 nelle ultime 3 candele + allargamento EMA")
+        note.append("✅ BUY confermato: incrocio EMA7 > EMA25")
 
-    # Logica SELL
-    if ema7 < ema25 < ema99 and incrocio_25_sotto_99_recentemente and (ema25 - ema7) > (penultimo['EMA_25'] - penultimo['EMA_7']):
+    if incrocio_sell:
         segnale = "SELL"
         investimento = 100
         commissione = 0.1
@@ -150,7 +154,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         rendimento_lordo = (guadagno_target + commissioni) / investimento
         tp = round(close / ((1 + rendimento_lordo) * (1 + spread / 100)), 4)
         sl = round(close / ((1 - rendimento_lordo) * (1 - spread / 100)), 4)
-        note.append("✅ SELL confermato: incrocio EMA25<EMA99 nelle ultime 3 candele + allargamento EMA")
+        note.append("✅ SELL confermato: incrocio EMA7 < EMA25")
 
     pattern = riconosci_pattern_candela(hist)
 
@@ -169,13 +173,17 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         elif candele_trend_up <= 1 and not (ema7 > ema25 > ema99):
             note.append("⚠️ Trend concluso: attenzione a inversioni")
 
-    # Pattern contrari (solo come warning)
+        # Presegnali (anche in HOLD)
+        if penultimo['EMA_7'] < penultimo['EMA_25'] and ema7 > ema25:
+            note.append("🔍 Presegnale BUY: EMA7 ha appena incrociato EMA25")
+        if penultimo['EMA_7'] > penultimo['EMA_25'] and ema7 < ema25:
+            note.append("🔍 Presegnale SELL: EMA7 ha appena incrociato EMA25 al ribasso")
+
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
     if segnale == "SELL" and pattern and "Hammer" in pattern:
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
 
-    # Pullback
     if ema7 > ema25 > ema99:
         if close < ema7 and close >= ema25:
             note.append("🔁 Possibile pullback durante trend rialzista")
@@ -183,13 +191,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         if close > ema7 and close <= ema25:
             note.append("🔁 Possibile pullback durante trend ribassista")
 
-    # RSI / MACD in conflitto con il segnale
     if segnale == "BUY" and (rsi < 50 or macd < macd_signal):
         note.append("❌ RSI o MACD non coerenti con BUY")
     if segnale == "SELL" and (rsi > 50 or macd > macd_signal):
         note.append("❌ RSI o MACD non coerenti con SELL")
 
-    # Rimuove duplicati
     note = list(dict.fromkeys(note))
-
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
