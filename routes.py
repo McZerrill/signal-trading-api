@@ -37,7 +37,7 @@ def analyze(symbol: str):
             return SignalResponse(
                 segnale="HOLD",
                 commento=(
-                    f"\u23f3 Simulazione già attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
+                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
                     f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
                 ),
                 prezzo=posizione["entry"],
@@ -79,30 +79,32 @@ def analyze(symbol: str):
         df_1d = get_binance_df(symbol, "1d", 300)
 
         segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(df_15m, spread)
+        segnale_1h, *_ = analizza_trend(df_1h, spread)
         segnale_1d, *_ = analizza_trend(df_1d, spread)
 
         segnale, hist, note, tp, sl, supporto = segnale_15m, h15, note15, tp15, sl15, supporto15
 
-        # Conferma su 1h basata su logica EMA/MACD/RSI
-        ultimo_1h = df_1h.iloc[-1]
-        ema7_1h = ultimo_1h['EMA_7']
-        ema25_1h = ultimo_1h['EMA_25']
-        macd_1h = ultimo_1h['MACD']
-        rsi_1h = ultimo_1h['RSI']
+        if segnale != segnale_1h:
+            ultimo_1h = df_1h.iloc[-1]
+            macd_1h = ultimo_1h['MACD']
+            signal_1h = ultimo_1h['MACD_SIGNAL']
+            rsi_1h = ultimo_1h['RSI']
 
-        conferma_1h = False
-        if segnale == "BUY" and ema7_1h > ema25_1h and macd_1h > 0 and rsi_1h > 50:
-            conferma_1h = True
-        elif segnale == "SELL" and ema7_1h < ema25_1h and macd_1h < 0 and rsi_1h < 50:
-            conferma_1h = True
+            if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
+                note += "\n⚠️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL"
+            elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
+                note += "\n⚠️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY"
+            else:
+                note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+                segnale = "HOLD"
 
-        if not conferma_1h:
-            note += "\n⚠️ Timeframe 1h non confermato (EMA/MACD/RSI non coerenti)"
-            segnale = "HOLD"
+            trend_1h = conta_candele_trend(df_1h, rialzista=(segnale == "BUY"))
+            if trend_1h < 2:
+                note += f"\n⚠️ Trend su 1h troppo debole ({trend_1h} candele), segnale annullato"
+                segnale = "HOLD"
         else:
             note += "\n🧭 1h✓"
 
-        # Verifica conflitto con 1d
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
                 note += f"\n⚠️ Segnale {segnale} annullato: conflitto con il timeframe 1d (attuale: {segnale_1d})"
@@ -205,7 +207,6 @@ def analyze(symbol: str):
             timeframe="",
             spread=0.0
         )
-
         
 @router.get("/price")
 def get_price(symbol: str):
