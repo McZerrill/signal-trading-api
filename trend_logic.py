@@ -100,11 +100,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout con volume debole")
 
-    incrocio_buy = penultimo['EMA_7'] <= penultimo['EMA_25'] and ema7 > ema25
-    incrocio_sell = penultimo['EMA_7'] >= penultimo['EMA_25'] and ema7 < ema25
-
     segnale = "HOLD"
     tp = sl = 0.0
+
+    ultime8 = hist.iloc[-8:]
+    incrocio_buy = any(ultime8['EMA_7'] > ultime8['EMA_25']) and penultimo['EMA_7'] <= penultimo['EMA_25'] and ema7 > ema25
+    incrocio_sell = any(ultime8['EMA_7'] < ultime8['EMA_25']) and penultimo['EMA_7'] >= penultimo['EMA_25'] and ema7 < ema25
 
     if incrocio_buy:
         segnale = "BUY"
