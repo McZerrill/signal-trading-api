@@ -106,6 +106,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     ultime8 = hist.iloc[-8:]
     incrocio_buy = any(ultime8['EMA_7'] > ultime8['EMA_25']) and penultimo['EMA_7'] <= penultimo['EMA_25'] and ema7 > ema25
     incrocio_sell = any(ultime8['EMA_7'] < ultime8['EMA_25']) and penultimo['EMA_7'] >= penultimo['EMA_25'] and ema7 < ema25
+    
+    # Debug incrocio ultime 8 candele
+    differenze_ema = [round(hist['EMA_7'].iloc[-i] - hist['EMA_25'].iloc[-i], 6) for i in range(1, 9)]
+    note.append(f"🧪 Debug differenza EMA7 - EMA25 (ultime 8): {differenze_ema}")
 
     if incrocio_buy:
         segnale = "BUY"
