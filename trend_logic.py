@@ -196,6 +196,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     if segnale == "SELL" and (rsi > 50 or macd > macd_signal):
         note.append("❌ RSI o MACD non coerenti con SELL")
 
-    note = list(dict.fromkeys(note))
+    # Rimuove note duplicate ignorando spazi e minuscole
+    note_uniche = []
+    visti = set()
+    for n in note:
+        chiave = n.lower().strip()
+        if chiave not in visti:
+            note_uniche.append(n)
+            visti.add(chiave)
+    note = note_uniche
+
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
