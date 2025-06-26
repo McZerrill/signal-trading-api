@@ -90,7 +90,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     volume_attuale = hist['volume'].iloc[-1]
     volume_medio = hist['volume'].iloc[-21:-1].mean()
     if volume_attuale < volume_medio * (volume_soglia / 100):
-        note.append("⚠️ Volume basso: segnale debole")
+        note.append("⚠️ Volume basso rispetto alla media")
 
     distanza_ema = abs(ema7 - ema25)
     curvatura_ema25 = ema25 - penultimo['EMA_25']
@@ -98,15 +98,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     accelerazione = curvatura_ema25 - curvatura_precedente
     dist_level = valuta_distanza(distanza_ema)
 
-    # Nota sull'accelerazione della EMA25
-    if accelerazione > 0:
-        note.append("📈 EMA25 in accelerazione: trend in rafforzamento")
-    elif accelerazione < 0:
-        note.append("📉 EMA25 in rallentamento: possibile indebolimento del trend")
-
-    # Nuove note informative sui parametri
+    # Note informative sui parametri
     if distanza_ema < distanza_minima:
-        note.append("ℹ️ EMA7 e EMA25 molto vicine")
+        note.append("ℹ️ EMA7 e EMA25 molto vicine (bassa distanza)")
 
     if abs(macd - macd_signal) < macd_signal_threshold:
         note.append("ℹ️ MACD vicino alla signal: momentum debole")
@@ -167,11 +161,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         candele_trend_up = conta_candele_trend(hist, rialzista=True)
         candele_trend_down = conta_candele_trend(hist, rialzista=False)
         if ema7 > ema25 > ema99 and candele_trend_up <= 2:
-            note.append("🟡 Trend attivo ma debole")
+            note.append("🟡 Trend attivo ma debole (EMA in ordine ma poche candele)")
         elif ema7 < ema25 < ema99 and candele_trend_down <= 2:
-            note.append("🟡 Trend ribassista ma debole")
+            note.append("🟡 Trend ribassista ma debole (EMA in ordine ma poche candele)")
         elif candele_trend_up <= 1 and not (ema7 > ema25 > ema99):
-            note.append("⚠️ Trend concluso: attenzione a inversioni")
+            note.append("⚠️ Trend concluso: EMA fuori ordine")
 
         # Presegnali (anche in HOLD)
         if penultimo['EMA_7'] < penultimo['EMA_25'] and ema7 > ema25:
@@ -180,31 +174,20 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             note.append("🔍 Presegnale SELL: EMA7 ha appena incrociato EMA25 al ribasso")
 
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
-        note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
+        note.append(f"⚠️ Pattern contrario a BUY: possibile inversione ({pattern})")
     if segnale == "SELL" and pattern and "Hammer" in pattern:
-        note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
+        note.append(f"⚠️ Pattern contrario a SELL: possibile inversione ({pattern})")
 
     if ema7 > ema25 > ema99:
         if close < ema7 and close >= ema25:
-            note.append("🔁 Possibile pullback durante trend rialzista")
+            note.append("🔁 Pullback in corso: prezzo tra EMA7 e EMA25 (trend rialzista)")
     elif ema7 < ema25 < ema99:
         if close > ema7 and close <= ema25:
-            note.append("🔁 Possibile pullback durante trend ribassista")
+            note.append("🔁 Pullback in corso: prezzo tra EMA7 e EMA25 (trend ribassista)")
 
     if segnale == "BUY" and (rsi < 50 or macd < macd_signal):
         note.append("❌ RSI o MACD non coerenti con BUY")
     if segnale == "SELL" and (rsi > 50 or macd > macd_signal):
         note.append("❌ RSI o MACD non coerenti con SELL")
 
-    # Rimuove note duplicate ignorando spazi e minuscole
-    note_uniche = []
-    visti = set()
-    for n in note:
-        chiave = n.lower().strip()
-        if chiave not in visti:
-            note_uniche.append(n)
-            visti.add(chiave)
-    note = note_uniche
-
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
-
