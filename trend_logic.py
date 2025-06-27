@@ -173,8 +173,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                 #note.append(f"⚠️ Delta prezzo troppo basso per coprire costi ({round(delta_price, 5)}$)")
                 #segnale = "HOLD"
             #else:
-                tp = round(close + delta_price, 4)
-                sl = round(close - (delta_price / 1.5), 4)  # R:R = 1.5
+            tp = round(close + delta_price, 4)
+            sl = round(close - (delta_price / 1.5), 4)  # R:R = 1.5
 
 
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
@@ -209,8 +209,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                 #note.append(f"⚠️ Delta prezzo troppo basso per coprire costi ({round(delta_price, 5)}$)")
                 #segnale = "HOLD"
             #else:
-                tp = round(close - delta_price, 4)
-                sl = round(close + (delta_price / 1.5), 4)  # R:R = 1.5
+            tp = round(close - delta_price, 4)
+            sl = round(close + (delta_price / 1.5), 4)  # R:R = 1.5
 
 
             note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
