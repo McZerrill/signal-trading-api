@@ -1,5 +1,6 @@
 import pandas as pd
-from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto, calcola_ema, calcola_percentuale_guadagno
+from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto, calcola_ema
+from indicators import calcola_percentuale_guadagno
 
 
 MODALITA_TEST = True
@@ -87,12 +88,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     supporto = calcola_supporto(hist)
 
     note = []
-
-    # Parametri per il calcolo del guadagno netto atteso
-    investimento = 100.0  # USDC
-    guadagno_netto_target = 0.5  # USDC
-    commissione = 0.1  # percentuale
-
+    # Parametri guadagno
+    investimento = 100.0
+    guadagno_netto_target = 0.5
+    commissione = 0.1
 
     # Soglie fisse o adattive in base alla modalità
     volume_soglia = 300 if MODALITA_TEST else 300
@@ -169,25 +168,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                 commissione
             )
             delta_price = close * delta_pct
-            #if delta_price < close * 0.0015:  # Filtro minimo 0.2%
-                #note.append(f"⚠️ Delta prezzo troppo basso per coprire costi ({round(delta_price, 5)}$)")
-                #segnale = "HOLD"
-            #else:
             tp = round(close + delta_price, 4)
             sl = round(close - (delta_price / 1.5), 4)  # R:R = 1.5
 
-
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
-        else:
-            if rsi <= macd_rsi_range[0]:
-                note.append("❌ RSI non abbastanza forte per BUY")
-            if not (macd_buy_ok or macd_buy_debole):
-                note.append("❌ MACD non favorevole per BUY")
-    else:
-        if not (trend_up or recupero_buy or breakout_valido):
-            note.append("❌ Nessuna condizione di trend valida per BUY")
-        if distanza_ema / close <= distanza_minima:
-            note.append("❌ Distanza EMA insufficiente per BUY")
 
     # ✅ Logica SELL
     if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
@@ -205,25 +189,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                 commissione
             )
             delta_price = close * delta_pct
-            #if delta_price < close * 0.0015:  # Filtro minimo 0.2%
-                #note.append(f"⚠️ Delta prezzo troppo basso per coprire costi ({round(delta_price, 5)}$)")
-                #segnale = "HOLD"
-            #else:
             tp = round(close - delta_price, 4)
             sl = round(close + (delta_price / 1.5), 4)  # R:R = 1.5
 
 
             note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
-        else:
-            if rsi >= macd_rsi_range[1]:
-                note.append("❌ RSI non sufficientemente basso per SELL")
-            if not (macd_sell_ok or macd_sell_debole):
-                note.append("❌ MACD non favorevole per SELL")
-    else:
-        if not (trend_down or recupero_sell):
-            note.append("❌ Nessuna condizione di trend valida per SELL")
-        if distanza_ema / close <= distanza_minima:
-            note.append("❌ Distanza EMA insufficiente per SELL")
 
     # Pattern V
     if segnale == "HOLD" and rileva_pattern_v(hist):
@@ -248,14 +218,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
         segnale = "HOLD"
-    elif segnale == "SELL" and pattern and "Hammer" in pattern:
+    if segnale == "SELL" and pattern and "Hammer" in pattern:
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
         segnale = "HOLD"
-
-    if segnale == "HOLD":
-        if trend_up and candele_trend_up < 2:
-            note.append(f"⚠️ Trend rialzista presente ma ancora debole ({candele_trend_up} candele)")
-        elif trend_down and candele_trend_down < 2:
-            note.append(f"⚠️ Trend ribassista presente ma ancora debole ({candele_trend_down} candele)")
 
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
