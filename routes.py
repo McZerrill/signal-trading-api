@@ -91,26 +91,26 @@ def analyze(symbol: str):
             rsi_1h = ultimo_1h['RSI']
 
             if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
-                note += "\nℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL"
+                note += "\n⚠️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL"
             elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
-                note += "\nℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY"
+                note += "\n⚠️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY"
             else:
-                note += f"\nℹ️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+                note += f"\n⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+                segnale = "HOLD"
 
             trend_1h = conta_candele_trend(df_1h, rialzista=(segnale == "BUY"))
             if trend_1h < 2:
-                note += f"\nℹ️ Trend su 1h debole ({trend_1h} candele)"
+                note += f"\n⚠️ Trend su 1h troppo debole ({trend_1h} candele), segnale annullato"
+                segnale = "HOLD"
         else:
             note += "\n🧭 1h✓"
 
-
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
-                note += f"\nℹ️ Timeframe 1d in conflitto con il segnale attuale ({segnale_1d})"
+                note += f"\n⚠️ Segnale {segnale} annullato: conflitto con il timeframe 1d (attuale: {segnale_1d})"
+                segnale = "HOLD"
             else:
                 note += "\n📅 1d✓"
-
-
 
         ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
@@ -266,11 +266,11 @@ def hot_assets():
     symbols = get_best_symbols(limit=50)
     risultati = []
 
-    volume_soglia = 20 if MODALITA_TEST else 300
-    atr_minimo = 0.00005 if MODALITA_TEST else 0.0008
-    distanza_minima = 0.00005 if MODALITA_TEST else 0.0012
-    macd_rsi_range = (40, 60) if MODALITA_TEST else (48, 52)
-    macd_signal_threshold = 0.00001 if MODALITA_TEST else 0.0005
+    volume_soglia = 30 if MODALITA_TEST else 300
+    atr_minimo = 0.0003 if MODALITA_TEST else 0.0008
+    distanza_minima = 0.0003 if MODALITA_TEST else 0.0012
+    macd_rsi_range = (43, 57) if MODALITA_TEST else (48, 52)
+    macd_signal_threshold = 0.0001 if MODALITA_TEST else 0.0005
 
     for symbol in symbols:
         try:
@@ -370,18 +370,17 @@ def verifica_posizioni_attive():
             entry = simulazione_attiva["entry"]
             tp = simulazione_attiva["tp"]
             sl = simulazione_attiva["sl"]
-            spread = simulazione_attiva["spread"]  # ⚠️ solo informativo
+            spread = simulazione_attiva["spread"]  # ⚠️ in percentuale (%)
             investimento = simulazione_attiva.get("investimento", 100.0)
-            commissione = simulazione_attiva.get("commissione", 0.1)  # percentuale
+            commissione = simulazione_attiva.get("commissione", 0.1)  # in percentuale (%)
 
             try:
-                # 1. Prezzo corrente aggiornato (bid o ask, già include lo spread reale)
+                # 1. Prezzo corrente aggiornato
                 book = get_bid_ask(symbol)
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
-                # Prezzo effettivo in uscita (con spread)
+                # 2. Calcolo guadagno netto identico al frontend
                 prezzo_effettivo = prezzo_corrente * (1 - spread / 100) if tipo == "BUY" else prezzo_corrente * (1 + spread / 100)
-                # Prezzo effettivo in entrata (con spread)
                 ingresso_effettivo = entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
 
                 rendimento = prezzo_effettivo / ingresso_effettivo if tipo == "BUY" else ingresso_effettivo / prezzo_effettivo
@@ -389,10 +388,9 @@ def verifica_posizioni_attive():
                 commissioni = investimento * 2 * (commissione / 100)
                 guadagno_netto_attuale = lordo - commissioni
 
-
                 simulazione_attiva["guadagno_netto"] = round(guadagno_netto_attuale, 4)
 
-                # 3. Trend attuale (15m)
+                # 3. Trend attuale (su timeframe 15m)
                 df = get_binance_df(symbol, "15m", 100)
                 nuovo_segnale, commento, _, _, _ = analizza_trend(df, symbol)
 
