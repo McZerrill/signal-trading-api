@@ -174,7 +174,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
     # ✅ Logica SELL
-    if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
+    if (trend_down and candele_trend_down >= 2) and distanza_ema / close > distanza_minima and macd < 0 and rsi < macd_rsi_range[1]:
         if rsi < macd_rsi_range[1] and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
 
@@ -190,7 +190,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             )
             delta_price = close * delta_pct
             tp = round(close - delta_price, 4)
-            sl = round(close + (delta_price / 1.5), 4)  # R:R = 1.5
+            sl = round(close + delta_price, 4)  # R:R = 1.5
 
 
             note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
