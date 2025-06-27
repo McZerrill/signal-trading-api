@@ -169,10 +169,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                 commissione
             )
             delta_price = close * delta_pct
-            if delta_price < close * 0.0015:  # Filtro minimo 0.2%
-                note.append(f"⚠️ Delta prezzo troppo basso per coprire costi ({round(delta_price, 5)}$)")
-                segnale = "HOLD"
-            else:
+            #if delta_price < close * 0.0015:  # Filtro minimo 0.2%
+                #note.append(f"⚠️ Delta prezzo troppo basso per coprire costi ({round(delta_price, 5)}$)")
+                #segnale = "HOLD"
+            #else:
                 tp = round(close + delta_price, 4)
                 sl = round(close - (delta_price / 1.5), 4)  # R:R = 1.5
 
@@ -205,10 +205,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                 commissione
             )
             delta_price = close * delta_pct
-            if delta_price < close * 0.0015:  # Filtro minimo 0.2%
-                note.append(f"⚠️ Delta prezzo troppo basso per coprire costi ({round(delta_price, 5)}$)")
-                segnale = "HOLD"
-            else:
+            #if delta_price < close * 0.0015:  # Filtro minimo 0.2%
+                #note.append(f"⚠️ Delta prezzo troppo basso per coprire costi ({round(delta_price, 5)}$)")
+                #segnale = "HOLD"
+            #else:
                 tp = round(close - delta_price, 4)
                 sl = round(close + (delta_price / 1.5), 4)  # R:R = 1.5
 
