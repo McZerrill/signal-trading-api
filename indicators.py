@@ -59,15 +59,29 @@ def calcola_ema(df: pd.DataFrame, colonne: list[int]) -> dict[int, pd.Series]:
 def calcola_percentuale_guadagno(
     guadagno_target: float = 0.5,
     investimento: float = 100.0,
-    commissione: float = 0.001,
-    spread: float = 0.0
+    spread: float = 0.0,
+    commissione: float = 0.1
 ) -> float:
     """
-    Calcola la percentuale totale necessaria per raggiungere un guadagno netto desiderato,
-    includendo le commissioni e lo spread.
+    Calcola la variazione percentuale del prezzo (in valore lordo)
+    necessaria per ottenere un guadagno netto desiderato.
+
+    Tiene conto di:
+    - commissioni in percentuale (una per ingresso e una per uscita)
+    - spread bid/ask in percentuale
+    - guadagno netto desiderato in USDC
+    - investimento iniziale in USDC
 
     Restituisce una percentuale decimale (es: 0.0075 = +0.75%)
     """
-    costi_totali = (commissione * 2) + spread
-    percentuale_guadagno = (guadagno_target / investimento) + costi_totali
-    return percentuale_guadagno
+    # Converti commissione da % a decimale
+    commissione_decimale = commissione / 100
+    spread_decimale = spread / 100
+
+    # Calcola i costi totali da coprire (spread + doppia commissione)
+    costi_totali = (commissione_decimale * 2) + spread_decimale
+
+    # Calcola la percentuale di guadagno lorda necessaria
+    percentuale_guadagno_lorda = (guadagno_target / investimento) + costi_totali
+
+    return percentuale_guadagno_lorda
