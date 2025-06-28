@@ -94,8 +94,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     commissione = 0.1
 
     # Soglie fisse o adattive in base alla modalità
-    volume_soglia = 300 if MODALITA_TEST else 300
-    atr_minimo = 0.0003 if MODALITA_TEST else 0.001
+    volume_soglia = 200 if MODALITA_TEST else 300
+    atr_minimo = 0.0005 if MODALITA_TEST else 0.001
     distanza_minima = 0.0012 if MODALITA_TEST else 0.0015
     macd_rsi_range = (45, 55)
     macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.001
@@ -174,7 +174,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
     # ✅ Logica SELL
-    if (trend_down and candele_trend_down >= 2) and distanza_ema / close > distanza_minima and macd < 0 and rsi < macd_rsi_range[1]:
+    if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima and (macd_sell_ok or macd_sell_debole) and rsi < macd_rsi_range[1]:
+    #if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
         if rsi < macd_rsi_range[1] and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
 
