@@ -408,7 +408,7 @@ def verifica_posizioni_attive():
                         motivo = "Stop Loss raggiunto"
                         esito = "Perdita"
                         chiudere = True
-                    elif nuovo_segnale != "BUY" and guadagno_netto_attuale > 0:
+                    elif nuovo_segnale != "BUY" and guadagno_netto_attuale >= -0.3:
                         motivo = f"Trend cambiato, chiusura anticipata con profitto di {round(guadagno_netto_attuale, 2)} USDC"
                         esito = "Profitto"
                         chiudere = True
@@ -422,7 +422,7 @@ def verifica_posizioni_attive():
                         motivo = "Stop Loss raggiunto"
                         esito = "Perdita"
                         chiudere = True
-                    elif nuovo_segnale != "SELL" and guadagno_netto_attuale > 0:
+                    elif nuovo_segnale != "SELL" and guadagno_netto_attuale >= -0.3:
                         motivo = f"Trend cambiato, chiusura anticipata con profitto di {round(guadagno_netto_attuale, 2)} USDC"
                         esito = "Profitto"
                         chiudere = True
