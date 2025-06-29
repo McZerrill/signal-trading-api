@@ -184,6 +184,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             tp = round(close + delta_price * coeff_tp + delta_price_bonus, 4)
             sl = round(close - delta_price * coeff_sl, 4)
 
+            if tp <= close:
+                note.append("⚠️ TP BUY calcolato sotto il prezzo di ingresso: correzione forzata")
+                tp = round(close * 1.005, 4)  # +0.5%
+            if sl >= close:
+                note.append("⚠️ SL BUY calcolato sopra il prezzo di ingresso: correzione forzata")
+                sl = round(close * 0.995, 4)  # -0.5%
+
 
 
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
@@ -215,6 +222,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
             tp = round(close - delta_price * coeff_tp - delta_price_bonus, 4)
             sl = round(close + delta_price * coeff_sl, 4)
+
+            if tp >= close:
+                note.append("⚠️ TP SELL calcolato sopra il prezzo di ingresso: correzione forzata")
+                tp = round(close * 0.995, 4)  # -0.5%
+            if sl <= close:
+                note.append("⚠️ SL SELL calcolato sotto il prezzo di ingresso: correzione forzata")
+                sl = round(close * 1.005, 4)  # +0.5%
 
 
             note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
