@@ -397,42 +397,40 @@ def verifica_posizioni_attive():
                 # 4. Condizioni di uscita
                 chiudere = False
                 esito = "In corso"
-                motivo = ""
 
                 if tipo == "BUY":
                     if prezzo_corrente >= tp:
-                        motivo = "Take Profit raggiunto"
                         esito = "Profitto"
                         chiudere = True
                     elif prezzo_corrente <= sl:
-                        motivo = "Stop Loss raggiunto"
                         esito = "Perdita"
                         chiudere = True
                     elif nuovo_segnale != "BUY" and guadagno_netto_attuale >= -0.3:
-                        motivo = f"Trend cambiato, chiusura anticipata con profitto di {round(guadagno_netto_attuale, 2)} USDC"
-                        esito = "Profitto"
+                        if guadagno_netto_attuale >= 0:
+                            esito = f"Profitto anticipato: trend cambiato con gain {round(guadagno_netto_attuale, 2)} USDC"
+                        else:
+                            esito = f"Perdita anticipata: trend cambiato con gain {round(guadagno_netto_attuale, 2)} USDC"
                         chiudere = True
 
                 elif tipo == "SELL":
                     if prezzo_corrente <= tp:
-                        motivo = "Take Profit raggiunto"
                         esito = "Profitto"
                         chiudere = True
                     elif prezzo_corrente >= sl:
-                        motivo = "Stop Loss raggiunto"
                         esito = "Perdita"
                         chiudere = True
                     elif nuovo_segnale != "SELL" and guadagno_netto_attuale >= -0.3:
-                        motivo = f"Trend cambiato, chiusura anticipata con profitto di {round(guadagno_netto_attuale, 2)} USDC"
-                        esito = "Profitto"
+                        if guadagno_netto_attuale >= 0:
+                            esito = f"Profitto anticipato: trend cambiato con gain {round(guadagno_netto_attuale, 2)} USDC"
+                        else:
+                            esito = f"Perdita anticipata: trend cambiato con gain {round(guadagno_netto_attuale, 2)} USDC"
                         chiudere = True
 
                 # 5. Aggiorna se necessario
                 if chiudere:
                     simulazione_attiva["prezzo_finale"] = prezzo_corrente
                     simulazione_attiva["esito"] = esito
-                    simulazione_attiva["motivo"] = motivo
-                    print(f"[Chiusa] {symbol} - {motivo}")
+                    print(f"[Chiusa] {symbol} - {esito}")
 
             except Exception as e:
                 print(f"❌ Errore in verifica {symbol}: {e}")
