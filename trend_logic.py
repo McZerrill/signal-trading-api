@@ -155,10 +155,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     # ✅ Logica BUY
     #if (trend_up or recupero_buy or breakout_valido) and distanza_ema / close > distanza_minima:
         #if rsi > macd_rsi_range[0] and (macd_buy_ok or macd_buy_debole):
-     if (trend_up or recupero_buy or (breakout_valido and rsi > 40)) \
-         and distanza_ema / close > distanza_minima \
-         and (macd_buy_ok or macd_buy_debole) \
-         and rsi > 40:
+    if (trend_up or recupero_buy or (breakout_valido and rsi > 40)) \
+        and distanza_ema / close > distanza_minima \
+        and (macd_buy_ok or macd_buy_debole) \
+        and rsi > 40:
 
             segnale = "BUY"
 
