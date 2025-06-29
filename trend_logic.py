@@ -167,9 +167,18 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                 spread,
                 commissione
             )
+            # TP dinamico in base all'ATR
+            atr_ratio = atr / close
+            bonus_tp_pct = 0.0
+            if atr_ratio > 0.003:
+                bonus_tp_pct = min((atr_ratio - 0.003) * 4, 0.01)
+
             delta_price = close * delta_pct
-            tp = round(close + delta_price, 4)
+            delta_price_bonus = close * bonus_tp_pct
+
+            tp = round(close + delta_price + delta_price_bonus, 4)
             sl = round(close - (delta_price / 1.5), 4)  # R:R = 1.5
+
 
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
@@ -189,9 +198,18 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                 spread,
                 commissione
             )
+            # TP dinamico in base all'ATR
+            atr_ratio = atr / close
+            bonus_tp_pct = 0.0
+            if atr_ratio > 0.003:
+                bonus_tp_pct = min((atr_ratio - 0.003) * 4, 0.01)
+
             delta_price = close * delta_pct
-            tp = round(close - delta_price, 4)
-            sl = round(close + delta_price, 4)  # R:R = 1.5
+            delta_price_bonus = close * bonus_tp_pct
+
+            tp = round(close - delta_price - delta_price_bonus, 4)
+            sl = round(close + (delta_price / 1.5), 4)  # R:R = 1.5
+
 
 
             note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
