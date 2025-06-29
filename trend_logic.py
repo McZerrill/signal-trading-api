@@ -153,8 +153,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     macd_sell_debole = macd < 0 and macd_gap < 0.005
 
     # ✅ Logica BUY
-    if (trend_up or recupero_buy or breakout_valido) and distanza_ema / close > distanza_minima:
-        if rsi > macd_rsi_range[0] and (macd_buy_ok or macd_buy_debole):
+    #if (trend_up or recupero_buy or breakout_valido) and distanza_ema / close > distanza_minima:
+        #if rsi > macd_rsi_range[0] and (macd_buy_ok or macd_buy_debole):
+     if (trend_up or recupero_buy or (breakout_valido and rsi > 40)) \
+         and distanza_ema / close > distanza_minima \
+         and (macd_buy_ok or macd_buy_debole) \
+         and rsi > 40:
+
             segnale = "BUY"
 
             forza_trend = min(max(distanza_ema / close, 0.001), 0.01)  # tra 0.1% e 1%
@@ -176,8 +181,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             delta_price = close * delta_pct
             delta_price_bonus = close * bonus_tp_pct
 
-            tp = round(close + delta_price + delta_price_bonus, 4)
-            sl = round(close - (delta_price / 1.5), 4)  # R:R = 1.5
+            tp = round(close + delta_price * coeff_tp + delta_price_bonus, 4)
+            sl = round(close - delta_price * coeff_sl, 4)
+
 
 
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
@@ -207,9 +213,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             delta_price = close * delta_pct
             delta_price_bonus = close * bonus_tp_pct
 
-            tp = round(close - delta_price - delta_price_bonus, 4)
-            sl = round(close + (delta_price / 1.5), 4)  # R:R = 1.5
-
+            tp = round(close - delta_price * coeff_tp - delta_price_bonus, 4)
+            sl = round(close + delta_price * coeff_sl, 4)
 
 
             note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
@@ -236,9 +241,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
-        segnale = "HOLD"
+
     if segnale == "SELL" and pattern and "Hammer" in pattern:
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
-        segnale = "HOLD"
+
 
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
