@@ -160,11 +160,18 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         and (macd_buy_ok or macd_buy_debole) \
         and rsi > 40:
 
+            # ⛔ Blocco per evitare segnali in ritardo su trend già attivo
+            candele_trend_buy = conta_candele_trend(hist, rialzista=True)
+            if trend_up and candele_trend_buy > 3:
+                note.append(f"⛔ {candele_trend_buy} candele già in trend rialzista: segnale BUY scartato")
+                return "HOLD", hist, 0.0, "\n".join(note).strip(), rsi, macd, supporto
+                
             segnale = "BUY"
 
             forza_trend = min(max(distanza_ema / close, 0.001), 0.01)  # tra 0.1% e 1%
             coeff_tp = 1.5 + (accelerazione * 10)  # maggiore accelerazione → TP più lontano
             coeff_sl = 1.0 - (accelerazione * 5)   # maggiore accelerazione → SL più stretto (protezione)
+
 
             delta_pct = calcola_percentuale_guadagno(
                 guadagno_netto_target,
@@ -199,6 +206,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima and (macd_sell_ok or macd_sell_debole) and rsi < macd_rsi_range[1]:
     #if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
         if rsi < macd_rsi_range[1] and (macd_sell_ok or macd_sell_debole):
+            
+            # ⛔ Blocco per evitare segnali in ritardo su trend ribassista già avviato
+            candele_trend_sell = conta_candele_trend(hist, rialzista=False)
+            if trend_down and candele_trend_sell > 3:
+                note.append(f"⛔ {candele_trend_sell} candele già in trend ribassista: nessun segnale SELL")
+                return "HOLD", hist, 0.0, "\n".join(note).strip(), rsi, macd, supporto
+            
             segnale = "SELL"
 
             forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
