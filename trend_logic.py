@@ -158,7 +158,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     if (trend_up or recupero_buy or (breakout_valido and rsi > 40)) \
         and distanza_ema / close > distanza_minima \
         and (macd_buy_ok or macd_buy_debole) \
-        and rsi > 40:
+        and rsi > 50:
 
             # ⛔ Blocco per evitare segnali in ritardo su trend già attivo
             candele_trend_buy = conta_candele_trend(hist, rialzista=True)
@@ -203,9 +203,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
     # ✅ Logica SELL
-    if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima and (macd_sell_ok or macd_sell_debole) and rsi < macd_rsi_range[1]:
+    if (trend_down or recupero_sell) \
+        and distanza_ema / close > distanza_minima \
+        and rsi < macd_rsi_range[1] \
+        and (macd_sell_ok or macd_sell_debole):
+
     #if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
-        if rsi < macd_rsi_range[1] and (macd_sell_ok or macd_sell_debole):
+        
             
             # ⛔ Blocco per evitare segnali in ritardo su trend ribassista già avviato
             candele_trend_sell = conta_candele_trend(hist, rialzista=False)
