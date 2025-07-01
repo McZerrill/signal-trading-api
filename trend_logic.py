@@ -160,11 +160,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         and (macd_buy_ok or macd_buy_debole) \
         and rsi > 50:
 
-            # ⛔ Blocco per evitare segnali in ritardo su trend già attivo
-            candele_trend_buy = conta_candele_trend(hist, rialzista=True)
-            if trend_up and candele_trend_buy > 3:
-                note.append(f"⛔ {candele_trend_buy} candele già in trend rialzista: segnale BUY scartato")
+            # ⛔ Blocco per evitare segnali BUY su trend rialzista già troppo esteso
+            variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
+            if trend_up and variazione > 1.2:
+                note.append(f"⛔ Prezzo già salito del {round(variazione, 2)}% nelle ultime 3 candele: nessun segnale BUY")
                 return "HOLD", hist, 0.0, "\n".join(note).strip(), rsi, macd, supporto
+
                 
             segnale = "BUY"
 
@@ -211,11 +212,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     #if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
         
             
-            # ⛔ Blocco per evitare segnali in ritardo su trend ribassista già avviato
-            candele_trend_sell = conta_candele_trend(hist, rialzista=False)
-            if trend_down and candele_trend_sell > 3:
-                note.append(f"⛔ {candele_trend_sell} candele già in trend ribassista: nessun segnale SELL")
+            # ⛔ Blocco per evitare segnali SELL su trend ribassista già troppo esteso
+            variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
+            if trend_down and variazione < -1.2:
+                note.append(f"⛔ Prezzo già sceso del {round(abs(variazione), 2)}% nelle ultime 3 candele: nessun segnale SELL")
                 return "HOLD", hist, 0.0, "\n".join(note).strip(), rsi, macd, supporto
+
             
             segnale = "SELL"
 
