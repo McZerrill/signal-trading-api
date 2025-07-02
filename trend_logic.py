@@ -88,12 +88,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     supporto = calcola_supporto(hist)
 
     note = []
-    # Parametri guadagno
     investimento = 100.0
     guadagno_netto_target = 0.5
     commissione = 0.1
 
-    # Soglie fisse o adattive in base alla modalità
     volume_soglia = 200 if MODALITA_TEST else 300
     atr_minimo = 0.0005 if MODALITA_TEST else 0.001
     distanza_minima = 0.0015 if MODALITA_TEST else 0.0015
@@ -111,7 +109,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         if not MODALITA_TEST:
             return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-    # Calcolo distanza e curvatura
     distanza_ema = abs(ema7 - ema25)
     curvatura_ema25 = ema25 - penultimo['EMA_25']
     curvatura_precedente = penultimo['EMA_25'] - antepenultimo['EMA_25']
@@ -152,108 +149,104 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     macd_sell_ok = macd < macd_signal and macd_gap < -macd_signal_threshold
     macd_sell_debole = macd < 0 and macd_gap < 0.005
 
-    # ✅ Logica BUY
-    #if (trend_up or recupero_buy or breakout_valido) and distanza_ema / close > distanza_minima:
-        #if rsi > macd_rsi_range[0] and (macd_buy_ok or macd_buy_debole):
     if (trend_up or recupero_buy or (breakout_valido and rsi > 40)) \
         and distanza_ema / close > distanza_minima \
         and (macd_buy_ok or macd_buy_debole) \
         and rsi > 50:
 
-            # ⛔ Blocco per evitare segnali BUY su trend rialzista già troppo esteso
-            variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
-            if trend_up and variazione > 1.2:
-                note.append(f"⛔ Prezzo già salito del {round(variazione, 2)}% nelle ultime 3 candele: nessun segnale BUY")
-                return "HOLD", hist, 0.0, "\n".join(note).strip(), rsi, macd, supporto
+        variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
+        if trend_up and variazione > 1.2:
+            note.append(f"⛔ Prezzo già salito del {round(variazione, 2)}% nelle ultime 3 candele: nessun segnale BUY")
+            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-                
-            segnale = "BUY"
+        forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
+        if forza_trend < 0.002:
+            note.append("⚠️ Trend BUY troppo debole: distanza EMA insufficiente")
+            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-            forza_trend = min(max(distanza_ema / close, 0.001), 0.01)  # tra 0.1% e 1%
-            coeff_tp = 1.5 + (accelerazione * 10)  # maggiore accelerazione → TP più lontano
-            coeff_sl = 1.0 - (accelerazione * 5)   # maggiore accelerazione → SL più stretto (protezione)
+        segnale = "BUY"
 
+        coeff_tp = min(1.5 + (accelerazione * 10), 1.6)
+        coeff_sl = 1.0 - (accelerazione * 5)
 
-            delta_pct = calcola_percentuale_guadagno(
-                guadagno_netto_target,
-                investimento,
-                spread,
-                commissione
-            )
-            # TP dinamico in base all'ATR
-            atr_ratio = atr / close
-            bonus_tp_pct = 0.0
-            if atr_ratio > 0.003:
-                bonus_tp_pct = min((atr_ratio - 0.003) * 4, 0.01)
+        delta_pct = calcola_percentuale_guadagno(
+            guadagno_netto_target,
+            investimento,
+            spread,
+            commissione
+        )
 
-            delta_price = close * delta_pct
-            delta_price_bonus = close * bonus_tp_pct
+        atr_ratio = atr / close
+        bonus_tp_pct = 0.0
+        if atr_ratio > 0.003:
+            bonus_tp_pct = min((atr_ratio - 0.003) * 4, 0.01)
 
-            tp = round(close + delta_price * coeff_tp + delta_price_bonus, 4)
-            sl = round(close - delta_price * coeff_sl, 4)
+        delta_price = close * delta_pct
+        delta_price_bonus = close * bonus_tp_pct
 
-            if tp <= close:
-                note.append("⚠️ TP BUY calcolato sotto il prezzo di ingresso: correzione forzata")
-                tp = round(close * 1.005, 4)  # +0.5%
-            if sl >= close:
-                note.append("⚠️ SL BUY calcolato sopra il prezzo di ingresso: correzione forzata")
-                sl = round(close * 0.995, 4)  # -0.5%
+        tp = round(close + delta_price * coeff_tp + delta_price_bonus, 4)
+        sl = round(close - delta_price * coeff_sl, 4)
 
+        tp_max = round(close * 1.008, 4)
+        if tp > tp_max:
+            tp = tp_max
 
+        if tp <= close:
+            tp = round(close * 1.005, 4)
+        if sl >= close:
+            sl = round(close * 0.995, 4)
 
-            note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
+        note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
-    # ✅ Logica SELL
     if (trend_down or recupero_sell) \
         and distanza_ema / close > distanza_minima \
         and rsi < macd_rsi_range[1] \
         and (macd_sell_ok or macd_sell_debole):
 
-    #if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
-        
-            
-            # ⛔ Blocco per evitare segnali SELL su trend ribassista già troppo esteso
-            variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
-            if trend_down and variazione < -1.2:
-                note.append(f"⛔ Prezzo già sceso del {round(abs(variazione), 2)}% nelle ultime 3 candele: nessun segnale SELL")
-                return "HOLD", hist, 0.0, "\n".join(note).strip(), rsi, macd, supporto
+        variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
+        if trend_down and variazione < -1.2:
+            note.append(f"⛔ Prezzo già sceso del {round(abs(variazione), 2)}% nelle ultime 3 candele: nessun segnale SELL")
+            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-            
-            segnale = "SELL"
+        forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
+        if forza_trend < 0.002:
+            note.append("⚠️ Trend SELL troppo debole: distanza EMA insufficiente")
+            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-            forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
-            coeff_tp = 1.5 + (accelerazione * 10)
-            coeff_sl = 1.0 - (accelerazione * 5)
+        segnale = "SELL"
 
-            delta_pct = calcola_percentuale_guadagno(
-                guadagno_netto_target,
-                investimento,
-                spread,
-                commissione
-            )
-            # TP dinamico in base all'ATR
-            atr_ratio = atr / close
-            bonus_tp_pct = 0.0
-            if atr_ratio > 0.003:
-                bonus_tp_pct = min((atr_ratio - 0.003) * 4, 0.01)
+        coeff_tp = min(1.5 + (accelerazione * 10), 1.6)
+        coeff_sl = 1.0 - (accelerazione * 5)
 
-            delta_price = close * delta_pct
-            delta_price_bonus = close * bonus_tp_pct
+        delta_pct = calcola_percentuale_guadagno(
+            guadagno_netto_target,
+            investimento,
+            spread,
+            commissione
+        )
 
-            tp = round(close - delta_price * coeff_tp - delta_price_bonus, 4)
-            sl = round(close + delta_price * coeff_sl, 4)
+        atr_ratio = atr / close
+        bonus_tp_pct = 0.0
+        if atr_ratio > 0.003:
+            bonus_tp_pct = min((atr_ratio - 0.003) * 4, 0.01)
 
-            if tp >= close:
-                note.append("⚠️ TP SELL calcolato sopra il prezzo di ingresso: correzione forzata")
-                tp = round(close * 0.995, 4)  # -0.5%
-            if sl <= close:
-                note.append("⚠️ SL SELL calcolato sotto il prezzo di ingresso: correzione forzata")
-                sl = round(close * 1.005, 4)  # +0.5%
+        delta_price = close * delta_pct
+        delta_price_bonus = close * bonus_tp_pct
 
+        tp = round(close - delta_price * coeff_tp - delta_price_bonus, 4)
+        sl = round(close + delta_price * coeff_sl, 4)
 
-            note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
+        tp_min = round(close * 0.992, 4)
+        if tp < tp_min:
+            tp = tp_min
 
-    # Pattern V
+        if tp >= close:
+            tp = round(close * 0.995, 4)
+        if sl <= close:
+            sl = round(close * 1.005, 4)
+
+        note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
+
     if segnale == "HOLD" and rileva_pattern_v(hist):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
@@ -278,6 +271,5 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     if segnale == "SELL" and pattern and "Hammer" in pattern:
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
-
 
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
