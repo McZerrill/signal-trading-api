@@ -93,8 +93,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     commissione = 0.1
 
     volume_soglia = 200 if MODALITA_TEST else 300
-    atr_minimo = 0.0005 if MODALITA_TEST else 0.001
-    distanza_minima = 0.0015 if MODALITA_TEST else 0.0015
+    atr_minimo = 0.0008 if MODALITA_TEST else 0.001
+    distanza_minima = 0.0012 if MODALITA_TEST else 0.0015
     macd_rsi_range = (45, 55)
     macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.001
 
@@ -147,7 +147,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     macd_buy_ok = macd > macd_signal and macd_gap > macd_signal_threshold
     macd_buy_debole = macd > 0 and macd_gap > -0.005
     macd_sell_ok = macd < macd_signal and macd_gap < -macd_signal_threshold
-    macd_sell_debole = macd < 0 and macd_gap < 0.005
+    macd_sell_debole = macd < 0.01 and macd_gap < 0.005
 
     if (trend_up or recupero_buy or (breakout_valido and rsi > 40)) \
         and distanza_ema / close > distanza_minima \
@@ -160,7 +160,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), 0.0, 0.0, supporto
 
         forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
-        if forza_trend < 0.002:
+        if forza_trend < 0.0015:
             note.append("⚠️ Trend BUY troppo debole: distanza EMA insufficiente")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), 0.0, 0.0, supporto
 
@@ -209,7 +209,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), 0.0, 0.0, supporto
 
         forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
-        if forza_trend < 0.002:
+        if forza_trend < 0.0015:
             note.append("⚠️ Trend SELL troppo debole: distanza EMA insufficiente")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), 0.0, 0.0, supporto
 
