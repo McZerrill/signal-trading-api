@@ -155,8 +155,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         and rsi > 50:
 
         variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
-        if trend_up and variazione > 1.2:
-            note.append(f"⛔ Prezzo già salito del {round(variazione, 2)}% nelle ultime 3 candele: nessun segnale BUY")
+        if trend_up and variazione > 1.2 and candele_trend_up > 1:
+            note.append(f"⛔ Trend BUY già maturo (+{round(variazione, 2)}% in 3 candele): nessun segnale BUY")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), 0.0, 0.0, supporto
 
         forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
@@ -204,8 +204,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         and (macd_sell_ok or macd_sell_debole):
 
         variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
-        if trend_down and variazione < -1.2:
-            note.append(f"⛔ Prezzo già sceso del {round(abs(variazione), 2)}% nelle ultime 3 candele: nessun segnale SELL")
+        if trend_down and variazione < -1.2 and candele_trend_down > 1:
+            note.append(f"⛔ Trend SELL già maturo (-{round(abs(variazione), 2)}% in 3 candele): nessun segnale SELL")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), 0.0, 0.0, supporto
 
         forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
