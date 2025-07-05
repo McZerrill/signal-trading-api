@@ -212,6 +212,18 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             tp = round(close * 1.005, 4)
         if sl >= close:
             sl = round(close * 0.995, 4)
+            
+        # 👉 Equilibrio tra TP e SL
+        rapporto_massimo = 1.7  # max rischio/guadagno accettato
+
+        delta_tp = abs(tp - close)
+        delta_sl = abs(sl - close)
+
+        if delta_sl > 0 and delta_tp / delta_sl > rapporto_massimo:
+            delta_tp = delta_sl * rapporto_massimo
+            tp = round(close + delta_tp, 4)
+            note.append(f"⚖️ TP ricalibrato per mantenere R/R ≤ {rapporto_massimo}")
+
 
         note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
@@ -288,6 +300,18 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             tp = round(close * 0.995, 4)
         if sl <= close:
             sl = round(close * 1.005, 4)
+            
+        # 👉 Equilibrio tra TP e SL
+        rapporto_massimo = 1.7  # max rischio/guadagno accettato
+
+        delta_tp = abs(tp - close)
+        delta_sl = abs(sl - close)
+
+        if delta_sl > 0 and delta_tp / delta_sl > rapporto_massimo:
+            delta_tp = delta_sl * rapporto_massimo
+            tp = round(close - delta_tp, 4)
+            note.append(f"⚖️ TP ricalibrato per mantenere R/R ≤ {rapporto_massimo}")
+
 
         note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
 
