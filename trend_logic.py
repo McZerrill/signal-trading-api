@@ -217,9 +217,31 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     if (trend_down or recupero_sell) \
         and distanza_ema / close > distanza_minima \
-        and rsi < macd_rsi_range[1] \
-        and (macd_sell_ok or macd_sell_debole):
+        and rsi < 50 \
+        and (macd_sell_ok or macd_sell_debole) \
+        and abs(macd) > 0.0005:
+            
+        # Blocco SELL se RSI troppo alto    
+        if rsi > 50:
+            note.append("⛔ RSI troppo alto per SELL")
+            segnale = "HOLD"
+            tp = 0.0
+            sl = 0.0
 
+        # Blocco SELL se MACD è piatto (nessuna forza reale)
+        if abs(macd) < 0.0005:
+            note.append("⛔ MACD troppo debole o piatto")
+            segnale = "HOLD"
+            tp = 0.0
+            sl = 0.0
+
+        # Blocco SELL se distanza EMA troppo bassa
+        if distanza_ema / close < 0.0025:
+            note.append("⛔ Distanza EMA insufficiente: trend SELL debole")
+            segnale = "HOLD"
+            tp = 0.0
+            sl = 0.0
+    
         variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
         if trend_down and variazione < -1.2 and candele_trend_down > 1:
             note.append(f"⛔ Trend SELL già maturo (-{round(abs(variazione), 2)}% in 3 candele): nessun segnale SELL")
