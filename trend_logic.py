@@ -144,6 +144,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     macd_buy_ok = macd > macd_signal and macd_gap > macd_signal_threshold
     macd_buy_debole = macd > 0 and macd_gap > -0.005
+    macd_sell_ok = macd < macd_signal and macd_gap < -macd_signal_threshold
+    macd_sell_debole = macd < 0.01 and macd_gap < 0.005
 
     if (trend_up or recupero_buy or (breakout_valido and rsi > 40)) \
         and distanza_ema / close > distanza_minima \
