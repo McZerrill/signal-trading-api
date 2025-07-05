@@ -74,15 +74,17 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist['RSI'] = calcola_rsi(hist['close'])
     hist['ATR'] = calcola_atr(hist)
     hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['close'])
+
     note = []
     tp = 0.0
     sl = 0.0
     distanza_ema = 0.0
     segnale = "HOLD"
 
+    supporto = calcola_supporto(hist)
     if len(hist) < 22:
         note.append("⚠️ Dati insufficienti per analisi")
-        return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, calcola_supporto(hist)
+        return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
@@ -102,13 +104,20 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     distanza_minima = 0.0012 if MODALITA_TEST else 0.0015
     macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.001
 
-    if atr / close < atr_minimo:
-        note.append("⚠️ ATR troppo basso: mercato poco volatile")
-
     volume_attuale = hist['volume'].iloc[-1]
     volume_medio = hist['volume'].iloc[-21:-1].mean()
+
+    bloccato = False
+    if atr / close < atr_minimo:
+        note.append("⚠️ ATR troppo basso: mercato poco volatile")
+        bloccato = True
+
     if volume_attuale < volume_medio * (volume_soglia / 100):
         note.append("⚠️ Volume basso: segnale debole")
+        bloccato = True
+
+    if bloccato:
+        return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
     distanza_ema = abs(ema7 - ema25)
     curvatura_ema25 = ema25 - penultimo['EMA_25']
@@ -147,6 +156,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     macd_sell_ok = macd < macd_signal and macd_gap < -macd_signal_threshold
     macd_sell_debole = macd < 0.01 and macd_gap < 0.005
 
+    # BUY
     if (trend_up or recupero_buy or (breakout_valido and rsi > 40)) \
         and distanza_ema / close > distanza_minima \
         and (macd_buy_ok or macd_buy_debole) \
@@ -195,8 +205,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                         note.append(f"⚖️ TP ricalibrato per mantenere R/R ≤ {rapporto_massimo}")
                     note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
-    # CONTINUA - Parte 3
-
+    # SELL
     if (trend_down or recupero_sell) \
         and distanza_ema / close > distanza_minima \
         and rsi < 50 \
