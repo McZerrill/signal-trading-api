@@ -167,19 +167,39 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         and (macd_buy_ok or macd_buy_debole) \
         and rsi > 50:
 
+        # Blocco BUY se RSI troppo alto    
+        if rsi > 65:
+            note.append("⛔ RSI troppo alto per BUY")
+            segnale = "HOLD"
+            tp = 0.0
+            sl = 0.0
+
+        if segnale == "BUY" and ultimo['close'] < ultimo['open']:
+            note.append("⛔ Candela attuale rossa: BUY rischioso")
+            segnale = "HOLD"
+            tp = 0.0
+            sl = 0.0
+
+        if macd_gap < 0.0005:
+            note.append("⛔ MACD troppo debole: no BUY")
+            segnale = "HOLD"
+            tp = 0.0
+            sl = 0.0
+
         variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
-        if trend_up and variazione > 1.2 and candele_trend_up > 1:
+        if trend_up and variazione > 0.9 and candele_trend_up > 1:
             note.append(f"⛔ Trend BUY già maturo (+{round(variazione, 2)}% in 3 candele): nessun segnale BUY")
             segnale = "HOLD"
             tp = 0.0
             sl = 0.0
 
         forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
-        if forza_trend < 0.0015:
+        if forza_trend < 0.0018:
             note.append("⚠️ Trend BUY troppo debole: distanza EMA insufficiente")
             segnale = "HOLD"
             tp = 0.0
             sl = 0.0
+            
         if segnale == "HOLD":
             segnale = "BUY"
 
@@ -255,15 +275,21 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             sl = 0.0
     
         variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
-        if trend_down and variazione < -1.2 and candele_trend_down > 1:
+        if trend_down and variazione < -0.9 and candele_trend_down > 1:
             note.append(f"⛔ Trend SELL già maturo (-{round(abs(variazione), 2)}% in 3 candele): nessun segnale SELL")
             segnale = "HOLD"
             tp = 0.0
             sl = 0.0
 
         forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
-        if forza_trend < 0.0015:
+        if forza_trend < 0.0020:
             note.append("⚠️ Trend SELL troppo debole: distanza EMA insufficiente")
+            segnale = "HOLD"
+            tp = 0.0
+            sl = 0.0
+
+        if segnale == "SELL" and ultimo['close'] > ultimo['open']:
+            note.append("⛔ Candela attuale verde: SELL troppo rischioso")
             segnale = "HOLD"
             tp = 0.0
             sl = 0.0
