@@ -162,11 +162,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         and (macd_buy_ok or macd_buy_debole) \
         and rsi > 50:
 
-        if rsi > 65:
+        if rsi > 70:
             note.append("⛔ RSI troppo alto per BUY")
-        elif ultimo['close'] < ultimo['open']:
+        elif ultimo['close'] < ultimo['open'] and macd_buy_ok is False:
             note.append("⛔ Candela attuale rossa: BUY rischioso")
-        elif macd_gap < 0.0005:
+        elif macd_gap < 0.0003:
             note.append("⛔ MACD troppo debole: no BUY")
         else:
             variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
