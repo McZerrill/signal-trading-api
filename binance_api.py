@@ -80,7 +80,7 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
     df.set_index("timestamp", inplace=True)
     df = df[["open", "high", "low", "close", "volume"]].astype(float)
 
-    df["ATR"] = (df["high"] - df["low"]).rolling(window=14).mean()
+    
     df.dropna(inplace=True)
 
     return df
