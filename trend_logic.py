@@ -162,8 +162,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         and (macd_buy_ok or macd_buy_debole) \
         and rsi > 50:
 
-        if rsi > 70:
-            note.append("⛔ RSI troppo alto per BUY")
+        if rsi > 75 and variazione > 1.0:
+            note.append(f"⛔ RSI troppo alto per BUY in trend maturo (+{round(variazione, 2)}%)")
         elif ultimo['close'] < ultimo['open'] and macd_buy_ok is False:
             note.append("⛔ Candela attuale rossa: BUY rischioso")
         elif macd_gap < 0.0003:
@@ -212,8 +212,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         and (macd_sell_ok or macd_sell_debole) \
         and abs(macd) > 0.0005:
 
-        if rsi > 50:
-            note.append("⛔ RSI troppo alto per SELL")
+        if rsi < 25 and variazione < -1.0:
+            note.append(f"⛔ RSI troppo basso per SELL in trend maturo ({round(variazione, 2)}%)")
         elif abs(macd) < 0.0005:
             note.append("⛔ MACD troppo debole o piatto")
         elif distanza_ema / close < 0.0025:
