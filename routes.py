@@ -148,6 +148,14 @@ def analyze(symbol: str):
 
             header = "🟢 BUY confermato" if segnale == "BUY" else "🔴 SELL confermato"
 
+            IQOPTION_ASSET_LIST = [
+                "XRPUSDC", "BCHUSDC", "TRXUSDC", "DASHUSDC", "QTUMUSDC",
+                "ETCUSDC", "BTCUSDC", "LTCUSDC", "ETHUSDC", "ZECUSDC"
+            ]
+
+            if symbol.upper() in IQOPTION_ASSET_LIST:
+                base_dati = "💱 IQOption\n" + base_dati
+
             commento = (
                 f"{header} | {symbol.upper()} @ {close}$\n"
                 f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
