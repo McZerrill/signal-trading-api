@@ -80,8 +80,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     sl = 0.0
     distanza_ema = 0.0
     segnale = "HOLD"
-
+    
     supporto = calcola_supporto(hist)
+    
     if len(hist) < 22:
         note.append("⚠️ Dati insufficienti per analisi")
         return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
@@ -93,7 +94,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     ema7, ema25, ema99 = ultimo['EMA_7'], ultimo['EMA_25'], ultimo['EMA_99']
     close, rsi, atr = ultimo['close'], ultimo['RSI'], ultimo['ATR']
     macd, macd_signal = ultimo['MACD'], ultimo['MACD_SIGNAL']
-    supporto = calcola_supporto(hist)
+
+    variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
+
 
     investimento = 100.0
     guadagno_netto_target = 0.5
@@ -169,7 +172,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         elif macd_gap < 0.0003:
             note.append("⛔ MACD troppo debole: no BUY")
         else:
-            variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
+            
             if trend_up and variazione > 0.9 and candele_trend_up > 1:
                 note.append(f"⛔ Trend BUY già maturo (+{round(variazione, 2)}% in 3 candele): nessun segnale BUY")
             else:
@@ -219,7 +222,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         elif distanza_ema / close < 0.0025:
             note.append("⛔ Distanza EMA insufficiente: trend SELL debole")
         else:
-            variazione = (hist['close'].iloc[-1] - hist['close'].iloc[-4]) / hist['close'].iloc[-4] * 100
+            
             if trend_down and variazione < -0.9 and candele_trend_down > 1:
                 note.append(f"⛔ Trend SELL già maturo (-{round(abs(variazione), 2)}% in 3 candele): nessun segnale SELL")
             else:
