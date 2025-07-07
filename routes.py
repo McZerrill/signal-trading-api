@@ -148,13 +148,7 @@ def analyze(symbol: str):
 
             header = "🟢 BUY confermato" if segnale == "BUY" else "🔴 SELL confermato"
 
-            IQOPTION_ASSET_LIST = [
-                "XRPUSDC", "BCHUSDC", "TRXUSDC", "DASHUSDC", "QTUMUSDC",
-                "ETCUSDC", "BTCUSDC", "LTCUSDC", "ETHUSDC", "ZECUSDC"
-            ]
-
-            if symbol.upper() in IQOPTION_ASSET_LIST:
-                base_dati = "💱 IQOption\n" + base_dati
+            
 
             commento = (
                 f"{header} | {symbol.upper()} @ {close}$\n"
@@ -405,6 +399,12 @@ def verifica_posizioni_attive():
                 # 4. Condizioni di uscita
                 chiudere = False
                 esito = "In corso"
+
+                if symbol.upper() in [
+                    "XRPUSDC", "BCHUSDC", "TRXUSDC", "DASHUSDC", "QTUMUSDC",
+                    "ETCUSDC", "BTCUSDC", "LTCUSDC", "ETHUSDC", "ZECUSDC"
+                ]:
+                    esito += "  💱 IQOption"
 
                 if tipo == "BUY":
                     if prezzo_corrente >= tp:
