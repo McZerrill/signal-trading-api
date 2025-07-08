@@ -102,7 +102,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     guadagno_netto_target = 0.5
     commissione = 0.1
 
-    volume_soglia = 150 if MODALITA_TEST else 300
+    volume_soglia = 200 if MODALITA_TEST else 300
     atr_minimo = 0.0008 if MODALITA_TEST else 0.001
     distanza_minima = 0.0012 if MODALITA_TEST else 0.0015
     macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.001
