@@ -102,7 +102,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     guadagno_netto_target = 0.5
     commissione = 0.1
 
-    volume_soglia = 200 if MODALITA_TEST else 300
+    volume_soglia = 150 if MODALITA_TEST else 300
     atr_minimo = 0.0008 if MODALITA_TEST else 0.001
     distanza_minima = 0.0012 if MODALITA_TEST else 0.0015
     macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.001
@@ -155,16 +155,19 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         note.append("⚠️ Breakout sospetto: volume insufficiente")
 
     macd_buy_ok = macd > macd_signal and macd_gap > macd_signal_threshold
-    macd_buy_debole = macd > 0 and macd_gap > -0.005
+    macd_buy_debole = macd > 0.001 and macd_gap > -0.003
     macd_sell_ok = macd < macd_signal and macd_gap < -macd_signal_threshold
     macd_sell_debole = macd < 0.01 and macd_gap < 0.005
 
     # BUY
-    if (trend_up or recupero_buy or (breakout_valido and rsi > 40)) \
-        and distanza_ema / close > distanza_minima \
-        and (macd_buy_ok or macd_buy_debole) \
-        and rsi > 50:
-
+    condizioni_buy = [
+        trend_up or recupero_buy or (breakout_valido and rsi > 40),
+        distanza_ema / close > distanza_minima,
+        macd_buy_ok or macd_buy_debole,
+        rsi > 52
+    ]
+    
+    if all(condizioni_buy):
         if rsi > 75 and variazione > 1.0:
             note.append(f"⛔ RSI troppo alto per BUY in trend maturo (+{round(variazione, 2)}%)")
         elif ultimo['close'] < ultimo['open'] and macd_buy_ok is False:
@@ -209,12 +212,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                     note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
     # SELL
-    if (trend_down or recupero_sell) \
-        and distanza_ema / close > distanza_minima \
-        and rsi < 50 \
-        and (macd_sell_ok or macd_sell_debole) \
-        and abs(macd) > 0.0005:
-
+    condizioni_sell = [
+        trend_down or recupero_sell,
+        distanza_ema / close > distanza_minima,
+        rsi < 50,
+        macd_sell_ok or macd_sell_debole,
+        abs(macd) > 0.0005
+    ]
+    
+    if all(condizioni_sell):
         if rsi < 25 and variazione < -1.0:
             note.append(f"⛔ RSI troppo basso per SELL in trend maturo ({round(variazione, 2)}%)")
         elif abs(macd) < 0.0005:
