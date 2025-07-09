@@ -394,7 +394,7 @@ def verifica_posizioni_attive():
 
                 # 3. Trend attuale (15m)
                 df = get_binance_df(symbol, "15m", 100)
-                nuovo_segnale, commento, _, _, _ = analizza_trend(df, symbol)
+                nuovo_segnale, commento, _, _, _ = analizza_trend(df, spread)
 
                 # 4. Condizioni di uscita
                 chiudere = False
