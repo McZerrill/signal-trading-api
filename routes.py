@@ -79,10 +79,12 @@ def analyze(symbol: str):
         df_1d = get_binance_df(symbol, "1d", 300)
 
         segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(df_15m, spread)
+        note = note15.split("\n") if note15 else []
+        
         segnale_1h, *_ = analizza_trend(df_1h, spread)
         segnale_1d, *_ = analizza_trend(df_1d, spread)
 
-        segnale, hist, note, tp, sl, supporto = segnale_15m, h15, note15, tp15, sl15, supporto15
+        segnale, hist, tp, sl, supporto = segnale_15m, h15, tp15, sl15, supporto15
 
         if segnale != segnale_1h:
             ultimo_1h = df_1h.iloc[-1]
@@ -91,24 +93,24 @@ def analyze(symbol: str):
             rsi_1h = ultimo_1h['RSI']
 
             if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
-                note += "\nℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL"
+                note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL")
             elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
-                note += "\nℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY"
+                note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY")
             else:
-                note += f"\nℹ️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})"
+                note.append("ℹ️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})")
 
             trend_1h = conta_candele_trend(df_1h, rialzista=(segnale == "BUY"))
             if trend_1h < 2:
-                note += f"\nℹ️ Trend su 1h debole ({trend_1h} candele)"
+                note.append("ℹ️ Trend su 1h debole ({trend_1h} candele)")
         else:
-            note += "\n🧭 1h✓"
+            note.append("🧭 1h✓")
 
 
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
-                note += f"\nℹ️ Timeframe 1d in conflitto con il segnale attuale ({segnale_1d})"
+                note.append("ℹ️ Timeframe 1d in conflitto con il segnale attuale ({segnale_1d})")
             else:
-                note += "\n📅 1d✓"
+                note.append("📅 1d✓")
 
 
 
@@ -143,7 +145,7 @@ def analyze(symbol: str):
             tp_pct = round(abs((tp - close) / close) * 100, 2)
             sl_pct = round(abs((sl - close) / close) * 100, 2)
 
-            if "💥" in note.lower():
+            if any("💥" in riga for riga in note):
                 base_dati = "💥 BREAKOUT rilevato\n" + base_dati
 
             header = "🟢 BUY confermato" if segnale == "BUY" else "🔴 SELL confermato"
@@ -151,7 +153,7 @@ def analyze(symbol: str):
             commento = (
                 f"{header} | {symbol.upper()} @ {close}$\n"
                 f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
-                f"{base_dati}\n{note}"
+                f"{base_dati}\n" + "\n".join(note)
             )
 
             return SignalResponse(
@@ -172,7 +174,7 @@ def analyze(symbol: str):
             )
 
         header = f"🚱 HOLD | {symbol.upper()} @ {close}$"
-        corpo = f"{base_dati}\n📉 Supporto: {supporto}$\n{note}"
+        corpo = f"{base_dati}\n📉 Supporto: {supporto}$\n" + "\n".join(note)
         return SignalResponse(
             segnale="HOLD",
             commento=f"{header}\n{corpo}",
