@@ -3,7 +3,7 @@ from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto,
 from indicators import calcola_percentuale_guadagno
 
 
-MODALITA_TEST = True
+MODALITA_TEST = False
 
 def valuta_distanza(distanza: float) -> str:
     if distanza < 1:
