@@ -78,13 +78,11 @@ def analyze(symbol: str):
         df_1h = get_binance_df(symbol, "1h", 300)
         df_1d = get_binance_df(symbol, "1d", 300)
 
-        segnale_15m, h15, dist_15m, note15, tp15, sl15, supporto15 = analizza_trend(df_15m, spread)
+        segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread)
         note = note15.split("\n") if note15 else []
         
         segnale_1h, *_ = analizza_trend(df_1h, spread)
         segnale_1d, *_ = analizza_trend(df_1d, spread)
-
-        segnale, hist, tp, sl, supporto = segnale_15m, h15, tp15, sl15, supporto15
 
         if segnale != segnale_1h:
             ultimo_1h = df_1h.iloc[-1]
