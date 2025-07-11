@@ -94,11 +94,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     commissione = 0.1
 
     # Soglie fisse o adattive in base alla modalità
-    volume_soglia = 150 if MODALITA_TEST else 300
-    atr_minimo = 0.0050 if MODALITA_TEST else 0.001
-    distanza_minima = 0.0018 if MODALITA_TEST else 0.0015
-    macd_rsi_range = (47, 53)
-    macd_signal_threshold = 0.0008 if MODALITA_TEST else 0.001
+    volume_soglia = 180 if MODALITA_TEST else 300
+    atr_minimo = 0.0035 if MODALITA_TEST else 0.001
+    distanza_minima = 0.0016 if MODALITA_TEST else 0.0015
+    macd_rsi_range = (44, 56)
+    macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.001
 
     if atr / close < atr_minimo:
         note.append("⚠️ ATR troppo basso: mercato poco volatile")
