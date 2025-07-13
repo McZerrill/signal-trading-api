@@ -269,6 +269,8 @@ def hot_assets():
     volume_soglia = 20 if MODALITA_TEST else 300
     atr_minimo = 0.00005 if MODALITA_TEST else 0.0008
     distanza_minima = 0.00005 if MODALITA_TEST else 0.0012
+    macd_rsi_range = (40, 60) if MODALITA_TEST else (48, 52)
+    macd_signal_threshold = 0.00001 if MODALITA_TEST else 0.0005
 
     for symbol in symbols:
         try:
@@ -313,20 +315,39 @@ def hot_assets():
                 _filtro_log["prezzo_piattissimo"] += 1
                 continue
 
-            # ⚠️ RIMOSSO il filtro su macd/rsi/neutri
-            # ⚠️ RIMOSSO il filtro avanzato trend_buy / presegnale_buy
+            if abs(macd - macd_signal) < macd_signal_threshold and macd_rsi_range[0] < rsi < macd_rsi_range[1] and distanza_relativa < 0.0015:
+                _filtro_log["macd_rsi_neutri"] += 1
+                continue
 
-            risultati.append({
-                "symbol": symbol,
-                "segnali": 1,
-                "trend": "?" ,  # sarà determinato da /analyze
-                "rsi": round(rsi, 2),
-                "ema7": round(ema7, 2),
-                "ema25": round(ema25, 2),
-                "ema99": round(ema99, 2),
-                "prezzo": round(prezzo, 4),
-                "candele_trend": None
-            })
+            recenti_rialzo = all(df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] > df["EMA_99"].iloc[-i] for i in range(1, 4))
+            recenti_ribasso = all(df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] < df["EMA_99"].iloc[-i] for i in range(1, 4))
+
+            trend_buy = recenti_rialzo and rsi > 50 and macd > macd_signal
+            trend_sell = recenti_ribasso and rsi < 50 and macd < macd_signal
+
+            presegnale_buy = (
+                df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2] and ema7 > ema25 and ema25 < ema99
+                and distanza_relativa < 0.015 and rsi > 50 and macd > macd_signal
+            )
+            presegnale_sell = (
+                df["EMA_7"].iloc[-2] > df["EMA_25"].iloc[-2] and ema7 < ema25 and ema25 > ema99
+                and distanza_relativa < 0.015 and rsi < 50 and macd < macd_signal
+            )
+
+            if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
+                segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
+                candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
+                risultati.append({
+                    "symbol": symbol,
+                    "segnali": 1,
+                    "trend": segnale,
+                    "rsi": round(rsi, 2),
+                    "ema7": round(ema7, 2),
+                    "ema25": round(ema25, 2),
+                    "ema99": round(ema99, 2),
+                    "prezzo": round(prezzo, 4),
+                    "candele_trend": candele_trend
+                })
 
         except Exception:
             continue
