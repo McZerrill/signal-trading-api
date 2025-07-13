@@ -370,18 +370,17 @@ def verifica_posizioni_attive():
             entry = simulazione_attiva["entry"]
             tp = simulazione_attiva["tp"]
             sl = simulazione_attiva["sl"]
-            spread = simulazione_attiva["spread"]  # ⚠️ solo informativo
+            spread = simulazione_attiva["spread"]  # informativo
             investimento = simulazione_attiva.get("investimento", 100.0)
             commissione = simulazione_attiva.get("commissione", 0.1)  # percentuale
 
             try:
-                # 1. Prezzo corrente aggiornato (bid o ask, già include lo spread reale)
+                # 1. Prezzo corrente aggiornato
                 book = get_bid_ask(symbol)
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
-                # Prezzo effettivo in uscita (con spread)
+                # Prezzo effettivo di entrata/uscita (incluso spread)
                 prezzo_effettivo = prezzo_corrente * (1 - spread / 100) if tipo == "BUY" else prezzo_corrente * (1 + spread / 100)
-                # Prezzo effettivo in entrata (con spread)
                 ingresso_effettivo = entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
 
                 rendimento = prezzo_effettivo / ingresso_effettivo if tipo == "BUY" else ingresso_effettivo / prezzo_effettivo
@@ -389,14 +388,13 @@ def verifica_posizioni_attive():
                 commissioni = investimento * 2 * (commissione / 100)
                 guadagno_netto_attuale = lordo - commissioni
 
-
                 simulazione_attiva["guadagno_netto"] = round(guadagno_netto_attuale, 4)
 
-                # 3. Trend attuale (15m)
+                # 2. Trend attuale (15m)
                 df = get_binance_df(symbol, "15m", 100)
-                nuovo_segnale, commento, _, _, _ = analizza_trend(df, spread)
+                nuovo_segnale, _, _, _, _ = analizza_trend(df, spread)
 
-                # 4. Condizioni di uscita
+                # 3. Condizioni di uscita
                 chiudere = False
                 esito = "In corso"
                 motivo = ""
@@ -429,7 +427,51 @@ def verifica_posizioni_attive():
                         esito = "Profitto"
                         chiudere = True
 
-                # 5. Aggiorna se necessario
+                # 4. Controllo microtrend su 1m (inversione anticipata)
+                try:
+                    df_1m = get_binance_df(symbol, "1m", 40)
+                    df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
+                    df_1m["EMA_25"] = df_1m["close"].ewm(span=25).mean()
+                    df_1m["EMA_99"] = df_1m["close"].ewm(span=99).mean()
+                    df_1m["RSI"] = calcola_rsi(df_1m["close"])
+                    df_1m["MACD"], df_1m["MACD_SIGNAL"] = calcola_macd(df_1m["close"])
+
+                    ema7_1 = df_1m["EMA_7"].iloc[-2]
+                    ema25_1 = df_1m["EMA_25"].iloc[-2]
+                    ema99_1 = df_1m["EMA_99"].iloc[-2]
+
+                    ema7_0 = df_1m["EMA_7"].iloc[-1]
+                    ema25_0 = df_1m["EMA_25"].iloc[-1]
+                    ema99_0 = df_1m["EMA_99"].iloc[-1]
+
+                    rsi_1m = df_1m["RSI"].iloc[-1]
+                    macd_1m = df_1m["MACD"].iloc[-1]
+                    macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
+
+                    if tipo == "BUY":
+                        microtrend_invertito = (
+                            ema7_1 < ema25_1 < ema99_1 and
+                            ema7_0 < ema25_0 < ema99_0 and
+                            rsi_1m < 50 and
+                            macd_1m < macd_signal_1m
+                        )
+                    else:
+                        microtrend_invertito = (
+                            ema7_1 > ema25_1 > ema99_1 and
+                            ema7_0 > ema25_0 > ema99_0 and
+                            rsi_1m > 50 and
+                            macd_1m > macd_signal_1m
+                        )
+
+                    if microtrend_invertito and not chiudere:
+                        motivo = "Inversione microtrend (1m) su 2 candele"
+                        esito = "Perdita" if guadagno_netto_attuale < 0 else "Profitto"
+                        chiudere = True
+
+                except Exception as micro_err:
+                    print(f"⚠️ Errore analisi microtrend {symbol}: {micro_err}")
+
+                # 5. Chiusura finale
                 if chiudere:
                     simulazione_attiva["prezzo_finale"] = prezzo_corrente
                     simulazione_attiva["esito"] = esito
