@@ -96,7 +96,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     # Soglie fisse o adattive in base alla modalità
     volume_soglia = 180 if MODALITA_TEST else 300
     atr_minimo = 0.0012 if MODALITA_TEST else 0.001
-    distanza_minima = 0.0010 if MODALITA_TEST else 0.0015
+    distanza_minima = 0.0005 if MODALITA_TEST else 0.0015
     macd_rsi_range = (44, 56)
     macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.001
 
