@@ -18,6 +18,7 @@ class SignalResponse(BaseModel):
     ema99: float
     timeframe: str
     spread: float
+    motivo: str = ""
     
 
 
