@@ -470,11 +470,14 @@ def verifica_posizioni_attive():
                             (rsi_1m > 50 or macd_1m > macd_signal_1m)
                         )
 
-                    if microtrend_invertito and not chiudere:
-                        esito = "Profitto" if guadagno_netto_attuale >= 0 else "Perdita"
+                    if microtrend_invertito:
                         descrizione = "guadagno" if guadagno_netto_attuale >= 0 else "perdita"
-                        motivo = f"Inversione microtrend (1m) con {descrizione} di {guadagno_netto_attuale:.4f} USDC"
-                        chiudere = True
+                        simulazione_attiva["motivo"] = f"⚠️ Inversione microtrend (1m) rilevata, condizioni di chiusura pronte con {descrizione} di {guadagno_netto_attuale:.4f} USDC"
+                        if not chiudere:
+                            esito = "Profitto" if guadagno_netto_attuale >= 0 else "Perdita"
+                            motivo = f"Inversione microtrend (1m) con {descrizione} di {guadagno_netto_attuale:.4f} USDC"
+                            chiudere = True
+
 
                 except Exception as micro_err:
                     print(f"⚠️ Errore microtrend {symbol}: {micro_err}")
