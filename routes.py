@@ -398,17 +398,12 @@ def verifica_posizioni_attive():
             commissione = simulazione_attiva.get("commissione", 0.1)
 
             try:
-                # 1. Prezzo corrente
                 book = get_bid_ask(symbol)
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
-                # 2. Prezzo effettivo di uscita (simula slippage + spread)
                 prezzo_uscita = prezzo_corrente * (1 - spread / 100) if tipo == "BUY" else prezzo_corrente * (1 + spread / 100)
-
-                # 3. Prezzo effettivo d'ingresso (simula spread in entrata)
                 prezzo_ingresso = entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
 
-                # 4. Calcolo guadagno netto
                 rendimento = prezzo_uscita / prezzo_ingresso if tipo == "BUY" else prezzo_ingresso / prezzo_uscita
                 lordo = investimento * rendimento - investimento
                 commissioni = investimento * 2 * (commissione / 100)
@@ -416,11 +411,9 @@ def verifica_posizioni_attive():
 
                 simulazione_attiva["guadagno_netto"] = guadagno_netto_attuale
 
-                # 5. Trend attuale 15m
                 df = get_binance_df(symbol, "15m", 100)
                 nuovo_segnale, *_ = analizza_trend(df, spread)
 
-                # 6. Condizioni di uscita
                 chiudere = False
                 esito = "In corso"
                 motivo = ""
@@ -435,8 +428,9 @@ def verifica_posizioni_attive():
                         esito = "Perdita"
                         chiudere = True
                     elif nuovo_segnale != "BUY":
-                        motivo = f"Trend cambiato, chiusura anticipata con profitto di {guadagno_netto_attuale} USDC"
-                        esito = "Profitto"
+                        esito = "Profitto" if guadagno_netto_attuale > 0 else "Perdita"
+                        esito_descrizione = "guadagno" if guadagno_netto_attuale > 0 else "perdita"
+                        motivo = f"Trend cambiato, chiusura anticipata con {esito_descrizione} di {guadagno_netto_attuale:.4f} USDC"
                         chiudere = True
 
                 elif tipo == "SELL":
@@ -449,11 +443,11 @@ def verifica_posizioni_attive():
                         esito = "Perdita"
                         chiudere = True
                     elif nuovo_segnale != "SELL":
-                        motivo = f"Trend cambiato, chiusura anticipata con profitto di {guadagno_netto_attuale} USDC"
-                        esito = "Profitto"
+                        esito = "Profitto" if guadagno_netto_attuale > 0 else "Perdita"
+                        esito_descrizione = "guadagno" if guadagno_netto_attuale > 0 else "perdita"
+                        motivo = f"Trend cambiato, chiusura anticipata con {esito_descrizione} di {guadagno_netto_attuale:.4f} USDC"
                         chiudere = True
 
-                # 7. Microtrend su 1m (inversione precoce)
                 try:
                     df_1m = get_binance_df(symbol, "1m", 40)
                     df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
@@ -462,8 +456,8 @@ def verifica_posizioni_attive():
                     df_1m["RSI"] = calcola_rsi(df_1m["close"])
                     df_1m["MACD"], df_1m["MACD_SIGNAL"] = calcola_macd(df_1m["close"])
 
-                    ema7_1, ema25_1, ema99_1 = df_1m["EMA_7"].iloc[-2], df_1m["EMA_25"].iloc[-2], df_1m["EMA_99"].iloc[-2]
-                    ema7_0, ema25_0, ema99_0 = df_1m["EMA_7"].iloc[-1], df_1m["EMA_25"].iloc[-1], df_1m["EMA_99"].iloc[-1]
+                    ema7_1, ema25_1 = df_1m["EMA_7"].iloc[-2], df_1m["EMA_25"].iloc[-2]
+                    ema7_0, ema25_0 = df_1m["EMA_7"].iloc[-1], df_1m["EMA_25"].iloc[-1]
                     rsi_1m = df_1m["RSI"].iloc[-1]
                     macd_1m = df_1m["MACD"].iloc[-1]
                     macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
@@ -482,19 +476,20 @@ def verifica_posizioni_attive():
                         )
 
                     if microtrend_invertito and not chiudere:
-                        motivo = "Inversione microtrend (1m) su 2 candele"
                         esito = "Profitto" if guadagno_netto_attuale > 0 else "Perdita"
+                        esito_descrizione = "guadagno" if guadagno_netto_attuale > 0 else "perdita"
+                        motivo = f"Inversione microtrend (1m) su 2 candele con {esito_descrizione} di {guadagno_netto_attuale:.4f} USDC"
                         chiudere = True
 
                 except Exception as micro_err:
                     print(f"⚠️ Errore microtrend {symbol}: {micro_err}")
 
-                # 8. Chiusura finale
                 if chiudere:
                     simulazione_attiva["prezzo_finale"] = round(prezzo_corrente, 6)
                     simulazione_attiva["esito"] = esito
                     simulazione_attiva["motivo"] = motivo
                     print(f"[Chiusura] {symbol} - {motivo}")
+                    del posizioni_attive[symbol]
 
             except Exception as e:
                 print(f"❌ Errore verifica {symbol}: {e}")
