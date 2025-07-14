@@ -428,8 +428,8 @@ def verifica_posizioni_attive():
                         esito = "Perdita"
                         chiudere = True
                     elif nuovo_segnale != "BUY":
-                        esito = "Profitto" if guadagno_netto_attuale > 0 else "Perdita"
-                        esito_descrizione = "guadagno" if guadagno_netto_attuale > 0 else "perdita"
+                        esito = "Profitto" if guadagno_netto_attuale >= 0 else "Perdita"
+                        esito_descrizione = "guadagno" if guadagno_netto_attuale >= 0 else "perdita"
                         motivo = f"Trend cambiato, chiusura anticipata con {esito_descrizione} di {guadagno_netto_attuale:.4f} USDC"
                         chiudere = True
 
@@ -443,8 +443,8 @@ def verifica_posizioni_attive():
                         esito = "Perdita"
                         chiudere = True
                     elif nuovo_segnale != "SELL":
-                        esito = "Profitto" if guadagno_netto_attuale > 0 else "Perdita"
-                        esito_descrizione = "guadagno" if guadagno_netto_attuale > 0 else "perdita"
+                        esito = "Profitto" if guadagno_netto_attuale >= 0 else "Perdita"
+                        esito_descrizione = "guadagno" if guadagno_netto_attuale >= 0 else "perdita"
                         motivo = f"Trend cambiato, chiusura anticipata con {esito_descrizione} di {guadagno_netto_attuale:.4f} USDC"
                         chiudere = True
 
@@ -456,29 +456,27 @@ def verifica_posizioni_attive():
                     df_1m["RSI"] = calcola_rsi(df_1m["close"])
                     df_1m["MACD"], df_1m["MACD_SIGNAL"] = calcola_macd(df_1m["close"])
 
-                    ema7_1, ema25_1 = df_1m["EMA_7"].iloc[-2], df_1m["EMA_25"].iloc[-2]
-                    ema7_0, ema25_0 = df_1m["EMA_7"].iloc[-1], df_1m["EMA_25"].iloc[-1]
+                    ema7 = df_1m["EMA_7"].iloc[-1]
+                    ema25 = df_1m["EMA_25"].iloc[-1]
                     rsi_1m = df_1m["RSI"].iloc[-1]
                     macd_1m = df_1m["MACD"].iloc[-1]
                     macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
 
                     if tipo == "BUY":
                         microtrend_invertito = (
-                            ema7_1 < ema25_1 and
-                            ema7_0 < ema25_0 and
+                            ema7 < ema25 and
                             (rsi_1m < 50 or macd_1m < macd_signal_1m)
                         )
                     else:
                         microtrend_invertito = (
-                            ema7_1 > ema25_1 and
-                            ema7_0 > ema25_0 and
+                            ema7 > ema25 and
                             (rsi_1m > 50 or macd_1m > macd_signal_1m)
                         )
 
                     if microtrend_invertito and not chiudere:
-                        esito = "Profitto" if guadagno_netto_attuale > 0 else "Perdita"
-                        esito_descrizione = "guadagno" if guadagno_netto_attuale > 0 else "perdita"
-                        motivo = f"Inversione microtrend (1m) su 2 candele con {esito_descrizione} di {guadagno_netto_attuale:.4f} USDC"
+                        esito = "Profitto" if guadagno_netto_attuale >= 0 else "Perdita"
+                        esito_descrizione = "guadagno" if guadagno_netto_attuale >= 0 else "perdita"
+                        motivo = f"Inversione microtrend (1m) con {esito_descrizione} di {guadagno_netto_attuale:.4f} USDC"
                         chiudere = True
 
                 except Exception as micro_err:
@@ -493,6 +491,7 @@ def verifica_posizioni_attive():
 
             except Exception as e:
                 print(f"❌ Errore verifica {symbol}: {e}")
+
                 
 monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
 monitor_thread.start()
