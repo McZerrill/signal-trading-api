@@ -434,7 +434,7 @@ def verifica_posizioni_attive():
                         motivo = "Stop Loss raggiunto"
                         esito = "Perdita"
                         chiudere = True
-                    elif nuovo_segnale != "BUY" and guadagno_netto_attuale > 0:
+                    elif nuovo_segnale != "BUY":
                         motivo = f"Trend cambiato, chiusura anticipata con profitto di {guadagno_netto_attuale} USDC"
                         esito = "Profitto"
                         chiudere = True
@@ -448,7 +448,7 @@ def verifica_posizioni_attive():
                         motivo = "Stop Loss raggiunto"
                         esito = "Perdita"
                         chiudere = True
-                    elif nuovo_segnale != "SELL" and guadagno_netto_attuale > 0:
+                    elif nuovo_segnale != "SELL":
                         motivo = f"Trend cambiato, chiusura anticipata con profitto di {guadagno_netto_attuale} USDC"
                         esito = "Profitto"
                         chiudere = True
@@ -470,14 +470,14 @@ def verifica_posizioni_attive():
 
                     if tipo == "BUY":
                         microtrend_invertito = (
-                            ema7_1 < ema25_1 < ema99_1 and
-                            ema7_0 < ema25_0 < ema99_0 and
+                            ema7_1 < ema25_1 and
+                            ema7_0 < ema25_0 and
                             (rsi_1m < 50 or macd_1m < macd_signal_1m)
                         )
                     else:
                         microtrend_invertito = (
-                            ema7_1 > ema25_1 > ema99_1 and
-                            ema7_0 > ema25_0 > ema99_0 and
+                            ema7_1 > ema25_1 and
+                            ema7_0 > ema25_0 and
                             (rsi_1m > 50 or macd_1m > macd_signal_1m)
                         )
 
