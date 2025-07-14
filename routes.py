@@ -465,15 +465,13 @@ def verifica_posizioni_attive():
                         microtrend_invertito = (
                             ema7_1 < ema25_1 < ema99_1 and
                             ema7_0 < ema25_0 < ema99_0 and
-                            rsi_1m < 50 and
-                            macd_1m < macd_signal_1m
+                            (rsi_1m < 50 or macd_1m < macd_signal_1m)
                         )
                     else:
                         microtrend_invertito = (
                             ema7_1 > ema25_1 > ema99_1 and
                             ema7_0 > ema25_0 > ema99_0 and
-                            rsi_1m > 50 and
-                            macd_1m > macd_signal_1m
+                            (rsi_1m > 50 or macd_1m > macd_signal_1m)
                         )
 
                     if microtrend_invertito and not chiudere:
