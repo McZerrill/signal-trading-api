@@ -240,4 +240,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
         segnale = "HOLD"
 
+    # Fallback finale se il segnale è stato annullato o mai assegnato
+    if segnale not in ["BUY", "SELL"]:
+        segnale = "HOLD"
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
