@@ -490,7 +490,7 @@ def verifica_posizioni_attive():
 
                 # 8. Chiusura finale
                 if chiudere:
-                    simulazione_attiva["prezzo_finale"] = round(prezzo_uscita, 6)
+                    simulazione_attiva["prezzo_finale"] = round(prezzo_corrente, 6)
                     simulazione_attiva["esito"] = esito
                     simulazione_attiva["motivo"] = motivo
                     print(f"[Chiusura] {symbol} - {motivo}")
