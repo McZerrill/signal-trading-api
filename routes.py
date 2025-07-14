@@ -51,7 +51,8 @@ def analyze(symbol: str):
                 ema25=0.0,
                 ema99=0.0,
                 timeframe="15m",
-                spread=0.0
+                spread=0.0,
+                motivo=posizione.get("motivo", "")
             )
 
         book = get_bid_ask(symbol)
@@ -137,7 +138,8 @@ def analyze(symbol: str):
                 "entry": entry_price,
                 "tp": tp,
                 "sl": sl,
-                "ora_apertura": time.time()
+                "ora_apertura": time.time(),
+                "motivo": ""
             }
 
             tp_pct = round(abs((tp - close) / close) * 100, 2)
@@ -168,7 +170,8 @@ def analyze(symbol: str):
                 ema25=ema25,
                 ema99=ema99,
                 timeframe="15m",
-                spread=spread
+                spread=spread,
+                motivo=""
             )
 
         header = f"🚱 HOLD | {symbol.upper()} @ {close}$"
@@ -187,7 +190,8 @@ def analyze(symbol: str):
             ema25=ema25,
             ema99=ema99,
             timeframe="15m",
-            spread=spread
+            spread=spread,
+            motivo=""
         )
 
     except Exception as e:
@@ -205,7 +209,8 @@ def analyze(symbol: str):
             ema25=0.0,
             ema99=0.0,
             timeframe="",
-            spread=0.0
+            spread=0.0,
+            motivo=f"Errore durante l'analisi di {symbol.upper()}: {e}"
         )
         
 @router.get("/price")
@@ -232,7 +237,8 @@ def get_price(symbol: str):
             "symbol": symbol,
             "prezzo": prezzo,
             "spread": round(spread, 4),
-            "tempo": elapsed
+            "tempo": elapsed,
+            "motivo": posizioni_attive.get(symbol, {}).get("motivo", ""),
         }
 
     except Exception as e:
