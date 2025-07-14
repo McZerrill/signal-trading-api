@@ -51,7 +51,7 @@ def analyze(symbol: str):
                 ema25=0.0,
                 ema99=0.0,
                 timeframe="15m",
-                spread=0.0,
+                spread=posizione.get("spread", 0.0),
                 motivo=posizione.get("motivo", "")
             )
 
@@ -139,6 +139,7 @@ def analyze(symbol: str):
                 "tp": tp,
                 "sl": sl,
                 "ora_apertura": time.time(),
+                "spread": spread,
                 "motivo": ""
             }
 
@@ -504,5 +505,9 @@ monitor_thread.start()
 @router.get("/debuglog")
 def get_debug_log():
     return _filtro_log
+    
+@router.get("/simulazioni_attive")
+def simulazioni_attive():
+    return posizioni_attive
 
 __all__ = ["router"]
