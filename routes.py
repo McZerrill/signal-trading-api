@@ -421,11 +421,11 @@ def verifica_posizioni_attive():
                 )
 
                 # Micro-trend su 1m
-                df_1m = get_binance_df(symbol, "1m", 40)
+                df_1m = get_binance_df(symbol, "1m", limit=50)
+                if df_1m.empty:
+                    simulazione_attiva["motivo"] = f"📉 Dati insufficienti (1m)"
+                    chiudere = True
 
-                if df_1m is None or df_1m.empty or "close" not in df_1m.columns:
-                    simulazione_attiva["motivo"] = "⚠️ Dati insufficienti (1m)"
-                    continue
 
                 df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
                 df_1m["EMA_25"] = df_1m["close"].ewm(span=25).mean()
