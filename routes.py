@@ -443,8 +443,8 @@ def verifica_posizioni_attive():
                 if tipo == "BUY":
                     if ema7 < ema25:
                         motivi.append("EMA↓")
-                    if rsi_1m < 48:
-                        motivi.append("RSI<48")
+                    if rsi_1m < 55:
+                        motivi.append("RSI<55")
                     if macd_1m < macd_signal_1m:
                         motivi.append("MACD↓")
                 else:  # tipo == "SELL"
@@ -467,6 +467,7 @@ def verifica_posizioni_attive():
                 if chiudere:
                     simulazione_attiva["attiva"] = False
                     simulazione_attiva["chiusa"] = time.time()
+                    simulazione_attiva["prezzo_chiusura"] = prezzo_corrente  
                     logging.info(f"[CLOSE] {symbol} - {simulazione_attiva['motivo']}")
                     
 
