@@ -397,29 +397,37 @@ def verifica_posizioni_attive():
             spread = simulazione_attiva["spread"]
             investimento = simulazione_attiva.get("investimento", 100.0)
             commissione = simulazione_attiva.get("commissione", 0.1)
+
             try:
-                # Prezzo corrente
+                # 🔹 Prezzo corrente
                 book = get_bid_ask(symbol)
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
-                # Guadagno netto
+                # 🔹 Guadagno netto simulato
                 prezzo_uscita = (
-                    prezzo_corrente * (1 - spread / 100) if tipo == "BUY" else prezzo_corrente * (1 + spread / 100)
+                    prezzo_corrente * (1 - spread / 100) if tipo == "BUY"
+                    else prezzo_corrente * (1 + spread / 100)
                 )
                 prezzo_ingresso = (
-                    entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
+                    entry * (1 + spread / 100) if tipo == "BUY"
+                    else entry * (1 - spread / 100)
                 )
-                rendimento = prezzo_uscita / prezzo_ingresso if tipo == "BUY" else prezzo_ingresso / prezzo_uscita
-                guadagno_netto = round(investimento * rendimento - investimento - investimento * 2 * (commissione / 100), 4)
+                rendimento = (
+                    prezzo_uscita / prezzo_ingresso if tipo == "BUY"
+                    else prezzo_ingresso / prezzo_uscita
+                )
+                guadagno_netto = round(
+                    investimento * rendimento - investimento - investimento * 2 * (commissione / 100), 4
+                )
                 simulazione_attiva["guadagno_netto"] = guadagno_netto
 
-                # TP / SL
+                # 🔹 TP/SL raggiunto
                 chiudere = (
                     (tipo == "BUY" and (prezzo_corrente >= tp or prezzo_corrente <= sl)) or
                     (tipo == "SELL" and (prezzo_corrente <= tp or prezzo_corrente >= sl))
                 )
 
-                # ------- MICRO‑TREND 1m -------
+                # 🔹 Microtrend 1m
                 df_1m = get_binance_df(symbol, "1m", 40)
                 df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
                 df_1m["EMA_25"] = df_1m["close"].ewm(span=25).mean()
@@ -432,8 +440,8 @@ def verifica_posizioni_attive():
                 macd_1m = df_1m["MACD"].iloc[-1]
                 macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
 
+                # 🔹 Verifica condizioni di inversione microtrend
                 motivi = []
-
                 if tipo == "BUY":
                     if ema7 < ema25:
                         motivi.append("EMA↓")
@@ -449,18 +457,22 @@ def verifica_posizioni_attive():
                     if macd_1m > macd_signal_1m:
                         motivi.append("MACD↑")
 
+                # 🔹 Motivo aggiornato in tempo reale
                 if motivi:
                     simulazione_attiva["motivo"] = f"📉 Microtrend 1m invertito ({', '.join(motivi)})"
-                    chiudere = True
+                    chiudere = True  # protezione attiva anche se guadagno negativo
                 else:
                     simulazione_attiva["motivo"] = (
-                        f"📊 1m ema7={ema7:.4f} ema25={ema25:.4f} | rsi={rsi_1m:.1f} | macd={macd_1m:.4f}/{macd_signal_1m:.4f}"
+                        f"📊 1m ema7={ema7:.4f} ema25={ema25:.4f} | "
+                        f"rsi={rsi_1m:.1f} | macd={macd_1m:.4f}/{macd_signal_1m:.4f}"
                     )
 
+                # 🔹 Chiusura simulazione
                 if chiudere:
                     simulazione_attiva["attiva"] = False
                     simulazione_attiva["chiusa"] = time.time()
                     logging.info(f"[CLOSE] {symbol} - {simulazione_attiva['motivo']}")
+                    del posizioni_attive[symbol]
 
             except Exception as err:
                 logging.error(f"Verifica {symbol}: {err}")
