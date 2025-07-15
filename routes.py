@@ -414,65 +414,66 @@ def verifica_posizioni_attive():
                 guadagno_netto = round(investimento * rendimento - investimento - investimento * 2 * (commissione / 100), 4)
                 simulazione_attiva["guadagno_netto"] = guadagno_netto
 
-                # TP / SL
+                # Verifica TP / SL
                 chiudere = (
                     (tipo == "BUY" and (prezzo_corrente >= tp or prezzo_corrente <= sl)) or
                     (tipo == "SELL" and (prezzo_corrente <= tp or prezzo_corrente >= sl))
                 )
 
-                # Micro-trend su 1m
+                # Verifica microtrend su 1m
                 df_1m = get_binance_df(symbol, "1m", limit=50)
-                if df_1m.empty:
-                    simulazione_attiva["motivo"] = f"📉 Dati insufficienti (1m)"
-                    chiudere = True
-
-
-                df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
-                df_1m["EMA_25"] = df_1m["close"].ewm(span=25).mean()
-                df_1m["RSI"] = calcola_rsi(df_1m["close"])
-                df_1m["MACD"], df_1m["MACD_SIGNAL"] = calcola_macd(df_1m["close"])
-
-                ema7 = df_1m["EMA_7"].iloc[-1]
-                ema25 = df_1m["EMA_25"].iloc[-1]
-                rsi_1m = df_1m["RSI"].iloc[-1]
-                macd_1m = df_1m["MACD"].iloc[-1]
-                macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
-
                 motivi = []
 
-                if tipo == "BUY":
-                    if ema7 < ema25:
-                        motivi.append("EMA↓")
-                    if rsi_1m < 55:
-                        motivi.append("RSI<55")
-                    if macd_1m < macd_signal_1m:
-                        motivi.append("MACD↓")
-                else:  # tipo == "SELL"
-                    if ema7 > ema25:
-                        motivi.append("EMA↑")
-                    if rsi_1m > 52:
-                        motivi.append("RSI>52")
-                    if macd_1m > macd_signal_1m:
-                        motivi.append("MACD↑")
-
-                if motivi:
-                    simulazione_attiva["motivo"] = f"📉 Microtrend 1m invertito ({', '.join(motivi)})"
+                if df_1m.empty:
+                    simulazione_attiva["motivo"] = "📉 Dati insufficienti (1m)"
                     chiudere = True
                 else:
-                    simulazione_attiva["motivo"] = (
-                        f"📊 1m ema7={ema7:.4f} ema25={ema25:.4f} | rsi={rsi_1m:.1f} | macd={macd_1m:.4f}/{macd_signal_1m:.4f}"
-                    )
+                    df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
+                    df_1m["EMA_25"] = df_1m["close"].ewm(span=25).mean()
+                    df_1m["RSI"] = calcola_rsi(df_1m["close"])
+                    df_1m["MACD"], df_1m["MACD_SIGNAL"] = calcola_macd(df_1m["close"])
+
+                    ema7 = df_1m["EMA_7"].iloc[-1]
+                    ema25 = df_1m["EMA_25"].iloc[-1]
+                    rsi_1m = df_1m["RSI"].iloc[-1]
+                    macd_1m = df_1m["MACD"].iloc[-1]
+                    macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
+
+                    if tipo == "BUY":
+                        if ema7 < ema25:
+                            motivi.append("EMA↓")
+                        if rsi_1m < 55:
+                            motivi.append("RSI<55")
+                        if macd_1m < macd_signal_1m:
+                            motivi.append("MACD↓")
+                    else:  # tipo == "SELL"
+                        if ema7 > ema25:
+                            motivi.append("EMA↑")
+                        if rsi_1m > 52:
+                            motivi.append("RSI>52")
+                        if macd_1m > macd_signal_1m:
+                            motivi.append("MACD↑")
+
+                    if motivi:
+                        simulazione_attiva["motivo"] = f"📉 Microtrend 1m invertito ({', '.join(motivi)})"
+                        chiudere = True
+                    else:
+                        simulazione_attiva["motivo"] = (
+                            f"📊 1m ema7={ema7:.4f} ema25={ema25:.4f} | rsi={rsi_1m:.1f} | macd={macd_1m:.4f}/{macd_signal_1m:.4f}"
+                        )
 
                 # Chiusura finale
                 if chiudere:
                     simulazione_attiva["attiva"] = False
                     simulazione_attiva["chiusa"] = time.time()
-                    simulazione_attiva["prezzo_chiusura"] = prezzo_corrente  
+                    simulazione_attiva["prezzo_chiusura"] = round(prezzo_corrente, 6)
+                    simulazione_attiva["esito"] = "Profitto" if guadagno_netto >= 0 else "Perdita"
                     logging.info(f"[CLOSE] {symbol} - {simulazione_attiva['motivo']}")
-                    
+                    del posizioni_attive[symbol]
 
             except Exception as err:
                 logging.error(f"Verifica {symbol}: {err}")
+
 
 # Thread monitor
 monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
