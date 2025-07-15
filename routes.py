@@ -468,7 +468,7 @@ def verifica_posizioni_attive():
                     simulazione_attiva["attiva"] = False
                     simulazione_attiva["chiusa"] = time.time()
                     logging.info(f"[CLOSE] {symbol} - {simulazione_attiva['motivo']}")
-                    del posizioni_attive[symbol]
+                    
 
             except Exception as err:
                 logging.error(f"Verifica {symbol}: {err}")
