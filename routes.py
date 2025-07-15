@@ -410,7 +410,8 @@ def verifica_posizioni_attive():
                     entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
                 )
                 rendimento = prezzo_uscita / prezzo_ingresso if tipo == "BUY" else prezzo_ingresso / prezzo_uscita
-                simulazione_attiva["guadagno_netto"] = round(investimento * rendimento - investimento - investimento * 2 * (commissione / 100), 4)
+                guadagno_netto = round(investimento * rendimento - investimento - investimento * 2 * (commissione / 100), 4)
+                simulazione_attiva["guadagno_netto"] = guadagno_netto
 
                 # TP / SL
                 chiudere = (
@@ -431,20 +432,30 @@ def verifica_posizioni_attive():
                 macd_1m = df_1m["MACD"].iloc[-1]
                 macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
 
-                microtrend_invertito = (
-                    (ema7 < ema25 or rsi_1m < 50 or macd_1m < macd_signal_1m) if tipo == "BUY" else
-                    (ema7 > ema25 or rsi_1m > 50 or macd_1m > macd_signal_1m)
-                )
+                motivi = []
 
-                # DEBUG live nel campo "motivo"
-                simulazione_attiva["motivo"] = (
-                    f"1m ema7={ema7:.6f} ema25={ema25:.6f} "
-                    f"rsi={rsi_1m:.1f} macd={macd_1m:.5f}/{macd_signal_1m:.5f} "
-                    f"invertito={microtrend_invertito}"
-                )
+                if tipo == "BUY":
+                    if ema7 < ema25:
+                        motivi.append("EMA↓")
+                    if rsi_1m < 48:
+                        motivi.append("RSI<48")
+                    if macd_1m < macd_signal_1m:
+                        motivi.append("MACD↓")
+                else:  # tipo == "SELL"
+                    if ema7 > ema25:
+                        motivi.append("EMA↑")
+                    if rsi_1m > 52:
+                        motivi.append("RSI>52")
+                    if macd_1m > macd_signal_1m:
+                        motivi.append("MACD↑")
 
-                if microtrend_invertito:
+                if motivi:
+                    simulazione_attiva["motivo"] = f"📉 Microtrend 1m invertito ({', '.join(motivi)})"
                     chiudere = True
+                else:
+                    simulazione_attiva["motivo"] = (
+                        f"📊 1m ema7={ema7:.4f} ema25={ema25:.4f} | rsi={rsi_1m:.1f} | macd={macd_1m:.4f}/{macd_signal_1m:.4f}"
+                    )
 
                 if chiudere:
                     del posizioni_attive[symbol]
@@ -452,6 +463,7 @@ def verifica_posizioni_attive():
 
             except Exception as err:
                 logging.error(f"Verifica {symbol}: {err}")
+
             
 monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
 monitor_thread.start()
