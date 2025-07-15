@@ -461,11 +461,13 @@ def verifica_posizioni_attive():
                 if motivi:
                     simulazione_attiva["motivo"] = f"📉 Microtrend 1m invertito ({', '.join(motivi)})"
                     chiudere = True  # protezione attiva anche se guadagno negativo
+                    logging.info(f"[DEBUG] {symbol} → motivo aggiornato: {simulazione_attiva['motivo']}")
                 else:
                     simulazione_attiva["motivo"] = (
                         f"📊 1m ema7={ema7:.4f} ema25={ema25:.4f} | "
                         f"rsi={rsi_1m:.1f} | macd={macd_1m:.4f}/{macd_signal_1m:.4f}"
                     )
+                    logging.info(f"[DEBUG] {symbol} → motivo aggiornato: {simulazione_attiva['motivo']}")
 
                 # 🔹 Chiusura simulazione
                 if chiudere:
