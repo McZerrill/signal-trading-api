@@ -435,20 +435,31 @@ def verifica_posizioni_attive():
                     macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
 
                     # Condizioni microtrend
+                    macd_gap = abs(macd_1m - macd_signal_1m)
+
                     if tipo == "BUY":
                         if ema7 < ema25:
-                            motivi.append("EMA↓")
+                            motivi.append("E↓")
                         if rsi_1m < 55:
-                            motivi.append("RSI<55")
+                            motivi.append("R<55")
                         if macd_1m < macd_signal_1m:
-                            motivi.append("MACD↓")
+                            motivi.append("M↓")
+                        if rsi_1m < 40:
+                            motivi.append("r<40")
+                        if macd_gap < 0.0005:
+                            motivi.append("Δ<0.0005")
                     else:
                         if ema7 > ema25:
-                            motivi.append("EMA↑")
+                            motivi.append("E↑")
                         if rsi_1m > 52:
-                            motivi.append("RSI>52")
+                            motivi.append("R>52")
                         if macd_1m > macd_signal_1m:
-                            motivi.append("MACD↑")
+                            motivi.append("M↑")
+                        if rsi_1m > 60:
+                            motivi.append("r>60")
+                        if macd_gap < 0.0005:
+                            motivi.append("Δ<0.0005")
+
 
                     if len(motivi) >= 2:
                         simulazione_attiva["motivo"] = f"📉 Microtrend 1m invertito ({', '.join(motivi)})"
