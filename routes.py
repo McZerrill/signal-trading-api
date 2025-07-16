@@ -447,7 +447,6 @@ def verifica_posizioni_attive():
                     if macd_1m > macd_signal_1m:
                         motivi.append("MACD↑")
 
-                # Candela di conferma significativa
                 ultima = df_1m.iloc[-1]
                 ampiezza_totale = abs(ultima["high"] - ultima["low"])
                 corpo = abs(ultima["close"] - ultima["open"])
@@ -465,7 +464,12 @@ def verifica_posizioni_attive():
                     chiudere = True
 
                 elif len(motivi) == 0:
-                    simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                    if tipo == "BUY" and (ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m):
+                        simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                    elif tipo == "SELL" and (ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m):
+                        simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                    else:
+                        simulazione_attiva["motivo"] = "⚠️ Nessun segnale, ma situazione microtrend incerta"
                 else:
                     simulazione_attiva["motivo"] = f"📉 Microtrend 1m parzialmente contrario: {motivi[0]}"
 
