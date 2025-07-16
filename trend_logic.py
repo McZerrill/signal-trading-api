@@ -170,8 +170,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             # Calcoli TP/SL solo se il segnale è confermato
             if segnale == "BUY":
                 forza_trend = min(max(distanza_ema / close, 0.001), 0.01)  # tra 0.1% e 1%
-                coeff_tp = 1.5 + (accelerazione * 10)  # maggiore accelerazione → TP più lontano
-                coeff_sl = 1.0 - (accelerazione * 5)   # maggiore accelerazione → SL più stretto (protezione)
+                coeff_tp = min(max(1.5 + (accelerazione * 10), 1.2), 2.0)  # maggiore accelerazione → TP più lontano
+                coeff_sl = min(max(1.0 - (accelerazione * 5), 0.5), 1.0)   # maggiore accelerazione → SL più stretto (protezione)
 
                 delta_pct = calcola_percentuale_guadagno(
                     guadagno_netto_target,
@@ -180,9 +180,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                     commissione
                 )
                 delta_price = close * delta_pct
-                tp = round(close + delta_price, 4)
-                sl = round(close - (delta_price / 1.0), 4)  # R:R = 1.5
-
+                tp = round(close + delta_price * coeff_tp, 4)
+                sl = round(close - delta_price * coeff_sl, 4)
+                
                 note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
     # ✅ Logica SELL
@@ -200,8 +200,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             # Calcoli TP/SL solo se il segnale è confermato
             if segnale == "SELL":
                 forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
-                coeff_tp = 1.5 + (accelerazione * 10)
-                coeff_sl = 1.0 - (accelerazione * 5)
+                coeff_tp = min(max(1.5 + (accelerazione * 10), 1.2), 2.0)
+                coeff_sl = min(max(1.0 - (accelerazione * 5), 0.5), 1.0)
 
                 delta_pct = calcola_percentuale_guadagno(
                     guadagno_netto_target,
@@ -210,9 +210,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                     commissione
                 )
                 delta_price = close * delta_pct
-                tp = round(close - delta_price, 4)
-                sl = round(close + (delta_price / 1.0), 4)  # R:R = 1.5
-
+                tp = round(close - delta_price * coeff_tp, 4)
+                sl = round(close + delta_price * coeff_sl, 4)
 
                 note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
 
