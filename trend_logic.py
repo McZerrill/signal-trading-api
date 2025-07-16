@@ -100,16 +100,16 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     macd_rsi_range = (44, 56)
     macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.001
 
-    if atr / close < atr_minimo:
-        note.append("⚠️ ATR troppo basso: mercato poco volatile")
-        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+    #if atr / close < atr_minimo:
+        #note.append("⚠️ ATR troppo basso: mercato poco volatile")
+        #return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     volume_attuale = hist['volume'].iloc[-1]
     volume_medio = hist['volume'].iloc[-21:-1].mean()
     if volume_attuale < volume_medio * (volume_soglia / 100):
         note.append("⚠️ Volume basso: segnale debole")
-        if not MODALITA_TEST:
-            return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+        #if not MODALITA_TEST:
+            #return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     # Calcolo distanza e curvatura
     distanza_ema = abs(ema7 - ema25)
@@ -160,9 +160,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             # Controllo durata trend BUY
             durata_trend = candele_trend_up
             note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
-            if durata_trend >= 5:
-                note.append(f"⛔ Segnale evitato: trend BUY troppo maturo ({durata_trend} candele)")
-                segnale = None  # Annulla il segnale
+            #if durata_trend >= 5:
+                #note.append(f"⛔ Segnale evitato: trend BUY troppo maturo ({durata_trend} candele)")
+                #segnale = None  # Annulla il segnale
 
             # Calcoli TP/SL solo se il segnale è confermato
             if segnale == "BUY":
