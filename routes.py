@@ -453,11 +453,14 @@ def verifica_posizioni_attive():
                     if len(motivi) >= 2:
                         simulazione_attiva["motivo"] = f"📉 Microtrend 1m invertito ({', '.join(motivi)})"
                         chiudere = True
+                    elif len(motivi) == 0:
+                        simulazione_attiva["motivo"] = "✅ Microtrend 1m conferma il trend principale"
                     else:
                         simulazione_attiva["motivo"] = (
                             f"📊 1m ema7={ema7:.4f} ema25={ema25:.4f} | "
                             f"rsi={rsi_1m:.1f} | macd={macd_1m:.4f}/{macd_signal_1m:.4f}"
                         )
+                    
 
                 # Chiusura
                 if chiudere:
