@@ -96,9 +96,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     # Soglie fisse o adattive in base alla modalità
     volume_soglia = 300 if MODALITA_TEST else 300
     atr_minimo = 0.0012 if MODALITA_TEST else 0.001
-    distanza_minima = 0.0005 if MODALITA_TEST else 0.0015
-    macd_rsi_range = (46, 57)
-    macd_signal_threshold = 0.001 if MODALITA_TEST else 0.001
+    distanza_minima = 0.0012 if MODALITA_TEST else 0.0015
+    macd_rsi_range = (48, 55)
+    macd_signal_threshold = 0.0012 if MODALITA_TEST else 0.001
 
     #if atr / close < atr_minimo:
         #note.append("⚠️ ATR troppo basso: mercato poco volatile")
@@ -106,7 +106,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     volume_attuale = hist['volume'].iloc[-1]
     volume_medio = hist['volume'].iloc[-21:-1].mean()
-    if volume_attuale < volume_medio * (volume_soglia / 100):
+    if volume_attuale < volume_medio * 2.5:
         note.append("⚠️ Volume basso: segnale debole")
         if not MODALITA_TEST:
             return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
