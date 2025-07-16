@@ -403,7 +403,7 @@ def verifica_posizioni_attive():
                 book = get_bid_ask(symbol)
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
-                # Calcolo guadagno netto
+                # Guadagno netto
                 prezzo_uscita = prezzo_corrente * (1 - spread / 100) if tipo == "BUY" else prezzo_corrente * (1 + spread / 100)
                 prezzo_ingresso = entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
                 rendimento = prezzo_uscita / prezzo_ingresso if tipo == "BUY" else prezzo_ingresso / prezzo_uscita
@@ -422,53 +422,48 @@ def verifica_posizioni_attive():
                 if df_1m.empty:
                     simulazione_attiva["motivo"] = "⚠️ Dati insufficienti (1m)"
                     continue
+
+                df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
+                df_1m["EMA_25"] = df_1m["close"].ewm(span=25).mean()
+                df_1m["RSI"] = calcola_rsi(df_1m["close"])
+                df_1m["MACD"], df_1m["MACD_SIGNAL"] = calcola_macd(df_1m["close"])
+
+                # Ultime 2 candele
+                ema7_now = df_1m["EMA_7"].iloc[-1]
+                ema25_now = df_1m["EMA_25"].iloc[-1]
+                ema7_prev = df_1m["EMA_7"].iloc[-2]
+                ema25_prev = df_1m["EMA_25"].iloc[-2]
+                rsi_now = df_1m["RSI"].iloc[-1]
+                rsi_prev = df_1m["RSI"].iloc[-2]
+                macd_now = df_1m["MACD"].iloc[-1]
+                macd_prev = df_1m["MACD"].iloc[-2]
+                macd_signal_now = df_1m["MACD_SIGNAL"].iloc[-1]
+                macd_signal_prev = df_1m["MACD_SIGNAL"].iloc[-2]
+
+                # Gap
+                macd_gap_now = abs(macd_now - macd_signal_now)
+                macd_gap_prev = abs(macd_prev - macd_signal_prev)
+
+                if tipo == "BUY":
+                    if ema7_now < ema25_now and ema7_prev < ema25_prev:
+                        motivi.append("EMA↓x2")
+                    if rsi_now < 55 and rsi_prev < 55:
+                        motivi.append("RSI<55x2")
+                    if macd_now < macd_signal_now and macd_prev < macd_signal_prev:
+                        motivi.append("MACD↓x2")
                 else:
-                    df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
-                    df_1m["EMA_25"] = df_1m["close"].ewm(span=25).mean()
-                    df_1m["RSI"] = calcola_rsi(df_1m["close"])
-                    df_1m["MACD"], df_1m["MACD_SIGNAL"] = calcola_macd(df_1m["close"])
+                    if ema7_now > ema25_now and ema7_prev > ema25_prev:
+                        motivi.append("EMA↑x2")
+                    if rsi_now > 52 and rsi_prev > 52:
+                        motivi.append("RSI>52x2")
+                    if macd_now > macd_signal_now and macd_prev > macd_signal_prev:
+                        motivi.append("MACD↑x2")
 
-                    ema7 = df_1m["EMA_7"].iloc[-1]
-                    ema25 = df_1m["EMA_25"].iloc[-1]
-                    rsi_1m = df_1m["RSI"].iloc[-1]
-                    macd_1m = df_1m["MACD"].iloc[-1]
-                    macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
-
-                    # Condizioni microtrend
-                    macd_gap = abs(macd_1m - macd_signal_1m)
-
-                    if tipo == "BUY":
-                        if ema7 < ema25:
-                            motivi.append("E↓")
-                        if rsi_1m < 55:
-                            motivi.append("R<55")
-                        if macd_1m < macd_signal_1m:
-                            motivi.append("M↓")
-                        if rsi_1m < 40:
-                            motivi.append("r<40")
-                        if macd_gap < 0.0005:
-                            motivi.append("Δ<0.0005")
-                    else:
-                        if ema7 > ema25:
-                            motivi.append("E↑")
-                        if rsi_1m > 52:
-                            motivi.append("R>52")
-                        if macd_1m > macd_signal_1m:
-                            motivi.append("M↑")
-                        if rsi_1m > 60:
-                            motivi.append("r>60")
-                        if macd_gap < 0.0005:
-                            motivi.append("Δ<0.0005")
-
-
-                    if len(motivi) >= 2:
-                        simulazione_attiva["motivo"] = f"📉 Microtrend 1m invertito ({', '.join(motivi)})"
-                        chiudere = True
-                    elif len(motivi) == 0:
-                        simulazione_attiva["motivo"] = "✅ Microtrend 1m conferma il trend principale"
-                    else:
-                        simulazione_attiva["motivo"] = f"📉 Microtrend 1m parzialmente contrario: {motivi[0]}"
-                    
+                if motivi:
+                    simulazione_attiva["motivo"] = f"📉 Microtrend 1m inversione sostenuta: {motivi[0]}"
+                    chiudere = True
+                else:
+                    simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
 
                 # Chiusura
                 if chiudere:
