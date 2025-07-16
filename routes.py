@@ -416,18 +416,12 @@ def verifica_posizioni_attive():
                     (tipo == "SELL" and (prezzo_corrente <= tp or prezzo_corrente >= sl))
                 )
 
-                # Trend 15m: chiusura immediata se il trend cambia (anche con perdita)
-                df_15m = get_binance_df(symbol, "15m", 100)
-                nuovo_segnale, *_ = analizza_trend(df_15m, spread)
-                if (tipo == "BUY" and nuovo_segnale != "BUY") or (tipo == "SELL" and nuovo_segnale != "SELL"):
-                    simulazione_attiva["motivo"] = f"📉 Trend 15m cambiato (da {tipo} a {nuovo_segnale})"
-                    chiudere = True
-
                 # Microtrend 1m
+                motivi = []
                 df_1m = get_binance_df(symbol, "1m", limit=50)
                 if df_1m.empty:
-                    simulazione_attiva["motivo"] = f"⚠️ Dati insufficienti (1m)"
-                    chiudere = True
+                    simulazione_attiva["motivo"] = "⚠️ Dati insufficienti (1m)"
+                    continue
                 else:
                     df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
                     df_1m["EMA_25"] = df_1m["close"].ewm(span=25).mean()
@@ -440,7 +434,7 @@ def verifica_posizioni_attive():
                     macd_1m = df_1m["MACD"].iloc[-1]
                     macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
 
-                    motivi = []
+                    # Condizioni microtrend
                     if tipo == "BUY":
                         if ema7 < ema25:
                             motivi.append("EMA↓")
@@ -456,16 +450,16 @@ def verifica_posizioni_attive():
                         if macd_1m > macd_signal_1m:
                             motivi.append("MACD↑")
 
-                    if motivi and not chiudere:
+                    if len(motivi) >= 2:
                         simulazione_attiva["motivo"] = f"📉 Microtrend 1m invertito ({', '.join(motivi)})"
                         chiudere = True
-                    elif not chiudere:
+                    else:
                         simulazione_attiva["motivo"] = (
                             f"📊 1m ema7={ema7:.4f} ema25={ema25:.4f} | "
                             f"rsi={rsi_1m:.1f} | macd={macd_1m:.4f}/{macd_signal_1m:.4f}"
                         )
 
-                # Chiusura finale
+                # Chiusura
                 if chiudere:
                     simulazione_attiva["attiva"] = False
                     simulazione_attiva["chiusa"] = time.time()
@@ -476,6 +470,7 @@ def verifica_posizioni_attive():
 
             except Exception as err:
                 logging.error(f"Verifica {symbol}: {err}")
+
 
 
 # Thread monitor
