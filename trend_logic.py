@@ -94,7 +94,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     commissione = 0.1
 
     # Soglie fisse o adattive in base alla modalità
-    volume_soglia = 180 if MODALITA_TEST else 300
+    volume_soglia = 150 if MODALITA_TEST else 300
     atr_minimo = 0.0012 if MODALITA_TEST else 0.001
     distanza_minima = 0.0005 if MODALITA_TEST else 0.0015
     macd_rsi_range = (44, 56)
@@ -108,8 +108,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     volume_medio = hist['volume'].iloc[-21:-1].mean()
     if volume_attuale < volume_medio * (volume_soglia / 100):
         note.append("⚠️ Volume basso: segnale debole")
-        #if not MODALITA_TEST:
-            #return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+        if not MODALITA_TEST:
+            return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     # Calcolo distanza e curvatura
     distanza_ema = abs(ema7 - ema25)
