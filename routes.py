@@ -404,28 +404,29 @@ def verifica_posizioni_attive():
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
                 # Calcolo guadagno netto
-                prezzo_uscita = (
-                    prezzo_corrente * (1 - spread / 100) if tipo == "BUY" else prezzo_corrente * (1 + spread / 100)
-                )
-                prezzo_ingresso = (
-                    entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
-                )
+                prezzo_uscita = prezzo_corrente * (1 - spread / 100) if tipo == "BUY" else prezzo_corrente * (1 + spread / 100)
+                prezzo_ingresso = entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
                 rendimento = prezzo_uscita / prezzo_ingresso if tipo == "BUY" else prezzo_ingresso / prezzo_uscita
                 guadagno_netto = round(investimento * rendimento - investimento - investimento * 2 * (commissione / 100), 4)
                 simulazione_attiva["guadagno_netto"] = guadagno_netto
 
-                # Verifica TP / SL
+                # TP / SL
                 chiudere = (
                     (tipo == "BUY" and (prezzo_corrente >= tp or prezzo_corrente <= sl)) or
                     (tipo == "SELL" and (prezzo_corrente <= tp or prezzo_corrente >= sl))
                 )
 
-                # Verifica microtrend su 1m
-                df_1m = get_binance_df(symbol, "1m", limit=50)
-                motivi = []
+                # Trend 15m: chiusura immediata se il trend cambia (anche con perdita)
+                df_15m = get_binance_df(symbol, "15m", 100)
+                nuovo_segnale, *_ = analizza_trend(df_15m, spread)
+                if (tipo == "BUY" and nuovo_segnale != "BUY") or (tipo == "SELL" and nuovo_segnale != "SELL"):
+                    simulazione_attiva["motivo"] = f"📉 Trend 15m cambiato (da {tipo} a {nuovo_segnale})"
+                    chiudere = True
 
+                # Microtrend 1m
+                df_1m = get_binance_df(symbol, "1m", limit=50)
                 if df_1m.empty:
-                    simulazione_attiva["motivo"] = "📉 Dati insufficienti (1m)"
+                    simulazione_attiva["motivo"] = f"⚠️ Dati insufficienti (1m)"
                     chiudere = True
                 else:
                     df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
@@ -439,6 +440,7 @@ def verifica_posizioni_attive():
                     macd_1m = df_1m["MACD"].iloc[-1]
                     macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
 
+                    motivi = []
                     if tipo == "BUY":
                         if ema7 < ema25:
                             motivi.append("EMA↓")
@@ -446,7 +448,7 @@ def verifica_posizioni_attive():
                             motivi.append("RSI<55")
                         if macd_1m < macd_signal_1m:
                             motivi.append("MACD↓")
-                    else:  # tipo == "SELL"
+                    else:
                         if ema7 > ema25:
                             motivi.append("EMA↑")
                         if rsi_1m > 52:
@@ -454,19 +456,20 @@ def verifica_posizioni_attive():
                         if macd_1m > macd_signal_1m:
                             motivi.append("MACD↑")
 
-                    if motivi:
+                    if motivi and not chiudere:
                         simulazione_attiva["motivo"] = f"📉 Microtrend 1m invertito ({', '.join(motivi)})"
                         chiudere = True
-                    else:
+                    elif not chiudere:
                         simulazione_attiva["motivo"] = (
-                            f"📊 1m ema7={ema7:.4f} ema25={ema25:.4f} | rsi={rsi_1m:.1f} | macd={macd_1m:.4f}/{macd_signal_1m:.4f}"
+                            f"📊 1m ema7={ema7:.4f} ema25={ema25:.4f} | "
+                            f"rsi={rsi_1m:.1f} | macd={macd_1m:.4f}/{macd_signal_1m:.4f}"
                         )
 
                 # Chiusura finale
                 if chiudere:
                     simulazione_attiva["attiva"] = False
                     simulazione_attiva["chiusa"] = time.time()
-                    simulazione_attiva["prezzo_chiusura"] = round(prezzo_corrente, 6)
+                    simulazione_attiva["prezzo_chiusura"] = prezzo_corrente
                     simulazione_attiva["esito"] = "Profitto" if guadagno_netto >= 0 else "Perdita"
                     logging.info(f"[CLOSE] {symbol} - {simulazione_attiva['motivo']}")
                     del posizioni_attive[symbol]
