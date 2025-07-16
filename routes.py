@@ -460,9 +460,10 @@ def verifica_posizioni_attive():
                     volume >= media_volume
                 )
 
-                if len(motivi) >= 1 and candela_forte:
-                    simulazione_attiva["motivo"] = f"📉 Inversione 1m confermata ({', '.join(motivi)}) + candela forte"
+                if len(motivi) >= 1:
+                    simulazione_attiva["motivo"] = f"📉 Inversione 1m semplice: {', '.join(motivi)}"
                     chiudere = True
+
                 elif len(motivi) == 0:
                     simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
                 else:
