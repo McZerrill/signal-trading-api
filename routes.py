@@ -384,7 +384,6 @@ def hot_assets():
 
 # Thread di monitoraggio attivo ogni 5 secondi
 import threading
-
 def verifica_posizioni_attive():
     while True:
         time.sleep(5)
@@ -408,7 +407,7 @@ def verifica_posizioni_attive():
                 guadagno_netto = round(investimento * rendimento - investimento - investimento * 2 * (commissione / 100), 4)
                 simulazione_attiva["guadagno_netto"] = guadagno_netto
 
-                # Chiusura automatica su TP/SL
+                # TP / SL
                 chiudere = (
                     (tipo == "BUY" and (prezzo_corrente >= tp or prezzo_corrente <= sl)) or
                     (tipo == "SELL" and (prezzo_corrente <= tp or prezzo_corrente >= sl))
@@ -442,28 +441,28 @@ def verifica_posizioni_attive():
                 macd_1m = df_1m["MACD"].iloc[-1]
                 macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
 
-                # Inversione attiva
+                # Log diagnostico
+                logging.info(f"[DEBUG] {symbol} tipo={tipo} | EMA7={ema7:.4f} EMA25={ema25:.4f} | RSI={rsi_1m:.2f} | MACD={macd_1m:.4f}/{macd_signal_1m:.4f}")
+
+                # Condizioni inversione
                 if tipo == "BUY":
                     if ema7 < ema25:
                         motivi.append("EMA↓")
-                    if rsi_1m < 55:
-                        motivi.append("RSI<55")
-                    if macd_1m < macd_signal_1m:
+                    if rsi_1m < 54.5:
+                        motivi.append("RSI<54.5")
+                    if macd_1m < macd_signal_1m - 0.001:
                         motivi.append("MACD↓")
                 else:
                     if ema7 > ema25:
                         motivi.append("EMA↑")
-                    if rsi_1m > 52:
-                        motivi.append("RSI>52")
-                    if macd_1m > macd_signal_1m:
+                    if rsi_1m > 53:
+                        motivi.append("RSI>53")
+                    if macd_1m > macd_signal_1m + 0.001:
                         motivi.append("MACD↑")
 
-                # Log per debug
-                logging.info(f"[DEBUG] {symbol} tipo={tipo} | EMA7={ema7:.4f} EMA25={ema25:.4f} | RSI={rsi_1m:.2f} | MACD={macd_1m:.4f}/{macd_signal_1m:.4f} | motivi={motivi}")
-
-                # Chiusura per inversione 1m
-                if motivi:
-                    motivo_finale = f"📉 Inversione 1m semplice: {', '.join(motivi)}"
+                # Chiusura per inversione se almeno 2 segnali
+                if len(motivi) >= 2:
+                    motivo_finale = f"📉 Inversione 1m: {', '.join(motivi)}"
                     simulazione_attiva["motivo"] = motivo_finale
                     simulazione_attiva["attiva"] = False
                     simulazione_attiva["chiusa"] = time.time()
@@ -473,23 +472,23 @@ def verifica_posizioni_attive():
                     del posizioni_attive[symbol]
                     continue
 
-                # Verifica condizioni vicine all’inversione
+                # Condizioni borderline
                 if tipo == "BUY":
-                    if ema7 >= ema25 and (ema7 - ema25) / ema25 < 0.002:
-                        vicini.append("EMA7≈EMA25")
-                    if 54.5 <= rsi_1m < 55:
-                        vicini.append(f"RSI={rsi_1m:.1f}")
-                    if 0 <= macd_1m - macd_signal_1m < 0.001:
-                        vicini.append("MACD≈segnale")
-                else:
-                    if ema25 >= ema7 and (ema25 - ema7) / ema25 < 0.002:
-                        vicini.append("EMA7≈EMA25")
-                    if 52 < rsi_1m <= 53:
+                    if abs(ema7 - ema25) / ema25 < 0.0015:
+                        vicini.append("EMA≈")
+                    if 54 <= rsi_1m < 54.5:
                         vicini.append(f"RSI={rsi_1m:.1f}")
                     if 0 <= macd_signal_1m - macd_1m < 0.001:
-                        vicini.append("MACD≈segnale")
+                        vicini.append("MACD≈")
+                else:
+                    if abs(ema25 - ema7) / ema25 < 0.0015:
+                        vicini.append("EMA≈")
+                    if 53 < rsi_1m <= 54:
+                        vicini.append(f"RSI={rsi_1m:.1f}")
+                    if 0 <= macd_1m - macd_signal_1m < 0.001:
+                        vicini.append("MACD≈")
 
-                # Motivo finale se nessuna inversione
+                # Assegna motivo
                 if tipo == "BUY" and ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m:
                     simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
                 elif tipo == "SELL" and ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m:
