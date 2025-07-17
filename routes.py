@@ -243,6 +243,8 @@ def get_price(symbol: str):
             "spread": round(spread, 4),
             "tempo": elapsed,
             "motivo": posizioni_attive.get(symbol, {}).get("motivo", ""),
+            "takeProfit": posizioni_attive.get(symbol, {}).get("tp", 0.0),
+            "stopLoss": posizioni_attive.get(symbol, {}).get("sl", 0.0),
         }
 
     except Exception as e:
