@@ -390,44 +390,19 @@ def verifica_posizioni_attive():
     while True:
         time.sleep(5)
         for symbol in list(posizioni_attive.keys()):
-            simulazione_attiva = posizioni_attive[symbol]
-            tipo = simulazione_attiva["tipo"]
-            entry = simulazione_attiva["entry"]
-            tp = simulazione_attiva["tp"]
-            sl = simulazione_attiva["sl"]
-            spread = simulazione_attiva["spread"]
-            investimento = simulazione_attiva.get("investimento", 100.0)
-            commissione = simulazione_attiva.get("commissione", 0.1)
+            simulazione = posizioni_attive[symbol]
+            tipo = simulazione["tipo"]
+            sl = simulazione["sl"]
 
             try:
-                # Prezzo attuale e guadagno netto
+                # Prezzo attuale
                 book = get_bid_ask(symbol)
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
-                prezzo_uscita = prezzo_corrente * (1 - spread / 100) if tipo == "BUY" else prezzo_corrente * (1 + spread / 100)
-                prezzo_ingresso = entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
-                rendimento = prezzo_uscita / prezzo_ingresso if tipo == "BUY" else prezzo_ingresso / prezzo_uscita
-                guadagno_netto = round(investimento * rendimento - investimento - investimento * 2 * (commissione / 100), 4)
-                simulazione_attiva["guadagno_netto"] = guadagno_netto
-
-                # Verifica TP o SL
-                if (
-                    (tipo == "BUY" and (prezzo_corrente >= tp or prezzo_corrente <= sl)) or
-                    (tipo == "SELL" and (prezzo_corrente <= tp or prezzo_corrente >= sl))
-                ):
-                    simulazione_attiva["motivo"] = "🎯 TP o SL raggiunto"
-                    simulazione_attiva["attiva"] = False
-                    simulazione_attiva["chiusa"] = time.time()
-                    simulazione_attiva["prezzo_chiusura"] = prezzo_corrente
-                    simulazione_attiva["esito"] = "Profitto" if guadagno_netto >= 0 else "Perdita"
-                    logging.info(f"[CLOSE] {symbol} - TP/SL")
-                    #del posizioni_attive[symbol]
-                    continue
-
-                # Microtrend 1m
+                # Dati microtrend 1m
                 df_1m = get_binance_df(symbol, "1m", limit=50)
                 if df_1m.empty:
-                    simulazione_attiva["motivo"] = "⚠️ Dati insufficienti (1m)"
+                    simulazione["motivo"] = "⚠️ Dati insufficienti (1m)"
                     continue
 
                 df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
@@ -441,6 +416,7 @@ def verifica_posizioni_attive():
                 macd_1m = df_1m["MACD"].iloc[-1]
                 macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
 
+                # Condizione di chiusura anticipata → forza SL
                 motivo_chiusura = ""
                 if tipo == "BUY":
                     if ema7 < ema25:
@@ -449,7 +425,7 @@ def verifica_posizioni_attive():
                         motivo_chiusura = f"📉 Inversione 1m: RSI={rsi_1m:.1f} < 55"
                     elif macd_1m < macd_signal_1m:
                         motivo_chiusura = "📉 Inversione 1m: MACD < Segnale"
-                else:
+                else:  # SELL
                     if ema7 > ema25:
                         motivo_chiusura = "📉 Inversione 1m: EMA7 > EMA25"
                     elif rsi_1m > 52:
@@ -458,19 +434,11 @@ def verifica_posizioni_attive():
                         motivo_chiusura = "📉 Inversione 1m: MACD > Segnale"
 
                 if motivo_chiusura:
-                    simulazione_attiva["sl"] = prezzo_corrente  # forza chiusura nel frontend
-                    simulazione_attiva["esito"] = "Perdita"
-                    simulazione_attiva["prezzo_finale"] = prezzo_corrente
-                    simulazione_attiva["motivo"] = motivo_chiusura
-                    simulazione_attiva["attiva"] = False
-                    simulazione_attiva["chiusa"] = time.time()
-                    simulazione_attiva["prezzo_chiusura"] = prezzo_corrente
-                    logging.info(f"[CHIUSURA ANTICIPATA] {symbol} - {motivo_chiusura}")
-                    #del posizioni_attive[symbol]
+                    simulazione["stop_loss"] = prezzo_corrente  # forza chiusura lato frontend
+                    simulazione["motivo"] = motivo_chiusura
                     continue
 
-
-                # Messaggi microtrend
+                # Altrimenti: aggiorna motivo descrittivo
                 vicini = []
                 if tipo == "BUY":
                     if ema7 >= ema25 and (ema7 - ema25) / ema25 < 0.002:
@@ -487,20 +455,17 @@ def verifica_posizioni_attive():
                     if 0 <= macd_signal_1m - macd_1m < 0.001:
                         vicini.append("MACD≈Segnale")
 
-                if simulazione_attiva.get("attiva", True):
-                    if tipo == "BUY" and ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m:
-                        simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                    elif tipo == "SELL" and ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m:
-                        simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                    elif vicini:
-                        simulazione_attiva["motivo"] = f"👀 Possibile inversione in avvicinamento: {', '.join(vicini)}"
-                    else:
-                        simulazione_attiva["motivo"] = "⚠️ Microtrend 1m incerto: attesa conferma"
-
-                    logging.info(f"[MOTIVO] {symbol} - {simulazione_attiva['motivo']}")
+                if tipo == "BUY" and ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m:
+                    simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                elif tipo == "SELL" and ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m:
+                    simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                elif vicini:
+                    simulazione["motivo"] = f"👀 Possibile inversione in avvicinamento: {', '.join(vicini)}"
+                else:
+                    simulazione["motivo"] = "⚠️ Microtrend 1m incerto: attesa conferma"
 
             except Exception as err:
-                logging.error(f"Verifica {symbol}: {err}")
+                simulazione["motivo"] = f"❌ Errore microtrend 1m: {err}"
 
 
 # Thread monitor
