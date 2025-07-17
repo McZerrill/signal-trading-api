@@ -408,11 +408,22 @@ def verifica_posizioni_attive():
                 guadagno_netto = round(investimento * rendimento - investimento - investimento * 2 * (commissione / 100), 4)
                 simulazione_attiva["guadagno_netto"] = guadagno_netto
 
+                # Chiusura automatica su TP o SL
                 chiudere = (
                     (tipo == "BUY" and (prezzo_corrente >= tp or prezzo_corrente <= sl)) or
                     (tipo == "SELL" and (prezzo_corrente <= tp or prezzo_corrente >= sl))
                 )
+                if chiudere:
+                    simulazione_attiva["motivo"] = "🎯 TP o SL raggiunto"
+                    simulazione_attiva["attiva"] = False
+                    simulazione_attiva["chiusa"] = time.time()
+                    simulazione_attiva["prezzo_chiusura"] = prezzo_corrente
+                    simulazione_attiva["esito"] = "Profitto" if guadagno_netto >= 0 else "Perdita"
+                    logging.info(f"[CLOSE] {symbol} - TP/SL")
+                    del posizioni_attive[symbol]
+                    continue
 
+                # Analisi microtrend 1m
                 motivi = []
                 df_1m = get_binance_df(symbol, "1m", limit=50)
                 if df_1m.empty:
@@ -430,8 +441,7 @@ def verifica_posizioni_attive():
                 macd_1m = df_1m["MACD"].iloc[-1]
                 macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
 
-                macd_gap = abs(macd_1m - macd_signal_1m)
-
+                # Verifica segnali di inversione
                 if tipo == "BUY":
                     if ema7 < ema25:
                         motivi.append("EMA↓")
@@ -447,37 +457,25 @@ def verifica_posizioni_attive():
                     if macd_1m > macd_signal_1m:
                         motivi.append("MACD↑")
 
-                ultima = df_1m.iloc[-1]
-                ampiezza_totale = abs(ultima["high"] - ultima["low"])
-                corpo = abs(ultima["close"] - ultima["open"])
-                volume = ultima["volume"]
-                media_volume = df_1m["volume"].rolling(window=10).mean().iloc[-1]
-
-                candela_forte = (
-                    ampiezza_totale > 0 and
-                    corpo / ampiezza_totale >= 0.5 and
-                    volume >= media_volume
-                )
-
-                if len(motivi) >= 1:
-                    simulazione_attiva["motivo"] = f"📉 Inversione 1m semplice: {', '.join(motivi)}"
-                    chiudere = True
-
-                else:
-                    if tipo == "BUY" and (ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m):
-                        simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                    elif tipo == "SELL" and (ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m):
-                        simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                    else:
-                        simulazione_attiva["motivo"] = "⚠️ Microtrend 1m incerto: attesa conferma"
-
-                if chiudere:
+                # Se troviamo inversione → chiusura immediata
+                if motivi:
+                    motivo_finale = f"📉 Inversione 1m semplice: {', '.join(motivi)}"
+                    simulazione_attiva["motivo"] = motivo_finale
                     simulazione_attiva["attiva"] = False
                     simulazione_attiva["chiusa"] = time.time()
                     simulazione_attiva["prezzo_chiusura"] = prezzo_corrente
                     simulazione_attiva["esito"] = "Profitto" if guadagno_netto >= 0 else "Perdita"
-                    logging.info(f"[CLOSE] {symbol} - {simulazione_attiva['motivo']}")
+                    logging.info(f"[CLOSE] {symbol} - {motivo_finale}")
                     del posizioni_attive[symbol]
+                    continue  # Salta al prossimo asset
+
+                # Nessuna inversione, aggiornamento motivo microtrend
+                if tipo == "BUY" and ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m:
+                    simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                elif tipo == "SELL" and ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m:
+                    simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                else:
+                    simulazione_attiva["motivo"] = "⚠️ Microtrend 1m incerto: attesa conferma"
 
             except Exception as err:
                 logging.error(f"Verifica {symbol}: {err}")
