@@ -193,9 +193,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             # Controllo durata trend SELL
             durata_trend = candele_trend_down
             note.append(f"🕒 Trend SELL attivo da {durata_trend} candele")
-            if durata_trend >= 5:
-                note.append(f"⛔ Segnale evitato: trend SELL troppo maturo ({durata_trend} candele)")
-                segnale = None  # Annulla il segnale
+            #if durata_trend >= 5:
+                #note.append(f"⛔ Segnale evitato: trend SELL troppo maturo ({durata_trend} candele)")
+                #segnale = None  # Annulla il segnale
 
             # Calcoli TP/SL solo se il segnale è confermato
             if segnale == "SELL":
