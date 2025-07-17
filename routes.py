@@ -436,6 +436,7 @@ def verifica_posizioni_attive():
                 if motivo_chiusura:
                     simulazione["stop_loss"] = prezzo_corrente  # forza chiusura lato frontend
                     simulazione["motivo"] = motivo_chiusura
+                    logging.info(f"[STOPLOSS FORZATO] {symbol} - {motivo_chiusura} @ {prezzo_corrente}")
                     continue
 
                 # Altrimenti: aggiorna motivo descrittivo
@@ -457,8 +458,10 @@ def verifica_posizioni_attive():
 
                 if tipo == "BUY" and ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m:
                     simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                    logging.info(f"[MOTIVO] {symbol} - {simulazione['motivo']}")
                 elif tipo == "SELL" and ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m:
                     simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                    logging.info(f"[MOTIVO] {symbol} - {simulazione['motivo']}")
                 elif vicini:
                     simulazione["motivo"] = f"👀 Possibile inversione in avvicinamento: {', '.join(vicini)}"
                 else:
@@ -466,6 +469,7 @@ def verifica_posizioni_attive():
 
             except Exception as err:
                 simulazione["motivo"] = f"❌ Errore microtrend 1m: {err}"
+                logging.error(f"[ERRORE] Verifica {symbol}: {err}")
 
 
 # Thread monitor
