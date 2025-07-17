@@ -463,15 +463,13 @@ def verifica_posizioni_attive():
                     simulazione_attiva["motivo"] = f"📉 Inversione 1m semplice: {', '.join(motivi)}"
                     chiudere = True
 
-                elif len(motivi) == 0:
+                else:
                     if tipo == "BUY" and (ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m):
                         simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
                     elif tipo == "SELL" and (ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m):
                         simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
                     else:
-                        simulazione_attiva["motivo"] = "⚠️ Nessun segnale, ma situazione microtrend incerta"
-                else:
-                    simulazione_attiva["motivo"] = f"📉 Microtrend 1m parzialmente contrario: {motivi[0]}"
+                        simulazione_attiva["motivo"] = "⚠️ Microtrend 1m incerto: attesa conferma"
 
                 if chiudere:
                     simulazione_attiva["attiva"] = False
