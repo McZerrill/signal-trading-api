@@ -456,7 +456,9 @@ def verifica_posizioni_attive():
                         motivo_chiusura = "📉 Inversione 1m: MACD > Segnale"
 
                 if motivo_chiusura:
-                    simulazione_attiva["sl"] = prezzo_corrente  # forza chiusura nel frontend
+                    simulazione_attiva["sl"] = prezzo_corrente # forza chiusura nel frontend
+                    simulazione_attiva["esito"] = "Perdita"
+                    simulazione_attiva["prezzo_finale"] = prezzo_corrente
                     simulazione_attiva["motivo"] = motivo_chiusura
                     logging.info(f"[CHIUSURA ANTICIPATA] {symbol} - {motivo_chiusura}")
 
