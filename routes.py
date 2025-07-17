@@ -402,13 +402,57 @@ def verifica_posizioni_attive():
                 book = get_bid_ask(symbol)
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
+                # Recupera microtrend 1m
+                df_1m = get_binance_df(symbol, "1m", limit=50)
+                if df_1m.empty:
+                    simulazione_attiva["motivo"] = "⚠️ Dati insufficienti (1m)"
+                    continue
+
+                df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
+                df_1m["EMA_25"] = df_1m["close"].ewm(span=25).mean()
+                df_1m["RSI"] = calcola_rsi(df_1m["close"])
+                df_1m["MACD"], df_1m["MACD_SIGNAL"] = calcola_macd(df_1m["close"])
+
+                ema7 = df_1m["EMA_7"].iloc[-1]
+                ema25 = df_1m["EMA_25"].iloc[-1]
+                rsi_1m = df_1m["RSI"].iloc[-1]
+                macd_1m = df_1m["MACD"].iloc[-1]
+                macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
+
+                # Forzatura SL per inversione
+                motivo_forzatura = ""
+                if tipo == "BUY":
+                    if ema7 < ema25:
+                        motivo_forzatura = "EMA7 < EMA25"
+                        sl = prezzo_corrente
+                    elif rsi_1m < 55:
+                        motivo_forzatura = f"RSI={rsi_1m:.1f} < 55"
+                        sl = prezzo_corrente
+                    elif macd_1m < macd_signal_1m:
+                        motivo_forzatura = "MACD < Segnale"
+                        sl = prezzo_corrente
+                else:
+                    if ema7 > ema25:
+                        motivo_forzatura = "EMA7 > EMA25"
+                        sl = prezzo_corrente
+                    elif rsi_1m > 52:
+                        motivo_forzatura = f"RSI={rsi_1m:.1f} > 52"
+                        sl = prezzo_corrente
+                    elif macd_1m > macd_signal_1m:
+                        motivo_forzatura = "MACD > Segnale"
+                        sl = prezzo_corrente
+
+                if motivo_forzatura:
+                    logging.info(f"[FORZATURA] {symbol} - SL forzato per inversione: {motivo_forzatura}")
+
+                # Calcolo guadagno netto aggiornato
                 prezzo_uscita = prezzo_corrente * (1 - spread / 100) if tipo == "BUY" else prezzo_corrente * (1 + spread / 100)
                 prezzo_ingresso = entry * (1 + spread / 100) if tipo == "BUY" else entry * (1 - spread / 100)
                 rendimento = prezzo_uscita / prezzo_ingresso if tipo == "BUY" else prezzo_ingresso / prezzo_uscita
                 guadagno_netto = round(investimento * rendimento - investimento - investimento * 2 * (commissione / 100), 4)
                 simulazione_attiva["guadagno_netto"] = guadagno_netto
 
-                # TP/SL
+                # TP o SL raggiunto (inclusa forzatura)
                 if (
                     (tipo == "BUY" and (prezzo_corrente >= tp or prezzo_corrente <= sl)) or
                     (tipo == "SELL" and (prezzo_corrente <= tp or prezzo_corrente >= sl))
@@ -418,40 +462,18 @@ def verifica_posizioni_attive():
                     simulazione_attiva["chiusa"] = time.time()
                     simulazione_attiva["prezzo_chiusura"] = prezzo_corrente
                     simulazione_attiva["esito"] = "Profitto" if guadagno_netto >= 0 else "Perdita"
-                    logging.info(f"[CLOSE] {symbol} - TP/SL")
+                    logging.info(f"[CLOSE] {symbol} - TP/SL ({motivo_forzatura if motivo_forzatura else 'standard'})")
                     del posizioni_attive[symbol]
                     continue
 
-                # Microtrend 1m (solo RSI per test)
-                df_1m = get_binance_df(symbol, "1m", limit=50)
-                if df_1m.empty:
-                    simulazione_attiva["motivo"] = "⚠️ Dati insufficienti (1m)"
-                    continue
-
-                df_1m["RSI"] = calcola_rsi(df_1m["close"])
-                rsi_1m = df_1m["RSI"].iloc[-1]
-
-                logging.info(f"[DEBUG] {symbol} tipo={tipo} | RSI={rsi_1m:.2f}")
-
-                # TEST: chiusura solo su RSI
-                motivo = ""
-                if tipo == "BUY" and rsi_1m < 90:
-                    motivo = f"📉 Inversione 1m: RSI troppo basso ({rsi_1m:.1f})"
-                elif tipo == "SELL" and rsi_1m > 10:
-                    motivo = f"📉 Inversione 1m: RSI troppo alto ({rsi_1m:.1f})"
-
-                if motivo:
-                    simulazione_attiva["motivo"] = motivo
-                    simulazione_attiva["attiva"] = False
-                    simulazione_attiva["chiusa"] = time.time()
-                    simulazione_attiva["prezzo_chiusura"] = prezzo_corrente
-                    simulazione_attiva["esito"] = "Profitto" if guadagno_netto >= 0 else "Perdita"
-                    logging.info(f"[CLOSE] {symbol} - {motivo}")
-                    del posizioni_attive[symbol]
-                    continue
-
-                # Messaggio di attesa
-                simulazione_attiva["motivo"] = f"⏳ RSI OK ({rsi_1m:.1f}) - nessuna chiusura"
+                # Aggiorna motivo microtrend se ancora attiva
+                if simulazione_attiva["attiva"]:
+                    if tipo == "BUY" and ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m:
+                        simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                    elif tipo == "SELL" and ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m:
+                        simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                    else:
+                        simulazione_attiva["motivo"] = "⚠️ Microtrend 1m incerto: attesa conferma"
 
             except Exception as err:
                 logging.error(f"Verifica {symbol}: {err}")
