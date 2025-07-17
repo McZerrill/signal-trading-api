@@ -464,6 +464,7 @@ def verifica_posizioni_attive():
                     simulazione_attiva["prezzo_chiusura"] = prezzo_corrente
                     simulazione_attiva["esito"] = "Profitto" if guadagno_netto >= 0 else "Perdita"
                     logging.info(f"[CLOSE] {symbol} - {motivo}")
+                    del posizioni_attive[symbol]
                     continue
 
                 # Verifica condizioni vicine all'inversione
