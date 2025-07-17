@@ -422,41 +422,23 @@ def verifica_posizioni_attive():
                     del posizioni_attive[symbol]
                     continue
 
-                # Microtrend 1m
+                # Microtrend 1m (solo RSI per test)
                 df_1m = get_binance_df(symbol, "1m", limit=50)
                 if df_1m.empty:
                     simulazione_attiva["motivo"] = "⚠️ Dati insufficienti (1m)"
                     continue
 
-                df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
-                df_1m["EMA_25"] = df_1m["close"].ewm(span=25).mean()
                 df_1m["RSI"] = calcola_rsi(df_1m["close"])
-                df_1m["MACD"], df_1m["MACD_SIGNAL"] = calcola_macd(df_1m["close"])
-
-                ema7 = df_1m["EMA_7"].iloc[-1]
-                ema25 = df_1m["EMA_25"].iloc[-1]
                 rsi_1m = df_1m["RSI"].iloc[-1]
-                macd_1m = df_1m["MACD"].iloc[-1]
-                macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
 
-                logging.info(f"[DEBUG] {symbol} tipo={tipo} | EMA7={ema7:.4f} EMA25={ema25:.4f} | RSI={rsi_1m:.2f} | MACD={macd_1m:.4f}/{macd_signal_1m:.4f}")
+                logging.info(f"[DEBUG] {symbol} tipo={tipo} | RSI={rsi_1m:.2f}")
 
-                # Chiusura immediata se anche una sola condizione è contraria
+                # TEST: chiusura solo su RSI
                 motivo = ""
-                if tipo == "BUY":
-                    if ema7 < ema25:
-                        motivo = "📉 Inversione 1m: EMA7 < EMA25"
-                    elif rsi_1m < 55:
-                        motivo = f"📉 Inversione 1m: RSI={rsi_1m:.1f} < 55"
-                    elif macd_1m < macd_signal_1m:
-                        motivo = "📉 Inversione 1m: MACD < Segnale"
-                else:  # tipo SELL
-                    if ema7 > ema25:
-                        motivo = "📉 Inversione 1m: EMA7 > EMA25"
-                    elif rsi_1m > 52:
-                        motivo = f"📉 Inversione 1m: RSI={rsi_1m:.1f} > 52"
-                    elif macd_1m > macd_signal_1m:
-                        motivo = "📉 Inversione 1m: MACD > Segnale"
+                if tipo == "BUY" and rsi_1m < 90:
+                    motivo = f"📉 Inversione 1m: RSI troppo basso ({rsi_1m:.1f})"
+                elif tipo == "SELL" and rsi_1m > 10:
+                    motivo = f"📉 Inversione 1m: RSI troppo alto ({rsi_1m:.1f})"
 
                 if motivo:
                     simulazione_attiva["motivo"] = motivo
@@ -468,35 +450,8 @@ def verifica_posizioni_attive():
                     del posizioni_attive[symbol]
                     continue
 
-                # Verifica condizioni quasi contrarie (avviso)
-                vicini = []
-                if tipo == "BUY":
-                    if ema7 >= ema25 and (ema7 - ema25) / ema25 < 0.002:
-                        vicini.append("EMA7≈EMA25")
-                    if 54.5 <= rsi_1m < 55:
-                        vicini.append(f"RSI={rsi_1m:.1f}")
-                    if 0 <= macd_1m - macd_signal_1m < 0.001:
-                        vicini.append("MACD≈Segnale")
-                else:
-                    if ema25 >= ema7 and (ema25 - ema7) / ema25 < 0.002:
-                        vicini.append("EMA7≈EMA25")
-                    if 52 < rsi_1m <= 53:
-                        vicini.append(f"RSI={rsi_1m:.1f}")
-                    if 0 <= macd_signal_1m - macd_1m < 0.001:
-                        vicini.append("MACD≈Segnale")
-
-                # Solo se la simulazione è ancora attiva, aggiorniamo il campo motivo
-                if simulazione_attiva["attiva"]:
-                    if tipo == "BUY" and ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m:
-                        simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                    elif tipo == "SELL" and ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m:
-                        simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                    elif vicini:
-                        simulazione_attiva["motivo"] = f"👀 Possibile inversione in avvicinamento: {', '.join(vicini)}"
-                    else:
-                        simulazione_attiva["motivo"] = "⚠️ Microtrend 1m incerto: attesa conferma"
-
-                    logging.info(f"[MOTIVO] {symbol} - {simulazione_attiva['motivo']}")
+                # Messaggio di attesa
+                simulazione_attiva["motivo"] = f"⏳ RSI OK ({rsi_1m:.1f}) - nessuna chiusura"
 
             except Exception as err:
                 logging.error(f"Verifica {symbol}: {err}")
