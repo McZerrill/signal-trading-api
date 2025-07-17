@@ -462,7 +462,9 @@ def verifica_posizioni_attive():
                     simulazione_attiva["esito"] = "Perdita"
                     simulazione_attiva["prezzo_finale"] = prezzo_corrente
                     simulazione_attiva["motivo"] = motivo_chiusura
+                    del posizioni_attive[symbol]
                     logging.info(f"[CHIUSURA ANTICIPATA] {symbol} - {motivo_chiusura}")
+                    continue
 
                 # Messaggi microtrend
                 vicini = []
