@@ -31,18 +31,13 @@ def read_root():
 
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
-    raw_symbol = symbol  # conserva input così com'è arrivato
-    symbol = symbol.upper()
     try:
-        if symbol not in posizioni_attive and raw_symbol.lower() in posizioni_attive:
-            posizioni_attive[symbol] = posizioni_attive.pop(raw_symbol.lower())
         if symbol in posizioni_attive:
             posizione = posizioni_attive[symbol]
-
             return SignalResponse(
                 segnale="HOLD",
                 commento=(
-                    f"⏳ Simulazione già attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
+                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
                     f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
                 ),
                 prezzo=posizione["entry"],
@@ -56,8 +51,7 @@ def analyze(symbol: str):
                 ema25=0.0,
                 ema99=0.0,
                 timeframe="15m",
-                spread=posizione.get("spread", 0.0),
-                motivo=posizione.get("motivo", "")
+                spread=0.0
             )
 
         book = get_bid_ask(symbol)
@@ -77,8 +71,7 @@ def analyze(symbol: str):
                 ema25=0.0,
                 ema99=0.0,
                 timeframe="",
-                spread=spread,
-                motivo="Spread eccessivo"
+                spread=spread
             )
 
         df_15m = get_binance_df(symbol, "15m", 300)
@@ -87,7 +80,7 @@ def analyze(symbol: str):
 
         segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread)
         note = note15.split("\n") if note15 else []
-
+        
         segnale_1h, *_ = analizza_trend(df_1h, spread)
         segnale_1d, *_ = analizza_trend(df_1d, spread)
 
@@ -102,19 +95,22 @@ def analyze(symbol: str):
             elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
                 note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY")
             else:
-                note.append(f"ℹ️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})")
+                note.append("ℹ️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})")
 
             trend_1h = conta_candele_trend(df_1h, rialzista=(segnale == "BUY"))
             if trend_1h < 2:
-                note.append(f"ℹ️ Trend su 1h debole ({trend_1h} candele)")
+                note.append("ℹ️ Trend su 1h debole ({trend_1h} candele)")
         else:
             note.append("🧭 1h✓")
 
+
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
-                note.append(f"ℹ️ Timeframe 1d in conflitto con il segnale attuale ({segnale_1d})")
+                note.append("ℹ️ Timeframe 1d in conflitto con il segnale attuale ({segnale_1d})")
             else:
                 note.append("📅 1d✓")
+
+
 
         ultimo = hist.iloc[-1]
         close = round(ultimo['close'], 4)
@@ -141,9 +137,7 @@ def analyze(symbol: str):
                 "entry": entry_price,
                 "tp": tp,
                 "sl": sl,
-                "ora_apertura": time.time(),
-                "spread": spread,
-                "motivo": ""
+                "ora_apertura": time.time()
             }
 
             tp_pct = round(abs((tp - close) / close) * 100, 2)
@@ -154,20 +148,11 @@ def analyze(symbol: str):
 
             header = "🟢 BUY confermato" if segnale == "BUY" else "🔴 SELL confermato"
 
-            if segnale == "BUY":
-                note_filtrate = [riga for riga in note if "SELL" not in riga.upper()]
-            elif segnale == "SELL":
-                note_filtrate = [riga for riga in note if "BUY" not in riga.upper()]
-            else:
-                note_filtrate = note
-                
             commento = (
                 f"{header} | {symbol.upper()} @ {close}$\n"
                 f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
-                f"{base_dati}\n" + "\n".join(note_filtrate)
+                f"{base_dati}\n" + "\n".join(note)
             )
-
-            motivo_attuale = posizioni_attive[symbol].get("motivo", "")
 
             return SignalResponse(
                 segnale=segnale,
@@ -183,15 +168,11 @@ def analyze(symbol: str):
                 ema25=ema25,
                 ema99=ema99,
                 timeframe="15m",
-                spread=spread,
-                motivo=motivo_attuale
+                spread=spread
             )
 
         header = f"🚱 HOLD | {symbol.upper()} @ {close}$"
         corpo = f"{base_dati}\n📉 Supporto: {supporto}$\n" + "\n".join(note)
-
-        motivo_attuale = posizioni_attive.get(symbol, {}).get("motivo", "")
-
         return SignalResponse(
             segnale="HOLD",
             commento=f"{header}\n{corpo}",
@@ -206,8 +187,7 @@ def analyze(symbol: str):
             ema25=ema25,
             ema99=ema99,
             timeframe="15m",
-            spread=spread,
-            motivo=motivo_attuale
+            spread=spread
         )
 
     except Exception as e:
@@ -225,8 +205,7 @@ def analyze(symbol: str):
             ema25=0.0,
             ema99=0.0,
             timeframe="",
-            spread=0.0,
-            motivo=f"Errore durante l'analisi di {symbol.upper()}: {e}"
+            spread=0.0
         )
         
 @router.get("/price")
