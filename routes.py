@@ -421,7 +421,7 @@ def verifica_posizioni_attive():
                     simulazione_attiva["prezzo_chiusura"] = prezzo_corrente
                     simulazione_attiva["esito"] = "Profitto" if guadagno_netto >= 0 else "Perdita"
                     logging.info(f"[CLOSE] {symbol} - TP/SL")
-                    
+                    #del posizioni_attive[symbol]
                     continue
 
                 # Microtrend 1m
@@ -466,7 +466,7 @@ def verifica_posizioni_attive():
                     simulazione_attiva["chiusa"] = time.time()
                     simulazione_attiva["prezzo_chiusura"] = prezzo_corrente
                     logging.info(f"[CHIUSURA ANTICIPATA] {symbol} - {motivo_chiusura}")
-                    del posizioni_attive[symbol]
+                    #del posizioni_attive[symbol]
                     continue
 
 
