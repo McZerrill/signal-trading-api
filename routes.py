@@ -31,9 +31,14 @@ def read_root():
 
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
+    raw_symbol = symbol  # conserva input così com'è arrivato
+    symbol = symbol.upper()
     try:
+        if symbol not in posizioni_attive and raw_symbol.lower() in posizioni_attive:
+            posizioni_attive[symbol] = posizioni_attive.pop(raw_symbol.lower())
         if symbol in posizioni_attive:
             posizione = posizioni_attive[symbol]
+
             return SignalResponse(
                 segnale="HOLD",
                 commento=(
@@ -149,10 +154,17 @@ def analyze(symbol: str):
 
             header = "🟢 BUY confermato" if segnale == "BUY" else "🔴 SELL confermato"
 
+            if segnale == "BUY":
+                note_filtrate = [riga for riga in note if "SELL" not in riga.upper()]
+            elif segnale == "SELL":
+                note_filtrate = [riga for riga in note if "BUY" not in riga.upper()]
+            else:
+                note_filtrate = note
+                
             commento = (
                 f"{header} | {symbol.upper()} @ {close}$\n"
                 f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
-                f"{base_dati}\n" + "\n".join(note)
+                f"{base_dati}\n" + "\n".join(note_filtrate)
             )
 
             motivo_attuale = posizioni_attive[symbol].get("motivo", "")
@@ -386,16 +398,22 @@ def hot_assets():
 
 # Thread di monitoraggio attivo ogni 5 secondi
 import threading
+
 def verifica_posizioni_attive():
     while True:
         time.sleep(5)
+
+        # copia snapshot chiavi per evitare RuntimeError se dict cambia
         for symbol in list(posizioni_attive.keys()):
-            simulazione = posizioni_attive[symbol]
-            tipo = simulazione["tipo"]
-            sl = simulazione["sl"]
+            # safe-get (posizione può essere stata rimossa da un endpoint nel frattempo)
+            simulazione = posizioni_attive.get(symbol)
+            if simulazione is None:
+                continue
+
+            tipo = simulazione["tipo"]  # ci aspettiamo sempre BUY/SELL
 
             try:
-                # Prezzo attuale
+                # Prezzo attuale (usiamo ask per BUY, bid per SELL per provocare chiusura immediata lato FE)
                 book = get_bid_ask(symbol)
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
@@ -416,6 +434,11 @@ def verifica_posizioni_attive():
                 macd_1m = df_1m["MACD"].iloc[-1]
                 macd_signal_1m = df_1m["MACD_SIGNAL"].iloc[-1]
 
+                # Se valori NaN → non procedere
+                if any(pd.isna(v) for v in (ema7, ema25, rsi_1m, macd_1m, macd_signal_1m)):
+                    simulazione["motivo"] = "⚠️ Dati 1m non validi"
+                    continue
+
                 # Condizione di chiusura anticipata → forza SL
                 motivo_chiusura = ""
                 if tipo == "BUY":
@@ -434,7 +457,7 @@ def verifica_posizioni_attive():
                         motivo_chiusura = "📉 Inversione 1m: MACD > Segnale"
 
                 if motivo_chiusura:
-                    simulazione["stop_loss"] = prezzo_corrente  # forza chiusura lato frontend
+                    simulazione["sl"] = prezzo_corrente  # FIX: chiave corretta
                     simulazione["motivo"] = motivo_chiusura
                     logging.info(f"[STOPLOSS FORZATO] {symbol} - {motivo_chiusura} @ {prezzo_corrente}")
                     continue
@@ -448,7 +471,7 @@ def verifica_posizioni_attive():
                         vicini.append(f"RSI={rsi_1m:.1f}")
                     if 0 <= macd_1m - macd_signal_1m < 0.001:
                         vicini.append("MACD≈Segnale")
-                else:
+                else:  # SELL
                     if ema25 >= ema7 and (ema25 - ema7) / ema25 < 0.002:
                         vicini.append("EMA7≈EMA25")
                     if 52 < rsi_1m <= 53:
@@ -456,10 +479,10 @@ def verifica_posizioni_attive():
                     if 0 <= macd_signal_1m - macd_1m < 0.001:
                         vicini.append("MACD≈Segnale")
 
-                if tipo == "BUY" and ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m:
-                    simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                    logging.info(f"[MOTIVO] {symbol} - {simulazione['motivo']}")
-                elif tipo == "SELL" and ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m:
+                if (
+                    (tipo == "BUY"  and ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m) or
+                    (tipo == "SELL" and ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m)
+                ):
                     simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
                     logging.info(f"[MOTIVO] {symbol} - {simulazione['motivo']}")
                 elif vicini:
