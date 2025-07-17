@@ -419,6 +419,7 @@ def verifica_posizioni_attive():
                     simulazione_attiva["prezzo_chiusura"] = prezzo_corrente
                     simulazione_attiva["esito"] = "Profitto" if guadagno_netto >= 0 else "Perdita"
                     logging.info(f"[CLOSE] {symbol} - TP/SL")
+                    del posizioni_attive[symbol]
                     continue
 
                 # Microtrend 1m
@@ -440,7 +441,7 @@ def verifica_posizioni_attive():
 
                 logging.info(f"[DEBUG] {symbol} tipo={tipo} | EMA7={ema7:.4f} EMA25={ema25:.4f} | RSI={rsi_1m:.2f} | MACD={macd_1m:.4f}/{macd_signal_1m:.4f}")
 
-                # Chiusura se una sola condizione è contraria
+                # Chiusura immediata se anche una sola condizione è contraria
                 motivo = ""
                 if tipo == "BUY":
                     if ema7 < ema25:
@@ -449,7 +450,7 @@ def verifica_posizioni_attive():
                         motivo = f"📉 Inversione 1m: RSI={rsi_1m:.1f} < 55"
                     elif macd_1m < macd_signal_1m:
                         motivo = "📉 Inversione 1m: MACD < Segnale"
-                else:
+                else:  # tipo SELL
                     if ema7 > ema25:
                         motivo = "📉 Inversione 1m: EMA7 > EMA25"
                     elif rsi_1m > 52:
@@ -467,7 +468,7 @@ def verifica_posizioni_attive():
                     del posizioni_attive[symbol]
                     continue
 
-                # Verifica condizioni vicine all'inversione
+                # Verifica condizioni quasi contrarie (avviso)
                 vicini = []
                 if tipo == "BUY":
                     if ema7 >= ema25 and (ema7 - ema25) / ema25 < 0.002:
@@ -475,24 +476,27 @@ def verifica_posizioni_attive():
                     if 54.5 <= rsi_1m < 55:
                         vicini.append(f"RSI={rsi_1m:.1f}")
                     if 0 <= macd_1m - macd_signal_1m < 0.001:
-                        vicini.append("MACD≈segnale")
+                        vicini.append("MACD≈Segnale")
                 else:
                     if ema25 >= ema7 and (ema25 - ema7) / ema25 < 0.002:
                         vicini.append("EMA7≈EMA25")
                     if 52 < rsi_1m <= 53:
                         vicini.append(f"RSI={rsi_1m:.1f}")
                     if 0 <= macd_signal_1m - macd_1m < 0.001:
-                        vicini.append("MACD≈segnale")
+                        vicini.append("MACD≈Segnale")
 
-                # Stato microtrend o avviso
-                if tipo == "BUY" and ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m:
-                    simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                elif tipo == "SELL" and ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m:
-                    simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                elif vicini:
-                    simulazione_attiva["motivo"] = f"👀 Possibile inversione in avvicinamento: {', '.join(vicini)}"
-                else:
-                    simulazione_attiva["motivo"] = "⚠️ Microtrend 1m incerto: attesa conferma"
+                # Solo se la simulazione è ancora attiva, aggiorniamo il campo motivo
+                if simulazione_attiva["attiva"]:
+                    if tipo == "BUY" and ema7 > ema25 and rsi_1m >= 55 and macd_1m >= macd_signal_1m:
+                        simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                    elif tipo == "SELL" and ema7 < ema25 and rsi_1m <= 52 and macd_1m <= macd_signal_1m:
+                        simulazione_attiva["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                    elif vicini:
+                        simulazione_attiva["motivo"] = f"👀 Possibile inversione in avvicinamento: {', '.join(vicini)}"
+                    else:
+                        simulazione_attiva["motivo"] = "⚠️ Microtrend 1m incerto: attesa conferma"
+
+                    logging.info(f"[MOTIVO] {symbol} - {simulazione_attiva['motivo']}")
 
             except Exception as err:
                 logging.error(f"Verifica {symbol}: {err}")
