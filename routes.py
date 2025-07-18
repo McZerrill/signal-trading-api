@@ -163,9 +163,12 @@ def analyze(symbol: str):
                 
             commento = (
                 f"{header} | {symbol} @ {close}$\n"
-                f"TP: {tp} | SL: {sl}  • RSI {rsi}  • MACD {macd}/{macd_signal}  • EMA {ema7}/{ema25}/{ema99}  • ATR {atr}\n"
+                f"TP: {tp} | SL: {sl}\n"                              # ⬅️ solo TP / SL
+                f"RSI {rsi}  • MACD {macd}/{macd_signal}  • "
+                f"EMA {ema7}/{ema25}/{ema99}  • ATR {atr}\n"          # ⬅️ nuova riga
                 + "\n".join(note_filtrate)
             )
+
 
 
             motivo_attuale = posizioni_attive[symbol].get("motivo", "")
