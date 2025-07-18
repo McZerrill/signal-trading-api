@@ -162,10 +162,11 @@ def analyze(symbol: str):
                 note_filtrate = note
                 
             commento = (
-                f"{header} | {symbol.upper()} @ {close}$\n"
-                f"🎯 TP: {tp} | 🛡 SL: {sl}\n"
-                f"{base_dati}\n" + "\n".join(note_filtrate)
+                f"{header} | {symbol} @ {close}$\n"
+                f"TP: {tp} | SL: {sl} | RSI {rsi} | MACD {macd}/{macd_signal} | EMA {ema7}/{ema25}/{ema99} | ATR {atr}\n"
+                + "\n".join(note_filtrate)
             )
+
 
             motivo_attuale = posizioni_attive[symbol].get("motivo", "")
 
