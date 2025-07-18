@@ -160,7 +160,7 @@ def analyze(symbol: str):
                 f"🎯 TP: {tp}   🛡 SL: {sl}\n"
                 f"RSI {rsi} • MACD {macd}/{macd_signal} • "
                 f"EMA {ema7}/{ema25}/{ema99} • ATR {atr}\n"
-                f"{base_dati}\n" + "\n".join(note)
+                + "\n".join(note)
             )
 
             return SignalResponse(
