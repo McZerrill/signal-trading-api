@@ -489,8 +489,9 @@ def verifica_posizioni_attive():
                     (tipo == "SELL" and ema7 < ema25 and rsi <= 52 and macd <= macd_sig)
                 ):
                     simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                elif vicini:
-                    simulazione["motivo"] = "👀 Possibile inversione: " + ", ".join(vicini)
+                    
+                elif condizioni_contrarie >= 1:
+                    simulazione["motivo"] = "👀 Possibile inversione: " + ", ".join(motivi)
                 else:
                     simulazione["motivo"] = "⚠️ Microtrend 1m incerto"
 
