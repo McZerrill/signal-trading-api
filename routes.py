@@ -441,24 +441,24 @@ def verifica_posizioni_attive():
                     if ema7 < ema25:
                         condizioni_contrarie += 1
                         motivi.append("EMA7 < EMA25")
-                    if rsi < 55:
+                    if rsi < 50:
                         condizioni_contrarie += 1
-                        motivi.append(f"RSI {rsi:.1f} < 55")
-                    if macd < macd_sig:
+                        motivi.append(f"RSI {rsi:.1f} < 50")
+                    if (macd - macd_sig) < -0.003:
                         condizioni_contrarie += 1
-                        motivi.append("MACD < Segnale")
+                        motivi.append(f"MACD {macd:.4f} ≪ Segnale {macd_sig:.4f}")
                 else:  # SELL
                     if ema7 > ema25:
                         condizioni_contrarie += 1
                         motivi.append("EMA7 > EMA25")
-                    if rsi > 52:
+                    if rsi > 57:
                         condizioni_contrarie += 1
-                        motivi.append(f"RSI {rsi:.1f} > 52")
-                    if macd > macd_sig:
+                        motivi.append(f"RSI {rsi:.1f} > 57")
+                    if (macd - macd_sig) > 0.003:
                         condizioni_contrarie += 1
-                        motivi.append("MACD > Segnale")
+                        motivi.append(f"MACD {macd:.4f} ≫ Segnale {macd_sig:.4f}")
 
-                if condizioni_contrarie >= 2:
+                if condizioni_contrarie == 3:
                     motivo_chiusura = "📉 Inversione 1m: " + ", ".join(motivi)
                     simulazione["sl"]  = prezzo_corrente
                     simulazione["esito"] = "Perdita"
