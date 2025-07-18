@@ -51,7 +51,6 @@ def analyze(symbol: str):
                 ema25=0.0,
                 ema99=0.0,
                 timeframe="15m",
-                spread=0.0,
                 spread=posizione.get("spread", 0.0),
                 motivo=posizione.get("motivo", "")
             )
