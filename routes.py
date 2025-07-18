@@ -34,17 +34,18 @@ def analyze(symbol: str):
     raw_symbol = symbol  # conserva input così com'è arrivato
     symbol = symbol.upper()
     try:
-        if symbol not in posizioni_attive and raw_symbol.lower() in posizioni_attive:
-            posizioni_attive[symbol] = posizioni_attive.pop(raw_symbol.lower())
         if symbol in posizioni_attive:
             posizione = posizioni_attive[symbol]
 
+            commento_attivo = (
+                "\u23f3 Simulazione già attiva su "
+                f"{symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
+                f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
+            )
+            
             return SignalResponse(
                 segnale="HOLD",
-                commento=(
-                    f"⏳ Simulazione già attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
-                    f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
-                ),
+                commento=commento_attivo,
                 prezzo=posizione["entry"],
                 take_profit=posizione["tp"],
                 stop_loss=posizione["sl"],
