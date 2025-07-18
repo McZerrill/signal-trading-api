@@ -433,27 +433,35 @@ def verifica_posizioni_attive():
                     simulazione["motivo"] = "⚠️ Dati 1m non validi"
                     continue
 
-                # 3. Condizione di chiusura anticipata
-                motivo_chiusura = ""
+                # 3. Condizione di chiusura anticipata (minimo 2 condizioni contrarie)
+                condizioni_contrarie = 0
+                motivi = []
+
                 if tipo == "BUY":
                     if ema7 < ema25:
-                        motivo_chiusura = "📉 Inversione 1m: EMA7 < EMA25"
-                    elif rsi < 55:
-                        motivo_chiusura = f"📉 Inversione 1m: RSI {rsi:.1f} < 55"
-                    elif macd < macd_sig:
-                        motivo_chiusura = "📉 Inversione 1m: MACD < Segnale"
+                        condizioni_contrarie += 1
+                        motivi.append("EMA7 < EMA25")
+                    if rsi < 55:
+                        condizioni_contrarie += 1
+                        motivi.append(f"RSI {rsi:.1f} < 55")
+                    if macd < macd_sig:
+                        condizioni_contrarie += 1
+                        motivi.append("MACD < Segnale")
                 else:  # SELL
                     if ema7 > ema25:
-                        motivo_chiusura = "📉 Inversione 1m: EMA7 > EMA25"
-                    elif rsi > 52:
-                        motivo_chiusura = f"📉 Inversione 1m: RSI {rsi:.1f} > 52"
-                    elif macd > macd_sig:
-                        motivo_chiusura = "📉 Inversione 1m: MACD > Segnale"
+                        condizioni_contrarie += 1
+                        motivi.append("EMA7 > EMA25")
+                    if rsi > 52:
+                        condizioni_contrarie += 1
+                        motivi.append(f"RSI {rsi:.1f} > 52")
+                    if macd > macd_sig:
+                        condizioni_contrarie += 1
+                        motivi.append("MACD > Segnale")
 
-                if motivo_chiusura:
-                    # forza SL e chiude la simulazione
+                if condizioni_contrarie >= 2:
+                    motivo_chiusura = "📉 Inversione 1m: " + ", ".join(motivi)
                     simulazione["sl"]  = prezzo_corrente
-                    simulazione["esito"] = "Perdita"  # oppure calcola se profitto
+                    simulazione["esito"] = "Perdita"
                     simulazione["motivo"] = motivo_chiusura
                     simulazione["chiusa_da_backend"] = True
                     logging.info(f"[STOPLOSS FORZATO] {symbol} – {motivo_chiusura} @ {prezzo_corrente}")
