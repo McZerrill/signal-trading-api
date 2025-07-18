@@ -163,7 +163,7 @@ def analyze(symbol: str):
                 
             commento = (
                 f"{header} | {symbol} @ {close}$\n"
-                f"TP: {tp} | SL: {sl} | RSI {rsi} | MACD {macd}/{macd_signal} | EMA {ema7}/{ema25}/{ema99} | ATR {atr}\n"
+                f"TP: {tp} | SL: {sl}  • RSI {rsi}  • MACD {macd}/{macd_signal}  • EMA {ema7}/{ema25}/{ema99}  • ATR {atr}\n"
                 + "\n".join(note_filtrate)
             )
 
