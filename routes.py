@@ -163,7 +163,7 @@ def analyze(symbol: str):
                 
             commento = (
                 f"{header} | {symbol.upper()} @ {close}$\n"
-                f"🎯 TP: {tp} ({tp_pct}%)   🛡 SL: {sl} ({sl_pct}%)\n"
+                f"🎯 TP: {tp} | 🛡 SL: {sl}\n"
                 f"{base_dati}\n" + "\n".join(note_filtrate)
             )
 
