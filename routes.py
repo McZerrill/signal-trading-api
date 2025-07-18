@@ -284,9 +284,9 @@ def hot_assets():
     symbols = get_best_symbols(limit=50)
     risultati = []
 
-    volume_soglia = 200 if MODALITA_TEST else 300
+    volume_soglia = 180 if MODALITA_TEST else 300
     atr_minimo = 0.0005 if MODALITA_TEST else 0.0008
-    distanza_minima = 0.0012 if MODALITA_TEST else 0.0012
+    distanza_minima = 0.0008 if MODALITA_TEST else 0.0012
     macd_rsi_range = (40, 60) if MODALITA_TEST else (48, 52)
     macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.0005
 
