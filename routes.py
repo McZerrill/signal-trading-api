@@ -458,7 +458,7 @@ def verifica_posizioni_attive():
                         condizioni_contrarie += 1
                         motivi.append(f"MACD {macd:.4f} ≫ Segnale {macd_sig:.4f}")
 
-                if condizioni_contrarie == 3:
+                if condizioni_contrarie >= 2:
                     motivo_chiusura = "📉 Inversione 1m: " + ", ".join(motivi)
                     simulazione["sl"]  = prezzo_corrente
                     simulazione["esito"] = "Perdita"
