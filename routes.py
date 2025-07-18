@@ -32,6 +32,9 @@ def read_root():
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     try:
+        symbol = symbol.upper()
+        motivo_attuale = posizioni_attive.get(symbol, {}).get("motivo", "")
+        
         if symbol in posizioni_attive:
             posizione = posizioni_attive[symbol]
             return SignalResponse(
@@ -139,7 +142,9 @@ def analyze(symbol: str):
                 "entry": entry_price,
                 "tp": tp,
                 "sl": sl,
-                "ora_apertura": time.time()
+                "ora_apertura": time.time(),
+                "spread": spread,
+                "motivo": ""       
             }
 
             tp_pct = round(abs((tp - close) / close) * 100, 2)
