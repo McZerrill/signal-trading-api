@@ -162,10 +162,10 @@ def analyze(symbol: str):
                 note_filtrate = note
                 
             commento = (
-                f"{header} | {symbol} @ {close}$\n"
-                f"TP: {tp} | SL: {sl}\n"                              # ⬅️ solo TP / SL
-                f"RSI {rsi}  • MACD {macd}/{macd_signal}  • "
-                f"EMA {ema7}/{ema25}/{ema99}  • ATR {atr}\n"          # ⬅️ nuova riga
+                f"{header} | {symbol.upper()} @ {close}$\n"
+                f"🎯 TP: {tp}   🛡 SL: {sl}\n"                            # ⬅️ solo TP / SL
+                f"RSI {rsi} | MACD {macd}/{macd_signal} | "
+                f"EMA {ema7}/{ema25}/{ema99} | ATR {atr}\n"       # ⬅️ nuova riga
                 + "\n".join(note_filtrate)
             )
 
