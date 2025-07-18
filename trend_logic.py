@@ -95,14 +95,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     # Soglie fisse o adattive in base alla modalità
     volume_soglia = 100 if MODALITA_TEST else 300
-    atr_minimo = 0.0012 if MODALITA_TEST else 0.001
-    distanza_minima = 0.0012 if MODALITA_TEST else 0.0015
-    macd_rsi_range = (48, 55)
-    macd_signal_threshold = 0.0012 if MODALITA_TEST else 0.001
+    atr_minimo = 0.0006 if MODALITA_TEST else 0.0009
+    distanza_minima = 0.0006 if MODALITA_TEST else 0.0012
+    macd_rsi_range = (43, 57) 
+    macd_signal_threshold = 0.0003 if MODALITA_TEST else 0.0005
 
-    #if atr / close < atr_minimo:
-        #note.append("⚠️ ATR troppo basso: mercato poco volatile")
-        #return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+    if atr / close < atr_minimo:
+        note.append("⚠️ ATR troppo basso: mercato poco volatile")
+        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     volume_attuale = hist['volume'].iloc[-1]
     volume_medio = hist['volume'].iloc[-21:-1].mean()
@@ -158,13 +158,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             segnale = "BUY"
 
             # Controllo durata trend BUY
-            #durata_trend = candele_trend_up
-            #note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
-            #if durata_trend >= 6 and accelerazione < 0:
-                #note.append(f"⛔ Trend BUY troppo maturo e in rallentamento ({durata_trend} candele)")
-                #segnale = None
-            #elif durata_trend >= 5:
-                #note.append(f"⚠️ Trend maturo: {durata_trend} candele")
+            durata_trend = candele_trend_up
+            note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
+            if durata_trend >= 6 and accelerazione < 0:
+                note.append(f"⛔ Trend BUY troppo maturo e in rallentamento ({durata_trend} candele)")
+                segnale = None
+            elif durata_trend >= 5:
+                note.append(f"⚠️ Trend maturo: {durata_trend} candele")
 
 
             # Calcoli TP/SL solo se il segnale è confermato
@@ -193,9 +193,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             # Controllo durata trend SELL
             durata_trend = candele_trend_down
             note.append(f"🕒 Trend SELL attivo da {durata_trend} candele")
-            #if durata_trend >= 5:
-                #note.append(f"⛔ Segnale evitato: trend SELL troppo maturo ({durata_trend} candele)")
-                #segnale = None  # Annulla il segnale
+            if durata_trend >= 5:
+                note.append(f"⛔ Segnale evitato: trend SELL troppo maturo ({durata_trend} candele)")
+                segnale = None  # Annulla il segnale
 
             # Calcoli TP/SL solo se il segnale è confermato
             if segnale == "SELL":
