@@ -399,21 +399,15 @@ def verifica_posizioni_attive():
 
         for symbol in list(posizioni_attive.keys()):
             simulazione = posizioni_attive.get(symbol)
-            if simulazione is None:
-                continue
-
-            # 🔒 Se la posizione è già chiusa, non toccarla più
-            if simulazione.get("esito") in ("Profitto", "Perdita"):
+            if simulazione is None or simulazione.get("esito") in ("Profitto", "Perdita"):
                 continue
 
             tipo = simulazione["tipo"]  # BUY / SELL
 
             try:
-                # 1. Prezzo corrente
                 book = get_bid_ask(symbol)
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
 
-                # 2. Micro‑dati 1 m
                 df_1m = get_binance_df(symbol, "1m", limit=50)
                 if df_1m.empty:
                     simulazione["motivo"] = "⚠️ Dati insufficienti (1m)"
@@ -433,32 +427,32 @@ def verifica_posizioni_attive():
                     simulazione["motivo"] = "⚠️ Dati 1m non validi"
                     continue
 
-                # 3. Condizione di chiusura anticipata (minimo 2 condizioni contrarie)
-                condizioni_contrarie = 0
+                # 🔍 Punteggio ponderato per segnali contrari
+                punteggio = 0
                 motivi = []
 
                 if tipo == "BUY":
                     if ema7 < ema25:
-                        condizioni_contrarie += 1
+                        punteggio += 1
                         motivi.append("EMA7 < EMA25")
                     if rsi < 50:
-                        condizioni_contrarie += 1
+                        punteggio += 1.5
                         motivi.append(f"RSI {rsi:.1f} < 50")
                     if (macd - macd_sig) < -0.003:
-                        condizioni_contrarie += 1
+                        punteggio += 1.5
                         motivi.append(f"MACD {macd:.4f} ≪ Segnale {macd_sig:.4f}")
                 else:  # SELL
                     if ema7 > ema25:
-                        condizioni_contrarie += 1
+                        punteggio += 1
                         motivi.append("EMA7 > EMA25")
                     if rsi > 57:
-                        condizioni_contrarie += 1
+                        punteggio += 1.5
                         motivi.append(f"RSI {rsi:.1f} > 57")
                     if (macd - macd_sig) > 0.003:
-                        condizioni_contrarie += 1
+                        punteggio += 1.5
                         motivi.append(f"MACD {macd:.4f} ≫ Segnale {macd_sig:.4f}")
 
-                if condizioni_contrarie >= 2:
+                if punteggio >= 3:
                     motivo_chiusura = "📉 Inversione 1m: " + ", ".join(motivi)
                     simulazione["sl"]  = prezzo_corrente
                     simulazione["esito"] = "Perdita"
@@ -467,7 +461,7 @@ def verifica_posizioni_attive():
                     logging.info(f"[STOPLOSS FORZATO] {symbol} – {motivo_chiusura} @ {prezzo_corrente}")
                     continue
 
-                # 4. Aggiorna motivo descrittivo (solo se ancora “In corso”)
+                # 📌 Aggiorna motivo descrittivo se in corso
                 vicini = []
                 if tipo == "BUY":
                     if ema7 >= ema25 and (ema7 - ema25) / ema25 < 0.002:
@@ -489,8 +483,7 @@ def verifica_posizioni_attive():
                     (tipo == "SELL" and ema7 < ema25 and rsi <= 52 and macd <= macd_sig)
                 ):
                     simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                    
-                elif condizioni_contrarie >= 1:
+                elif punteggio >= 1:
                     simulazione["motivo"] = "👀 Possibile inversione: " + ", ".join(motivi)
                 else:
                     simulazione["motivo"] = "⚠️ Microtrend 1m incerto"
