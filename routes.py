@@ -432,6 +432,14 @@ def verifica_posizioni_attive():
                 rsi = df_1m["RSI"].iloc[-1]
                 macd, macd_sig = df_1m[["MACD", "MACD_SIGNAL"]].iloc[-1]
 
+                logging.info(
+                    f"[DEBUG INDICATORI] {symbol} – tipo={tipo} | "
+                    f"EMA7={ema7:.6f}, EMA25={ema25:.6f} | "
+                    f"RSI={rsi:.2f} | MACD={macd:.5f}, Segnale={macd_sig:.5f} | "
+                    f"TP={tp}, SL={sl}, Entry={entry}, Prezzo attuale={prezzo_corrente}"
+                )
+
+
                 if any(pd.isna(v) for v in (ema7, ema25, rsi, macd, macd_sig)):
                     simulazione["motivo"] = "⚠️ Dati 1m non validi"
                     continue
