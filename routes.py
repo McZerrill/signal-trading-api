@@ -144,7 +144,9 @@ def analyze(symbol: str):
                 "sl": sl,
                 "ora_apertura": time.time(),
                 "spread": spread,
-                "motivo": ""       
+                "motivo": "",
+                "tp_esteso": False,
+                "chiusa_da_backend": False
             }
 
             tp_pct = round(abs((tp - close) / close) * 100, 2)
@@ -399,22 +401,32 @@ def verifica_posizioni_attive():
 
         for symbol in list(posizioni_attive.keys()):
             simulazione = posizioni_attive.get(symbol)
-            if simulazione is None or simulazione.get("esito") in ("Profitto", "Perdita"):
+            if simulazione is None:
                 continue
 
-            tipo = simulazione["tipo"]  # BUY / SELL
+            if simulazione.get("esito") in ("Profitto", "Perdita"):
+                continue
+
+            tipo = simulazione["tipo"]
 
             try:
                 book = get_bid_ask(symbol)
                 prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
+                entry = simulazione["entry"]
+                tp = simulazione["tp"]
+                sl = simulazione["sl"]
+                spread = simulazione.get("spread", 0.0)
+                tp_esteso = simulazione.get("tp_esteso", False)
+
+                progresso = abs(prezzo_corrente - entry) / abs(tp - entry)
 
                 df_1m = get_binance_df(symbol, "1m", limit=50)
                 if df_1m.empty:
-                    simulazione["motivo"] = "⚠️ Dati insufficienti (1m)"
+                    simulazione["motivo"] = "⚠️ Dati insufficienti (1m)"
                     continue
 
-                df_1m["EMA_7"]   = df_1m["close"].ewm(span=7).mean()
-                df_1m["EMA_25"]  = df_1m["close"].ewm(span=25).mean()
+                df_1m["EMA_7"]  = df_1m["close"].ewm(span=7).mean()
+                df_1m["EMA_25"] = df_1m["close"].ewm(span=25).mean()
                 df_1m["RSI"]     = calcola_rsi(df_1m["close"])
                 df_1m["MACD"], df_1m["MACD_SIGNAL"] = calcola_macd(df_1m["close"])
 
@@ -424,44 +436,56 @@ def verifica_posizioni_attive():
                 macd, macd_sig = df_1m[["MACD", "MACD_SIGNAL"]].iloc[-1]
 
                 if any(pd.isna(v) for v in (ema7, ema25, rsi, macd, macd_sig)):
-                    simulazione["motivo"] = "⚠️ Dati 1m non validi"
+                    simulazione["motivo"] = "⚠️ Dati 1m non validi"
                     continue
 
-                # 🔍 Punteggio ponderato per segnali contrari
-                punteggio = 0
+                # Chiusura anticipata se almeno 2 condizioni contrarie
+                condizioni_contrarie = 0
                 motivi = []
-
                 if tipo == "BUY":
                     if ema7 < ema25:
-                        punteggio += 1
+                        condizioni_contrarie += 1
                         motivi.append("EMA7 < EMA25")
                     if rsi < 50:
-                        punteggio += 1.5
+                        condizioni_contrarie += 1
                         motivi.append(f"RSI {rsi:.1f} < 50")
                     if (macd - macd_sig) < -0.003:
-                        punteggio += 1.5
+                        condizioni_contrarie += 1
                         motivi.append(f"MACD {macd:.4f} ≪ Segnale {macd_sig:.4f}")
-                else:  # SELL
+                else:
                     if ema7 > ema25:
-                        punteggio += 1
+                        condizioni_contrarie += 1
                         motivi.append("EMA7 > EMA25")
                     if rsi > 57:
-                        punteggio += 1.5
+                        condizioni_contrarie += 1
                         motivi.append(f"RSI {rsi:.1f} > 57")
                     if (macd - macd_sig) > 0.003:
-                        punteggio += 1.5
+                        condizioni_contrarie += 1
                         motivi.append(f"MACD {macd:.4f} ≫ Segnale {macd_sig:.4f}")
 
-                if punteggio >= 3:
+                if condizioni_contrarie >= 2:
                     motivo_chiusura = "📉 Inversione 1m: " + ", ".join(motivi)
-                    simulazione["sl"]  = prezzo_corrente
+                    simulazione["sl"] = prezzo_corrente
                     simulazione["esito"] = "Perdita"
                     simulazione["motivo"] = motivo_chiusura
                     simulazione["chiusa_da_backend"] = True
                     logging.info(f"[STOPLOSS FORZATO] {symbol} – {motivo_chiusura} @ {prezzo_corrente}")
                     continue
 
-                # 📌 Aggiorna motivo descrittivo se in corso
+                # Estensione automatica TP se trend forte e progresso > 80%
+                if not tp_esteso and progresso > 0.8:
+                    microtrend_ok = (
+                        (tipo == "BUY" and ema7 > ema25 and rsi >= 55 and macd >= macd_sig) or
+                        (tipo == "SELL" and ema7 < ema25 and rsi <= 52 and macd <= macd_sig)
+                    )
+                    if microtrend_ok:
+                        nuovo_tp = round(entry + (tp - entry) * 1.5, 6) if tipo == "BUY" else round(entry - (entry - tp) * 1.5, 6)
+                        simulazione["tp"] = nuovo_tp
+                        simulazione["tp_esteso"] = True
+                        simulazione["motivo"] = "📈 TP esteso automaticamente (trend forte)"
+                        logging.info(f"[TP ESTESO] {symbol} – Nuovo TP: {nuovo_tp}")
+
+                # Motivo descrittivo aggiornato
                 vicini = []
                 if tipo == "BUY":
                     if ema7 >= ema25 and (ema7 - ema25) / ema25 < 0.002:
@@ -482,14 +506,14 @@ def verifica_posizioni_attive():
                     (tipo == "BUY"  and ema7 > ema25 and rsi >= 55 and macd >= macd_sig) or
                     (tipo == "SELL" and ema7 < ema25 and rsi <= 52 and macd <= macd_sig)
                 ):
-                    simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                elif punteggio >= 1:
-                    simulazione["motivo"] = "👀 Possibile inversione: " + ", ".join(motivi)
+                    simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                elif condizioni_contrarie >= 1:
+                    simulazione["motivo"] = "👀 Possibile inversione: " + ", ".join(motivi)
                 else:
-                    simulazione["motivo"] = "⚠️ Microtrend 1m incerto"
+                    simulazione["motivo"] = "⚠️ Microtrend 1m incerto"
 
             except Exception as err:
-                simulazione["motivo"] = f"❌ Errore microtrend 1m: {err}"
+                simulazione["motivo"] = f"❌ Errore microtrend 1m: {err}"
                 logging.error(f"[ERRORE] Verifica {symbol}: {err}")
 
 
