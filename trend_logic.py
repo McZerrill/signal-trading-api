@@ -173,6 +173,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                 coeff_tp = min(max(1.5 + (accelerazione * 10), 1.2), 2.0)  # maggiore accelerazione → TP più lontano
                 coeff_sl = min(max(1.0 - (accelerazione * 5), 0.5), 1.0)   # maggiore accelerazione → SL più stretto (protezione)
 
+                # Correzione per trend maturi
+            if durata_trend >= 6:
+                coeff_tp *= 0.9
+                coeff_sl *= 1.1
+        
                 delta_pct = calcola_percentuale_guadagno(
                     guadagno_netto_target,
                     investimento,
@@ -202,6 +207,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                 forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
                 coeff_tp = min(max(1.5 + (accelerazione * 10), 1.2), 2.0)
                 coeff_sl = min(max(1.0 - (accelerazione * 5), 0.5), 1.0)
+
+                # Correzione per trend maturi
+            if durata_trend >= 6:
+                coeff_tp *= 0.9  # TP più vicino
+                coeff_sl *= 1.1  # SL più ampio
 
                 delta_pct = calcola_percentuale_guadagno(
                     guadagno_netto_target,
