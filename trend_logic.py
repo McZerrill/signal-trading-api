@@ -97,8 +97,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     volume_soglia = 100 if MODALITA_TEST else 300
     atr_minimo = 0.0006 if MODALITA_TEST else 0.0009
     distanza_minima = 0.0006 if MODALITA_TEST else 0.0012
-    macd_rsi_range = (43, 57) 
-    macd_signal_threshold = 0.0003 if MODALITA_TEST else 0.0005
+    macd_rsi_range = (45, 60) 
+    macd_signal_threshold = 0.0004 if MODALITA_TEST else 0.0006
 
     if atr / close < atr_minimo:
         note.append("⚠️ ATR troppo basso: mercato poco volatile")
@@ -147,14 +147,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume insufficiente")
 
-    macd_buy_ok = macd > macd_signal and macd_gap > macd_signal_threshold
-    macd_buy_debole = macd > 0 and macd_gap > -0.005
+    macd_buy_ok = macd > macd_signal and macd_gap > 0.001
+    macd_buy_debole = macd > 0 and macd_gap > 0
     macd_sell_ok = macd < macd_signal and macd_gap < -macd_signal_threshold
     macd_sell_debole = macd < 0 and macd_gap < 0.005
 
     # ✅ Logica BUY
     if (trend_up or recupero_buy or breakout_valido) and distanza_ema / close > distanza_minima:
-        if rsi > macd_rsi_range[0] and (macd_buy_ok or macd_buy_debole):
+        if rsi >= 50 and (macd_buy_ok or macd_buy_debole):
             segnale = "BUY"
 
             # Controllo durata trend BUY
@@ -187,7 +187,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     # ✅ Logica SELL
     if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
-        if rsi < macd_rsi_range[1] and (macd_sell_ok or macd_sell_debole):
+        if rsi <= 55 and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
 
             # Controllo durata trend SELL
@@ -241,6 +241,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     if segnale == "SELL" and pattern and "Hammer" in pattern:
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
         segnale = "HOLD"
+    if segnale in ["BUY", "SELL"] and 48 < rsi < 52 and abs(macd - macd_signal) < 0.001:
+        note.append("⚠️ RSI e MACD neutri: segnale evitato")
+        segnale = "HOLD"
+
 
     # Fallback finale se il segnale è stato annullato o mai assegnato
     if segnale not in ["BUY", "SELL"]:
