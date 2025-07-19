@@ -547,6 +547,8 @@ def verifica_posizioni_attive():
                     simulazione["motivo"] = "👀 Possibile inversione: " + ", ".join(motivi)
                 else:
                     simulazione["motivo"] = "⚠️ Microtrend 1m incerto"
+                # 📊 Log riassuntivo finale per monitoraggio stato asset
+                logging.info(f"[STATO] {symbol} – Entry={entry:.6f}, Prezzo attuale={prezzo_corrente:.6f}, TP={tp:.6f}, SL={sl:.6f}, Progresso={progresso:.2f}, TP_Esteso={tp_esteso}, TP_Esteso2={tp_esteso2}, Microtrend_OK={microtrend_ok}, Motivo={simulazione['motivo']}")
 
             except Exception as err:
                 simulazione["motivo"] = f"❌ Errore microtrend 1m: {err}"
