@@ -88,16 +88,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     supporto = calcola_supporto(hist)
 
     note = []
-    # Parametri guadagno
     investimento = 100.0
     guadagno_netto_target = 0.5
     commissione = 0.1
 
-    # Soglie fisse o adattive in base alla modalità
     volume_soglia = 100 if MODALITA_TEST else 300
     atr_minimo = 0.0006 if MODALITA_TEST else 0.0009
     distanza_minima = 0.0006 if MODALITA_TEST else 0.0012
-    macd_rsi_range = (45, 60) 
     macd_signal_threshold = 0.0004 if MODALITA_TEST else 0.0006
 
     if atr / close < atr_minimo:
@@ -111,16 +108,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         if not MODALITA_TEST:
             return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-    # Calcolo distanza e curvatura
     distanza_ema = abs(ema7 - ema25)
     curvatura_ema25 = ema25 - penultimo['EMA_25']
     curvatura_precedente = penultimo['EMA_25'] - antepenultimo['EMA_25']
     accelerazione = curvatura_ema25 - curvatura_precedente
-
-    dist_level = valuta_distanza(distanza_ema)
-
-    segnale = "HOLD"
-    tp = sl = 0.0
 
     trend_up = ema7 > ema25 > ema99
     trend_down = ema7 < ema25 < ema99
@@ -152,12 +143,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     macd_sell_ok = macd < macd_signal and macd_gap < -macd_signal_threshold
     macd_sell_debole = macd < 0 and macd_gap < 0.005
 
-    # ✅ Logica BUY
+    segnale = "HOLD"
+    tp = sl = 0.0
+
     if (trend_up or recupero_buy or breakout_valido) and distanza_ema / close > distanza_minima:
         if rsi >= 50 and (macd_buy_ok or macd_buy_debole):
             segnale = "BUY"
-
-            # Controllo durata trend BUY
             durata_trend = candele_trend_up
             note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
             if durata_trend >= 6 and accelerazione < 0:
@@ -165,67 +156,20 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                 segnale = None
             elif durata_trend >= 5:
                 note.append(f"⚠️ Trend maturo: {durata_trend} candele")
-
-
-            # Calcoli TP/SL solo se il segnale è confermato
             if segnale == "BUY":
-                forza_trend = min(max(distanza_ema / close, 0.001), 0.01)  # tra 0.1% e 1%
-                coeff_tp = min(max(1.5 + (accelerazione * 10), 1.2), 2.0)  # maggiore accelerazione → TP più lontano
-                coeff_sl = min(max(1.0 - (accelerazione * 5), 0.5), 1.0)   # maggiore accelerazione → SL più stretto (protezione)
-
-                # Correzione per trend maturi
-                if durata_trend >= 6:
-                    coeff_tp *= 0.9
-                    coeff_sl *= 1.1
-        
-                delta_pct = calcola_percentuale_guadagno(
-                    guadagno_netto_target,
-                    investimento,
-                    spread,
-                    commissione
-                )
-                delta_price = close * delta_pct
-                tp = round(close + delta_price * coeff_tp, 4)
-                sl = round(close - delta_price * coeff_sl, 4)
-                
                 note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
-    # ✅ Logica SELL
     if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
         if rsi <= 55 and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
-
-            # Controllo durata trend SELL
             durata_trend = candele_trend_down
             note.append(f"🕒 Trend SELL attivo da {durata_trend} candele")
             if durata_trend >= 5:
                 note.append(f"⛔ Segnale evitato: trend SELL troppo maturo ({durata_trend} candele)")
-                segnale = None  # Annulla il segnale
-
-            # Calcoli TP/SL solo se il segnale è confermato
+                segnale = None
             if segnale == "SELL":
-                forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
-                coeff_tp = min(max(1.5 + (accelerazione * 10), 1.2), 2.0)
-                coeff_sl = min(max(1.0 - (accelerazione * 5), 0.5), 1.0)
-
-                # Correzione per trend maturi
-                if durata_trend >= 6:
-                    coeff_tp *= 0.9  # TP più vicino
-                    coeff_sl *= 1.1  # SL più ampio
-
-                delta_pct = calcola_percentuale_guadagno(
-                    guadagno_netto_target,
-                    investimento,
-                    spread,
-                    commissione
-                )
-                delta_price = close * delta_pct
-                tp = round(close - delta_price * coeff_tp, 4)
-                sl = round(close + delta_price * coeff_sl, 4)
-
                 note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
 
-    # Pattern V
     if segnale == "HOLD" and rileva_pattern_v(hist):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
@@ -234,6 +178,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
+        dist_level = valuta_distanza(distanza_ema)
         note.insert(0, f"📊 Trend attivo da {n_candele} candele | Distanza: {dist_level}")
         if pattern:
             note.append(f"✅ Pattern candlestick rilevato: {pattern}")
@@ -255,8 +200,33 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         note.append("⚠️ RSI e MACD neutri: segnale evitato")
         segnale = "HOLD"
 
-
-    # Fallback finale se il segnale è stato annullato o mai assegnato
     if segnale not in ["BUY", "SELL"]:
         segnale = "HOLD"
+        return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
+    # 🔽 Calcolo TP/SL solo qui in fondo se il segnale è confermato
+    forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
+    coeff_tp = min(max(1.5 + (accelerazione * 10), 1.2), 2.0)
+    coeff_sl = min(max(1.0 - (accelerazione * 5), 0.5), 1.0)
+
+    durata_trend = candele_trend_up if segnale == "BUY" else candele_trend_down
+    if durata_trend >= 6:
+        coeff_tp *= 0.9
+        coeff_sl *= 1.1
+
+    delta_pct = calcola_percentuale_guadagno(
+        guadagno_netto_target,
+        investimento,
+        spread,
+        commissione
+    )
+    delta_price = close * delta_pct
+
+    if segnale == "BUY":
+        tp = round(close + delta_price * coeff_tp, 4)
+        sl = round(close - delta_price * coeff_sl, 4)
+    elif segnale == "SELL":
+        tp = round(close - delta_price * coeff_tp, 4)
+        sl = round(close + delta_price * coeff_sl, 4)
+
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
