@@ -31,11 +31,15 @@ def read_root():
 
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
+    logging.debug(f"📩 Richiesta /analyze per {symbol.upper()}")
+
     try:
         symbol = symbol.upper()
         motivo_attuale = posizioni_attive.get(symbol, {}).get("motivo", "")
         
         if symbol in posizioni_attive:
+            logging.info(f"⏳ Simulazione già attiva su {symbol.upper()} – tipo: {posizioni_attive[symbol]['tipo']} @ {posizioni_attive[symbol]['entry']}$")
+
             posizione = posizioni_attive[symbol]
             return SignalResponse(
                 segnale="HOLD",
@@ -60,6 +64,8 @@ def analyze(symbol: str):
 
         book = get_bid_ask(symbol)
         spread = book["spread"]
+        logging.debug(f"[SPREAD] {symbol.upper()} – Spread attuale: {spread:.4f}%")
+
         if spread > 5.0:
             return SignalResponse(
                 segnale="HOLD",
@@ -89,15 +95,25 @@ def analyze(symbol: str):
         segnale_1h, *_ = analizza_trend(df_1h, spread)
         segnale_1d, *_ = analizza_trend(df_1d, spread)
 
+
+        logging.debug(f"[15m] {symbol.upper()} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
+        logging.debug(f"[1h] {symbol.upper()} – Segnale: {segnale_1h}")
+        logging.debug(f"[1d] {symbol.upper()} – Segnale: {segnale_1d}")
+
+
         if segnale != segnale_1h:
+            logging.info(f"🧭 {symbol.upper()} – 1h NON conferma {segnale} (1h = {segnale_1h})")
+
             ultimo_1h = df_1h.iloc[-1]
             macd_1h = ultimo_1h['MACD']
             signal_1h = ultimo_1h['MACD_SIGNAL']
             rsi_1h = ultimo_1h['RSI']
+            logging.debug(f"[1h CONFRONTO] {symbol.upper()} – MACD: {macd_1h:.4f} | Signal: {signal_1h:.4f} | RSI: {rsi_1h:.2f}")
 
             if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
                 note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL")
             elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
+                logging.info(f"🔎 MACD/RSI coerenti con BUY su 1h: MACD={macd_1h:.4f}, Signal={signal_1h:.4f}, RSI={rsi_1h:.2f}")
                 note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY")
             else:
                 note.append("ℹ️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})")
@@ -110,6 +126,7 @@ def analyze(symbol: str):
 
 
         if segnale in ["BUY", "SELL"]:
+            logging.info(f"✅ Nuova simulazione {segnale} per {symbol.upper()} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
                 note.append("ℹ️ Timeframe 1d in conflitto con il segnale attuale ({segnale_1d})")
             else:
@@ -133,6 +150,7 @@ def analyze(symbol: str):
         base_dati = f"RSI {rsi} | MACD {macd}/{macd_signal} | EMA {ema7}/{ema25}/{ema99} | ATR {atr}"
 
         if segnale in ["BUY", "SELL"]:
+           
             entry_price = close
             tp = round(tp, 4)
             sl = round(sl, 4)
@@ -148,6 +166,7 @@ def analyze(symbol: str):
                 "tp_esteso": 0,
                 "chiusa_da_backend": False
             }
+            logging.info(f"✅ Nuova simulazione {segnale} su {symbol.upper()} @ {entry_price}$ | TP: {tp}, SL: {sl} | Spread: {spread:.2f}%")
 
             tp_pct = round(abs((tp - close) / close) * 100, 2)
             sl_pct = round(abs((sl - close) / close) * 100, 2)
@@ -184,6 +203,8 @@ def analyze(symbol: str):
             )
 
         header = f"🚱 HOLD | {symbol.upper()} @ {close}$"
+        logging.info(f"🚫 Nessun segnale valido per {symbol.upper()} – Stato finale: HOLD")
+
         corpo = f"{base_dati}\n📉 Supporto: {supporto}$\n" + "\n".join(note)
         return SignalResponse(
             segnale="HOLD",
@@ -256,6 +277,8 @@ def get_price(symbol: str):
         }
 
     except Exception as e:
+        logging.error(f"❌ Errore durante l'analisi di {symbol.upper()}: {e}")
+
         elapsed = round(time.time() - start, 3)
         return {
             "symbol": symbol,
@@ -481,9 +504,9 @@ def verifica_posizioni_attive():
                     (tipo == "BUY" and ema7 > ema25 and rsi >= 55 and macd >= macd_sig) or
                     (tipo == "SELL" and ema7 < ema25 and rsi <= 52 and macd <= macd_sig)
                 )
-                logging.info(f"[DEBUG TP ESTESO 1] {symbol} – Condizioni per estensione:")
-                logging.info(f"→ tp_esteso={tp_esteso}, progresso={progresso:.2f}, microtrend_ok={microtrend_ok}")
-                logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
+                #logging.info(f"[DEBUG TP ESTESO 1] {symbol} – Condizioni per estensione:")
+                #logging.info(f"→ tp_esteso={tp_esteso}, progresso={progresso:.2f}, microtrend_ok={microtrend_ok}")
+                #logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
 
                 # Estensione automatica TP (prima volta)
                 if tp_esteso == 0 and progresso > 0.8 and microtrend_ok:
@@ -493,9 +516,9 @@ def verifica_posizioni_attive():
                     simulazione["motivo"] = simulazione.get("motivo", "") + " 📈 TP esteso automaticamente (trend forte)"
                     logging.info(f"[TP ESTESO] {symbol} – Nuovo TP: {nuovo_tp}")
 
-                logging.info(f"[DEBUG TP ESTESO 2] {symbol} – Condizioni per seconda estensione:")
-                logging.info(f"→ tp_esteso={tp_esteso}, tp_esteso2={tp_esteso2}, progresso={progresso:.2f}, microtrend_ok={microtrend_ok}")
-                logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
+                #logging.info(f"[DEBUG TP ESTESO 2] {symbol} – Condizioni per seconda estensione:")
+                #logging.info(f"→ tp_esteso={tp_esteso}, tp_esteso2={tp_esteso2}, progresso={progresso:.2f}, microtrend_ok={microtrend_ok}")
+                #logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
 
 
                 # Estensione automatica TP (seconda volta)
@@ -512,9 +535,9 @@ def verifica_posizioni_attive():
                         (tipo == "BUY" and (ema7 < ema25 or rsi < 50 or macd < macd_sig)) or
                         (tipo == "SELL" and (ema7 > ema25 or rsi > 57 or macd > macd_sig))
                     )
-                    logging.info(f"[DEBUG CHIUSURA ANTICIPATA] {symbol} – TP esteso attivo, progresso={progresso:.2f}, tipo={tipo}")
-                    logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
-                    logging.info(f"→ microtrend_sfavorevole={microtrend_sfavorevole}")
+                    #logging.info(f"[DEBUG CHIUSURA ANTICIPATA] {symbol} – TP esteso attivo, progresso={progresso:.2f}, tipo={tipo}")
+                    #logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
+                    #logging.info(f"→ microtrend_sfavorevole={microtrend_sfavorevole}")
 
                     if microtrend_sfavorevole:
                         simulazione["tp"] = prezzo_corrente
