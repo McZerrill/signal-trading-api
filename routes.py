@@ -88,6 +88,10 @@ def analyze(symbol: str):
         df_15m = get_binance_df(symbol, "15m", 300)
         df_1h = get_binance_df(symbol, "1h", 300)
         df_1d = get_binance_df(symbol, "1d", 300)
+        
+        logging.debug(f"[BINANCE] {symbol.upper()} – 15m: {len(df_15m)} candele, ultima close={df_15m['close'].iloc[-1]:.6f}")
+        logging.debug(f"[BINANCE] {symbol.upper()} – 1h: {len(df_1h)} candele, ultima close={df_1h['close'].iloc[-1]:.6f}")
+        logging.debug(f"[BINANCE] {symbol.upper()} – 1d: {len(df_1d)} candele, ultima close={df_1d['close'].iloc[-1]:.6f}")
 
         segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread)
         note = note15.split("\n") if note15 else []
@@ -99,6 +103,8 @@ def analyze(symbol: str):
         logging.debug(f"[15m] {symbol.upper()} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
         logging.debug(f"[1h] {symbol.upper()} – Segnale: {segnale_1h}")
         logging.debug(f"[1d] {symbol.upper()} – Segnale: {segnale_1d}")
+        logging.debug(f"[15m DETTAGLI] {symbol.upper()} – distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
+
 
 
         if segnale != segnale_1h:
@@ -154,7 +160,8 @@ def analyze(symbol: str):
             entry_price = close
             tp = round(tp, 4)
             sl = round(sl, 4)
-
+            
+            logging.info(f"[CREATE SIM] {symbol} -> segnale={segnale}, close={close:.6f}, tp={tp:.6f}, sl={sl:.6f}, spread={spread:.4f}")
             posizioni_attive[symbol] = {
                 "tipo": segnale,
                 "entry": entry_price,
