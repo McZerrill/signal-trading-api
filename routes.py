@@ -62,6 +62,7 @@ def analyze(symbol: str):
                 timeframe="15m",
                 spread=posizione.get("spread", 0.0),
                 motivo=posizione.get("motivo", "")
+                chiusa_da_backend=posizione.get("chiusa_da_backend", False)
             )
 
         book = get_bid_ask(symbol)
@@ -209,6 +210,7 @@ def analyze(symbol: str):
                 timeframe="15m",
                 spread=spread,
                 motivo=motivo_attuale
+                chiusa_da_backend=False
             )
 
         header = f"🚱 HOLD | {symbol.upper()} @ {close}$"
@@ -231,6 +233,7 @@ def analyze(symbol: str):
             timeframe="15m",
             spread=spread,
             motivo=motivo_attuale
+            chiusa_da_backend=False
         )
 
     except Exception as e:
@@ -250,6 +253,7 @@ def analyze(symbol: str):
             timeframe="",
             spread=0.0,
             motivo=f"Errore durante l'analisi di {symbol.upper()}: {e}"
+            chiusa_da_backend=False
         )        
 @router.get("/price")
 def get_price(symbol: str):
