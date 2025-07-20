@@ -1,4 +1,6 @@
 import pandas as pd
+import logging
+
 
 def calcola_rsi(serie: pd.Series, periodi: int = 14) -> pd.Series:
     """
@@ -13,6 +15,10 @@ def calcola_rsi(serie: pd.Series, periodi: int = 14) -> pd.Series:
 
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
+
+    if not rsi.dropna().empty:
+        logging.debug(f"[RSI] Ultimo RSI calcolato: {rsi.dropna().iloc[-1]:.2f}")
+
     return rsi
 
 def calcola_macd(serie: pd.Series) -> tuple[pd.Series, pd.Series]:
@@ -23,6 +29,10 @@ def calcola_macd(serie: pd.Series) -> tuple[pd.Series, pd.Series]:
     ema26 = serie.ewm(span=26, adjust=False).mean()
     macd = ema12 - ema26
     segnale = macd.ewm(span=9, adjust=False).mean()
+
+    if not macd.dropna().empty and not segnale.dropna().empty:
+        logging.debug(f"[MACD] Ultimi valori → MACD: {macd.dropna().iloc[-1]:.4f}, Segnale: {segnale.dropna().iloc[-1]:.4f}")
+
     return macd, segnale
 
 def calcola_atr(df: pd.DataFrame, periodi: int = 14) -> pd.Series:
@@ -39,13 +49,19 @@ def calcola_atr(df: pd.DataFrame, periodi: int = 14) -> pd.Series:
 
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     atr = tr.rolling(window=periodi, min_periods=1).mean()
+
+    if not atr.dropna().empty:
+        logging.debug(f"[ATR] Ultimo ATR calcolato: {atr.dropna().iloc[-1]:.6f}")
+
     return atr
 
 def calcola_supporto(df: pd.DataFrame, lookback: int = 20) -> float:
     """
     Restituisce il minimo dei valori 'low' nelle ultime N candele.
     """
-    return df["low"].tail(lookback).min()
+    minimo = df["low"].tail(lookback).min()
+    logging.debug(f"[SUPPORTO] Minimo {lookback} candele: {minimo:.6f}")
+    return minimo
 
 def calcola_ema(df: pd.DataFrame, colonne: list[int]) -> dict[int, pd.Series]:
     """
@@ -53,7 +69,10 @@ def calcola_ema(df: pd.DataFrame, colonne: list[int]) -> dict[int, pd.Series]:
     """
     ema_dict = {}
     for periodo in colonne:
-        ema_dict[periodo] = df["close"].ewm(span=periodo, adjust=False).mean()
+        serie = df["close"].ewm(span=periodo, adjust=False).mean()
+        ema_dict[periodo] = serie
+        if not serie.dropna().empty:
+            logging.debug(f"[EMA] EMA {periodo}: ultimo valore = {serie.dropna().iloc[-1]:.6f}")
     return ema_dict
 
 def calcola_percentuale_guadagno(
