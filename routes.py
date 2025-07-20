@@ -159,6 +159,8 @@ def analyze(symbol: str):
         base_dati = f"RSI {rsi} | MACD {macd}/{macd_signal} | EMA {ema7}/{ema25}/{ema99} | ATR {atr}"
 
         if segnale in ["BUY", "SELL"]:
+            logging.info(f"✔️ Simulazione autorizzata per {symbol} @ {close:.6f} [{segnale}] | TP={tp:.6f}, SL={sl:.6f}")
+
            
             entry_price = close
             tp = round(tp, 4)
