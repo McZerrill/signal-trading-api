@@ -19,6 +19,8 @@ class SignalResponse(BaseModel):
     timeframe: str
     spread: float
     motivo: str = ""
+    chiusa_da_backend: Optional[bool] = False
+
     
 
 
