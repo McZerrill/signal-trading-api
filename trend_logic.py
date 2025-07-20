@@ -106,10 +106,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     distanza_minima = 0.0006 if MODALITA_TEST else 0.0012
     macd_signal_threshold = 0.0004 if MODALITA_TEST else 0.0006
 
-    if atr / close < atr_minimo:
-        logging.info(f"🚫 ATR troppo basso: {atr / close:.6f} < {atr_minimo}")
-        note.append("⚠️ ATR troppo basso: mercato poco volatile")
-        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+    #if atr / close < atr_minimo:
+        #logging.info(f"🚫 ATR troppo basso: {atr / close:.6f} < {atr_minimo}")
+        #note.append("⚠️ ATR troppo basso: mercato poco volatile")
+        #return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     volume_attuale = hist['volume'].iloc[-1]
     volume_medio = hist['volume'].iloc[-21:-1].mean()
