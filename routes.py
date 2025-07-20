@@ -511,9 +511,9 @@ def verifica_posizioni_attive():
                     (tipo == "BUY" and ema7 > ema25 and rsi >= 55 and macd >= macd_sig) or
                     (tipo == "SELL" and ema7 < ema25 and rsi <= 52 and macd <= macd_sig)
                 )
-                #logging.info(f"[DEBUG TP ESTESO 1] {symbol} – Condizioni per estensione:")
-                #logging.info(f"→ tp_esteso={tp_esteso}, progresso={progresso:.2f}, microtrend_ok={microtrend_ok}")
-                #logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
+                logging.info(f"[DEBUG TP ESTESO 1] {symbol} – Condizioni per estensione:")
+                logging.info(f"→ tp_esteso={tp_esteso}, progresso={progresso:.2f}, microtrend_ok={microtrend_ok}")
+                logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
 
                 # Estensione automatica TP (prima volta)
                 if tp_esteso == 0 and progresso > 0.8 and microtrend_ok:
@@ -523,9 +523,9 @@ def verifica_posizioni_attive():
                     simulazione["motivo"] = simulazione.get("motivo", "") + " 📈 TP esteso automaticamente (trend forte)"
                     logging.info(f"[TP ESTESO] {symbol} – Nuovo TP: {nuovo_tp}")
 
-                #logging.info(f"[DEBUG TP ESTESO 2] {symbol} – Condizioni per seconda estensione:")
-                #logging.info(f"→ tp_esteso={tp_esteso}, tp_esteso2={tp_esteso2}, progresso={progresso:.2f}, microtrend_ok={microtrend_ok}")
-                #logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
+                logging.info(f"[DEBUG TP ESTESO 2] {symbol} – Condizioni per seconda estensione:")
+                logging.info(f"→ tp_esteso={tp_esteso}, tp_esteso2={tp_esteso2}, progresso={progresso:.2f}, microtrend_ok={microtrend_ok}")
+                logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
 
 
                 # Estensione automatica TP (seconda volta)
@@ -542,9 +542,9 @@ def verifica_posizioni_attive():
                         (tipo == "BUY" and (ema7 < ema25 or rsi < 50 or macd < macd_sig)) or
                         (tipo == "SELL" and (ema7 > ema25 or rsi > 57 or macd > macd_sig))
                     )
-                    #logging.info(f"[DEBUG CHIUSURA ANTICIPATA] {symbol} – TP esteso attivo, progresso={progresso:.2f}, tipo={tipo}")
-                    #logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
-                    #logging.info(f"→ microtrend_sfavorevole={microtrend_sfavorevole}")
+                    logging.info(f"[DEBUG CHIUSURA ANTICIPATA] {symbol} – TP esteso attivo, progresso={progresso:.2f}, tipo={tipo}")
+                    logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
+                    logging.info(f"→ microtrend_sfavorevole={microtrend_sfavorevole}")
 
                     if microtrend_sfavorevole:
                         simulazione["tp"] = prezzo_corrente
