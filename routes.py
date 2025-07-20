@@ -61,7 +61,7 @@ def analyze(symbol: str):
                 ema99=0.0,
                 timeframe="15m",
                 spread=posizione.get("spread", 0.0),
-                motivo=posizione.get("motivo", "")
+                motivo=posizione.get("motivo", ""),
                 chiusa_da_backend=posizione.get("chiusa_da_backend", False)
             )
 
@@ -209,7 +209,7 @@ def analyze(symbol: str):
                 ema99=ema99,
                 timeframe="15m",
                 spread=spread,
-                motivo=motivo_attuale
+                motivo=motivo_attuale,
                 chiusa_da_backend=False
             )
 
@@ -232,7 +232,7 @@ def analyze(symbol: str):
             ema99=ema99,
             timeframe="15m",
             spread=spread,
-            motivo=motivo_attuale
+            motivo=motivo_attuale,
             chiusa_da_backend=False
         )
 
@@ -252,7 +252,7 @@ def analyze(symbol: str):
             ema99=0.0,
             timeframe="",
             spread=0.0,
-            motivo=f"Errore durante l'analisi di {symbol.upper()}: {e}"
+            motivo=f"Errore durante l'analisi di {symbol.upper()}: {e}",
             chiusa_da_backend=False
         )        
 @router.get("/price")
