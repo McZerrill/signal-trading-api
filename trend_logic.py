@@ -106,10 +106,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     distanza_minima = 0.0006 if MODALITA_TEST else 0.0012
     macd_signal_threshold = 0.0004 if MODALITA_TEST else 0.0006
 
-    #if atr / close < atr_minimo:
-        #logging.info(f"🚫 ATR troppo basso: {atr / close:.6f} < {atr_minimo}")
-        #note.append("⚠️ ATR troppo basso: mercato poco volatile")
-        #return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+    if atr / close < atr_minimo:
+        logging.info(f"🚫 ATR troppo basso: {atr / close:.6f} < {atr_minimo}")
+        note.append("⚠️ ATR troppo basso: mercato poco volatile")
+        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     volume_attuale = hist['volume'].iloc[-1]
     volume_medio = hist['volume'].iloc[-21:-1].mean()
@@ -162,11 +162,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             segnale = "BUY"
             durata_trend = candele_trend_up
             note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
-            #if durata_trend >= 6 and accelerazione < 0:
-                #note.append(f"⛔ Trend BUY troppo maturo e in rallentamento ({durata_trend} candele)")
-                #segnale = None
-            #elif durata_trend >= 5:
-                #note.append(f"⚠️ Trend maturo: {durata_trend} candele")
+            if durata_trend >= 6 and accelerazione < 0:
+                note.append(f"⛔ Trend BUY troppo maturo e in rallentamento ({durata_trend} candele)")
+                segnale = None
+            elif durata_trend >= 5:
+                note.append(f"⚠️ Trend maturo: {durata_trend} candele")
             if segnale == "BUY":
                 note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
@@ -175,9 +175,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             segnale = "SELL"
             durata_trend = candele_trend_down
             note.append(f"🕒 Trend SELL attivo da {durata_trend} candele")
-            #if durata_trend >= 5:
-                #note.append(f"⛔ Segnale evitato: trend SELL troppo maturo ({durata_trend} candele)")
-                #segnale = None
+            if durata_trend >= 5:
+                note.append(f"⛔ Segnale evitato: trend SELL troppo maturo ({durata_trend} candele)")
+                segnale = None
             if segnale == "SELL":
                 note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
 
