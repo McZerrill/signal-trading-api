@@ -18,6 +18,8 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
     force=True
 )
+logging.debug("🧪 LOG DI TEST DEBUG all'avvio")
+
 
 router = APIRouter()
 utc = dt_timezone.utc
