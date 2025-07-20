@@ -165,8 +165,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             #if durata_trend >= 6 and accelerazione < 0:
                 #note.append(f"⛔ Trend BUY troppo maturo e in rallentamento ({durata_trend} candele)")
                 #segnale = None
-            elif durata_trend >= 5:
-                note.append(f"⚠️ Trend maturo: {durata_trend} candele")
+            #elif durata_trend >= 5:
+                #note.append(f"⚠️ Trend maturo: {durata_trend} candele")
             if segnale == "BUY":
                 note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
 
