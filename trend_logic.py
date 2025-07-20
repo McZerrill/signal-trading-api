@@ -1,6 +1,9 @@
 import pandas as pd
 from indicators import calcola_rsi, calcola_macd, calcola_atr, calcola_supporto, calcola_ema
 from indicators import calcola_percentuale_guadagno
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
 
 
 MODALITA_TEST = True
@@ -66,6 +69,8 @@ def rileva_pattern_v(hist: pd.DataFrame) -> bool:
     return pattern and rsi_start < 30 and rsi_end > 50 and abs(macd) < 0.01
 
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
+    logging.debug("🔍 Inizio analisi trend")
+    
     hist = hist.copy()
     ema = calcola_ema(hist, [7, 25, 99])
     hist['EMA_7'] = ema[7]
@@ -75,7 +80,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist['ATR'] = calcola_atr(hist)
     hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['close'])
 
+    logging.debug(f"[DATI] Close={hist['close'].iloc[-1]:.6f}, RSI={hist['RSI'].iloc[-1]:.2f}, MACD={hist['MACD'].iloc[-1]:.4f}, Signal={hist['MACD_SIGNAL'].iloc[-1]:.4f}, ATR={hist['ATR'].iloc[-1]:.6f}")
+
+
     if len(hist) < 22:
+        logging.warning("⚠️ Dati insufficienti per l'analisi")
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
 
     ultimo = hist.iloc[-1]
@@ -98,12 +107,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     macd_signal_threshold = 0.0004 if MODALITA_TEST else 0.0006
 
     if atr / close < atr_minimo:
+        logging.info(f"🚫 ATR troppo basso: {atr / close:.6f} < {atr_minimo}")
         note.append("⚠️ ATR troppo basso: mercato poco volatile")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     volume_attuale = hist['volume'].iloc[-1]
     volume_medio = hist['volume'].iloc[-21:-1].mean()
     if volume_attuale < volume_medio * 2.5:
+        logging.info(f"🚫 Volume debole: attuale={volume_attuale:.2f}, medio={volume_medio:.2f}")
         note.append("⚠️ Volume basso: segnale debole")
         if not MODALITA_TEST:
             return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
@@ -170,6 +181,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             if segnale == "SELL":
                 note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
 
+    logging.debug(f"[SEGNALE] Tipo: {segnale}, RSI={rsi:.2f}, MACD Gap={macd_gap:.6f}, Distanza EMA={distanza_ema:.6f}")
+
+
     if segnale == "HOLD" and rileva_pattern_v(hist):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
@@ -228,5 +242,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     elif segnale == "SELL":
         tp = round(close - delta_price * coeff_tp, 4)
         sl = round(close + delta_price * coeff_sl, 4)
+
+    logging.debug(f"[TP/SL] TP={tp:.4f}, SL={sl:.4f}, coeff_tp={coeff_tp:.2f}, coeff_sl={coeff_sl:.2f}, Δ% richiesta={delta_pct:.4%}")
+
+    logging.debug("✅ Analisi completata\n")
 
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
