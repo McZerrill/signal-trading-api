@@ -13,7 +13,7 @@ from models import SignalResponse
 
 logging.basicConfig(
     filename="log.txt",
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S",
     force=True
