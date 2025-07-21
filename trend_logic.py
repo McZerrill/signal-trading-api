@@ -246,5 +246,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     logging.debug(f"[TP/SL] TP={tp:.4f}, SL={sl:.4f}, coeff_tp={coeff_tp:.2f}, coeff_sl={coeff_sl:.2f}, Δ% richiesta={delta_pct:.4%}")
 
     logging.debug("✅ Analisi completata\n")
+    print(f"[DEBUG ANALYZE] Segnale={segnale}, Note:\n{note}")
+
 
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
