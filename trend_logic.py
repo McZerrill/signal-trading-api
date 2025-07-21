@@ -162,24 +162,26 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             segnale = "BUY"
             durata_trend = candele_trend_up
             note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
+            note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
             if durata_trend >= 6 and accelerazione < 0:
                 note.append(f"⛔ Trend BUY troppo maturo e in rallentamento ({durata_trend} candele)")
                 segnale = None
             elif durata_trend >= 5:
                 note.append(f"⚠️ Trend maturo: {durata_trend} candele")
-            if segnale == "BUY":
-                note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
+            
+                
 
     if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
         if rsi <= 55 and (macd_sell_ok or macd_sell_debole):
             segnale = "SELL"
             durata_trend = candele_trend_down
             note.append(f"🕒 Trend SELL attivo da {durata_trend} candele")
+            note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
             if durata_trend >= 5:
                 note.append(f"⛔ Segnale evitato: trend SELL troppo maturo ({durata_trend} candele)")
                 segnale = None
-            if segnale == "SELL":
-                note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
+           
+                
 
     logging.debug(f"[SEGNALE] Tipo: {segnale}, RSI={rsi:.2f}, MACD Gap={macd_gap:.6f}, Distanza EMA={distanza_ema:.6f}")
 
