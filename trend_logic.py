@@ -102,9 +102,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     commissione = 0.1
 
     volume_soglia = 100 if MODALITA_TEST else 300
-    atr_minimo = 0.0004 if MODALITA_TEST else 0.0009
-    distanza_minima = 0.0004 if MODALITA_TEST else 0.0012
-    macd_signal_threshold = 0.0002 if MODALITA_TEST else 0.0006
+    atr_minimo = 0.0012 if MODALITA_TEST else 0.0009
+    distanza_minima = 0.0010 if MODALITA_TEST else 0.0012
+    macd_rsi_range = (44, 56)
+    macd_signal_threshold = 0.0005 if MODALITA_TEST else 0.0006
 
     if atr / close < atr_minimo:
         logging.info(f"🚫 ATR troppo basso: {atr / close:.6f} < {atr_minimo}")
