@@ -197,6 +197,7 @@ def analyze(symbol: str):
             )
 
             return SignalResponse(
+                symbol=symbol,
                 segnale=segnale,
                 commento=commento,
                 prezzo=entry_price,
