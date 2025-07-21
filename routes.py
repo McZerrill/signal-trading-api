@@ -186,7 +186,7 @@ def analyze(symbol: str):
             if any("💥" in riga for riga in note):
                 base_dati = "💥 BREAKOUT rilevato\n" + base_dati
 
-            header = "🟢 BUY confermato" if segnale == "BUY" else "🔴 SELL confermato"
+            header = "BUY confermato 🧭" if segnale == "BUY" else "SELL confermato 🧭"
 
             commento = (
                 f"{header} | {symbol.upper()} @ {close}$\n"
