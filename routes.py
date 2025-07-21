@@ -45,10 +45,10 @@ def analyze(symbol: str):
             posizione = posizioni_attive[symbol]
             return SignalResponse(
                 segnale="HOLD",
-                commento=posizione.get("commento") or (
-                    f"\u23f3 Simulazione già attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
+                commento=(
+                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
                     f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
-                )
+                ),
                 prezzo=posizione["entry"],
                 take_profit=posizione["tp"],
                 stop_loss=posizione["sl"],
