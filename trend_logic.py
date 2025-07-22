@@ -51,12 +51,20 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
 def rileva_pattern_v(hist: pd.DataFrame) -> bool:
     if len(hist) < 4:
         return False
-    sub = hist.iloc[-4:]
-    rsi_start = sub['RSI'].iloc[0]
-    rsi_end = sub['RSI'].iloc[-1]
-    macd = sub['MACD'].iloc[-1]
-    pattern = False
+    if not {'MACD', 'RSI', 'open', 'close'}.issubset(hist.columns):
+        return False
 
+    sub = hist.iloc[-4:]
+
+    try:
+        rsi_start = sub['RSI'].iloc[0]
+        rsi_end = sub['RSI'].iloc[-1]
+        macd = sub['MACD'].iloc[-1]
+    except Exception as e:
+        logging.warning(f"⚠️ Errore nel rilevamento pattern V: {e}")
+        return False
+
+    pattern = False
     for i in range(-3, 0):
         rossa = sub.iloc[i]['close'] < sub.iloc[i]['open']
         verde = sub.iloc[i+1]['close'] > sub.iloc[i+1]['open']
@@ -67,6 +75,7 @@ def rileva_pattern_v(hist: pd.DataFrame) -> bool:
             break
 
     return pattern and rsi_start < 30 and rsi_end > 50 and abs(macd) < 0.01
+
 
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     logging.debug("🔍 Inizio analisi trend")
