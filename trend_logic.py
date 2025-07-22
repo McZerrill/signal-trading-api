@@ -232,6 +232,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         note.append("⚠️ RSI e MACD neutri: segnale evitato")
         segnale = "HOLD"
 
+    if MODALITA_TEST and segnale == "HOLD":
+        segnale = "BUY"
+        note.append("🧪 Forzato segnale BUY per test")
+        
     if segnale not in ["BUY", "SELL"]:
         segnale = "HOLD"
         return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
@@ -266,8 +270,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     logging.debug("✅ Analisi completata\n")
     print(f"[DEBUG ANALYZE] Segnale={segnale}, Note:\n{note}")
     
-    if MODALITA_TEST and segnale == "HOLD":
-        segnale = "BUY"
-        note.append("🧪 Forzato segnale BUY per test")
+    
 
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
