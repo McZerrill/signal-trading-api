@@ -82,6 +82,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     
     hist = hist.copy()
 
+    close = 0.0
+
     if len(hist) < 22:
         logging.warning("⚠️ Dati insufficienti per l'analisi")
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
