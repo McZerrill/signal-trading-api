@@ -82,6 +82,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     logging.debug(f"[DATI] Close={hist['close'].iloc[-1]:.6f}, RSI={hist['RSI'].iloc[-1]:.2f}, MACD={hist['MACD'].iloc[-1]:.4f}, Signal={hist['MACD_SIGNAL'].iloc[-1]:.4f}, ATR={hist['ATR'].iloc[-1]:.6f}")
 
+
     if len(hist) < 22:
         logging.warning("⚠️ Dati insufficienti per l'analisi")
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
@@ -168,6 +169,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
                 segnale = None
             elif durata_trend >= 5:
                 note.append(f"⚠️ Trend maturo: {durata_trend} candele")
+            
+                
 
     if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
         if rsi <= 55 and (macd_sell_ok or macd_sell_debole):
@@ -178,8 +181,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
             if durata_trend >= 5:
                 note.append(f"⛔ Segnale evitato: trend SELL troppo maturo ({durata_trend} candele)")
                 segnale = None
+           
+                
 
     logging.debug(f"[SEGNALE] Tipo: {segnale}, RSI={rsi:.2f}, MACD Gap={macd_gap:.6f}, Distanza EMA={distanza_ema:.6f}")
+
 
     if segnale == "HOLD" and rileva_pattern_v(hist):
         segnale = "BUY"
@@ -213,17 +219,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     if segnale not in ["BUY", "SELL"]:
         segnale = "HOLD"
-
-        # ✅ TEST: forzatura segnale BUY se in MODALITA_TEST
-        if MODALITA_TEST:
-            logging.info("🧪 Forzatura segnale BUY in modalità test")
-            segnale = "BUY"
-            tp = round(close + atr * 1.8, 4)
-            sl = round(close - atr, 4)
-            note.append("🧪 Segnale BUY forzato in modalità test per verifica notifiche")
-
         return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
+    # 🔽 Calcolo TP/SL solo qui in fondo se il segnale è confermato
     forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
     coeff_tp = min(max(1.5 + (accelerazione * 10), 1.2), 2.0)
     coeff_sl = min(max(1.0 - (accelerazione * 5), 0.5), 1.0)
@@ -252,5 +250,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
 
     logging.debug("✅ Analisi completata\n")
     print(f"[DEBUG ANALYZE] Segnale={segnale}, Note:\n{note}")
+
 
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
