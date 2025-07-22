@@ -81,6 +81,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     logging.debug("🔍 Inizio analisi trend")
     
     hist = hist.copy()
+
+    if len(hist) < 22:
+        logging.warning("⚠️ Dati insufficienti per l'analisi")
+        return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
+
     ema = calcola_ema(hist, [7, 25, 99])
     hist['EMA_7'] = ema[7]
     hist['EMA_25'] = ema[25]
@@ -90,11 +95,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['close'])
 
     logging.debug(f"[DATI] Close={hist['close'].iloc[-1]:.6f}, RSI={hist['RSI'].iloc[-1]:.2f}, MACD={hist['MACD'].iloc[-1]:.4f}, Signal={hist['MACD_SIGNAL'].iloc[-1]:.4f}, ATR={hist['ATR'].iloc[-1]:.6f}")
-
-
-    if len(hist) < 22:
-        logging.warning("⚠️ Dati insufficienti per l'analisi")
-        return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
 
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
