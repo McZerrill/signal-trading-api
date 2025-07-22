@@ -44,6 +44,7 @@ def analyze(symbol: str):
 
             posizione = posizioni_attive[symbol]
             return SignalResponse(
+                symbol=symbol.upper(),
                 segnale="HOLD",
                 commento=(
                     f"\u23f3 Simulazione gi\u00e0 attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
@@ -221,6 +222,7 @@ def analyze(symbol: str):
 
         corpo = f"{base_dati}\n📉 Supporto: {supporto}$\n" + "\n".join(note)
         return SignalResponse(
+            symbol=symbol.upper(),
             segnale="HOLD",
             commento=f"{header}\n{corpo}",
             prezzo=close,
@@ -241,6 +243,7 @@ def analyze(symbol: str):
 
     except Exception as e:
         return SignalResponse(
+            symbol=symbol.upper(),
             segnale="ERROR",
             commento=f"Errore durante l'analisi di {symbol.upper()}: {e}",
             prezzo=0.0,
