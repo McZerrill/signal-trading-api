@@ -97,6 +97,19 @@ def analyze(symbol: str):
         df_1d = get_binance_df(symbol, "1d", 300)
 
         segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread)
+
+        # 🛠️ Fallback se TP o SL non sono stati calcolati correttamente (restano a 0.0)
+        if segnale in ["BUY", "SELL"] and (tp == 0.0 or sl == 0.0):
+            try:
+                ultimo_close = df_15m['close'].iloc[-1]
+                tp = round(ultimo_close * 1.015, 4)
+                sl = round(ultimo_close * 0.985, 4)
+                note15 += "\n📌 TP/SL fallback inseriti (default)"
+                logging.warning(f"⚠️ TP/SL mancanti su {symbol}: fallback applicato")
+            except Exception as e:
+                logging.error(f"❌ Errore nel calcolo fallback TP/SL: {e}")
+
+
         note = note15.split("\n") if note15 else []
 
         # 📌 Anche se HOLD, recupera sempre gli ultimi dati tecnici
