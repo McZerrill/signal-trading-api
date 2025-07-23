@@ -256,12 +256,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         segnale = "HOLD"
         return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
-    # ⚠️ Fallback se TP/SL non ancora calcolati
-    if tp == 0.0 or sl == 0.0:
-        tp = round(close * 1.015, 4)
-        sl = round(close * 0.985, 4)
-        note.append("📌 TP/SL fallback inseriti (default)")
-
+    
     # 🔽 Calcolo TP/SL solo qui in fondo se il segnale è confermato
     forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
     coeff_tp = min(max(1.5 + (accelerazione * 10), 1.2), 2.0)
