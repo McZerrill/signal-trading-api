@@ -7,6 +7,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 MODALITA_TEST = True
+MODALITA_TEST_FORZATA = True
 
 def valuta_distanza(distanza: float) -> str:
     if distanza < 1:
@@ -95,6 +96,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist['RSI'] = calcola_rsi(hist['close'])
     hist['ATR'] = calcola_atr(hist)
     hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['close'])
+    
+    if MODALITA_TEST_FORZATA:
+        logging.debug("🧪 Modalità test forzata attiva: segnale BUY immediato")
+        return "BUY", hist, 0.0015, "🧪 Segnale BUY forzato (inizio funzione)", 0.0, 0.0, 0.0
 
     logging.debug(f"[DATI] Close={hist['close'].iloc[-1]:.6f}, RSI={hist['RSI'].iloc[-1]:.2f}, MACD={hist['MACD'].iloc[-1]:.4f}, Signal={hist['MACD_SIGNAL'].iloc[-1]:.4f}, ATR={hist['ATR'].iloc[-1]:.6f}")
 
