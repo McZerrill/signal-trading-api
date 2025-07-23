@@ -98,11 +98,8 @@ def analyze(symbol: str):
 
         segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread)
 
-        note = list(dict.fromkeys(note15.split("\n"))) if note15 else []
-        def append_unique(msg):
-            if msg and msg not in note:
-                note.append(msg)
-
+        note = note15.split("\n") if note15 else []
+        
 
 
         # 📌 Anche se HOLD, recupera sempre gli ultimi dati tecnici
@@ -141,26 +138,26 @@ def analyze(symbol: str):
                 rsi_1h = ultimo_1h['RSI']
 
                 if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
-                    append_unique("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL")
+                    note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL")
                 elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
-                    append_unique("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY")
+                    note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY")
                 else:
-                    append_unique(f"⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})")
+                    note.append(f"⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})")
 
                 trend_1h = conta_candele_trend(df_1h, rialzista=(segnale == "BUY"))
                 if trend_1h < 2:
-                    append_unique(f"⚠️ Trend su 1h debole ({trend_1h} candele)")
+                    note.append(f"⚠️ Trend su 1h debole ({trend_1h} candele)")
             except Exception as e:
                 logging.warning(f"⚠️ Errore dati 1h: {e}")
         else:
-            append_unique("🧭 1h✓")
+            note.append("🧭 1h✓")
 
         # Verifica 1d
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
-                append_unique(f"⚠️ Timeframe 1d in conflitto con il segnale ({segnale_1d})")
+                note.append(f"⚠️ Timeframe 1d in conflitto con il segnale ({segnale_1d})")
             else:
-                append_unique("📅 1d✓")
+                note.append("📅 1d✓")
 
             logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
             posizioni_attive[symbol] = {
