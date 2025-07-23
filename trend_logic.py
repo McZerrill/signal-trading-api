@@ -111,9 +111,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         macd_signal = ultimo['MACD_SIGNAL']
         supporto = calcola_supporto(hist)
 
-        if MODALITA_TEST_FORZATA:
-            logging.debug("🧪 Modalità test forzata attiva: segnale BUY immediato")
-            return "BUY", hist, 0.0015, "🧪 Segnale BUY forzato (dopo inizializzazione)", 0.0, 0.0, supporto
+        #if MODALITA_TEST_FORZATA:
+            #logging.debug("🧪 Modalità test forzata attiva: segnale BUY immediato")
+            #return "BUY", hist, 0.0015, "🧪 Segnale BUY forzato (dopo inizializzazione)", 0.0, 0.0, supporto
 
         logging.debug(f"[DATI] Close={close:.6f}, RSI={rsi:.2f}, MACD={macd:.4f}, Signal={macd_signal:.4f}, ATR={atr:.6f}")
     except Exception as e:
