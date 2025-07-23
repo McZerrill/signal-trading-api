@@ -38,16 +38,15 @@ def analyze(symbol: str):
     try:
         symbol = symbol.upper()
         motivo_attuale = posizioni_attive.get(symbol, {}).get("motivo", "")
-        
-        if symbol in posizioni_attive:
-            logging.info(f"⏳ Simulazione già attiva su {symbol.upper()} – tipo: {posizioni_attive[symbol]['tipo']} @ {posizioni_attive[symbol]['entry']}$")
 
+        if symbol in posizioni_attive:
+            logging.info(f"⏳ Simulazione già attiva su {symbol} – tipo: {posizioni_attive[symbol]['tipo']} @ {posizioni_attive[symbol]['entry']}$")
             posizione = posizioni_attive[symbol]
             return SignalResponse(
-                symbol=symbol.upper(),
+                symbol=symbol,
                 segnale="HOLD",
                 commento=(
-                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol.upper()} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
+                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
                     f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
                 ),
                 prezzo=posizione["entry"],
@@ -62,18 +61,20 @@ def analyze(symbol: str):
                 ema99=0.0,
                 timeframe="15m",
                 spread=posizione.get("spread", 0.0),
-                motivo=posizione.get("motivo", ""),
+                motivo=motivo_attuale,
                 chiusa_da_backend=posizione.get("chiusa_da_backend", False)
             )
 
+        # Spread
         book = get_bid_ask(symbol)
         spread = book["spread"]
-        logging.debug(f"[SPREAD] {symbol.upper()} – Spread attuale: {spread:.4f}%")
+        logging.debug(f"[SPREAD] {symbol} – Spread attuale: {spread:.4f}%")
 
         if spread > 5.0:
             return SignalResponse(
+                symbol=symbol,
                 segnale="HOLD",
-                commento=f"Simulazione ignorata per {symbol.upper()} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
+                commento=f"Simulazione ignorata per {symbol} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
                 prezzo=0.0,
                 take_profit=0.0,
                 stop_loss=0.0,
@@ -84,150 +85,97 @@ def analyze(symbol: str):
                 ema7=0.0,
                 ema25=0.0,
                 ema99=0.0,
-                timeframe="",
-                spread=spread,
-                motivo="Spread eccessivo"
-            )
-
-        df_15m = get_binance_df(symbol, "15m", 300)
-        df_1h = get_binance_df(symbol, "1h", 300)
-        df_1d = get_binance_df(symbol, "1d", 300)
-        
-        logging.debug(f"[BINANCE] {symbol.upper()} – 15m: {len(df_15m)} candele, ultima close={df_15m['close'].iloc[-1]:.6f}")
-        logging.debug(f"[BINANCE] {symbol.upper()} – 1h: {len(df_1h)} candele, ultima close={df_1h['close'].iloc[-1]:.6f}")
-        logging.debug(f"[BINANCE] {symbol.upper()} – 1d: {len(df_1d)} candele, ultima close={df_1d['close'].iloc[-1]:.6f}")
-
-        segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread)
-        note = note15.split("\n") if note15 else []
-        
-        segnale_1h, *_ = analizza_trend(df_1h, spread)
-        segnale_1d, *_ = analizza_trend(df_1d, spread)
-
-
-        logging.debug(f"[15m] {symbol.upper()} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
-        logging.debug(f"[1h] {symbol.upper()} – Segnale: {segnale_1h}")
-        logging.debug(f"[1d] {symbol.upper()} – Segnale: {segnale_1d}")
-        logging.debug(f"[15m DETTAGLI] {symbol.upper()} – distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
-
-
-
-        if segnale != segnale_1h:
-            logging.info(f"🧭 {symbol.upper()} – 1h NON conferma {segnale} (1h = {segnale_1h})")
-
-            ultimo_1h = df_1h.iloc[-1]
-            macd_1h = ultimo_1h['MACD']
-            signal_1h = ultimo_1h['MACD_SIGNAL']
-            rsi_1h = ultimo_1h['RSI']
-            logging.debug(f"[1h CONFRONTO] {symbol.upper()} – MACD: {macd_1h:.4f} | Signal: {signal_1h:.4f} | RSI: {rsi_1h:.2f}")
-
-            if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
-                note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL")
-            elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
-                logging.info(f"🔎 MACD/RSI coerenti con BUY su 1h: MACD={macd_1h:.4f}, Signal={signal_1h:.4f}, RSI={rsi_1h:.2f}")
-                note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY")
-            else:
-                note.append("ℹ️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})")
-
-            trend_1h = conta_candele_trend(df_1h, rialzista=(segnale == "BUY"))
-            if trend_1h < 2:
-                note.append("ℹ️ Trend su 1h debole ({trend_1h} candele)")
-        else:
-            note.append("🧭 1h✓")
-
-
-        if segnale in ["BUY", "SELL"]:
-            logging.info(f"✅ Nuova simulazione {segnale} per {symbol.upper()} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
-            if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
-                note.append("ℹ️ Timeframe 1d in conflitto con il segnale attuale ({segnale_1d})")
-            else:
-                note.append("📅 1d✓")
-
-
-
-        ultimo = hist.iloc[-1]
-        close = round(ultimo['close'], 4)
-        if close <= 0:
-            raise ValueError(f"Prezzo non valido: {close}")
-
-        rsi = round(ultimo['RSI'], 2)
-        ema7 = round(ultimo['EMA_7'], 2)
-        ema25 = round(ultimo['EMA_25'], 2)
-        ema99 = round(ultimo['EMA_99'], 2)
-        atr = round(ultimo['ATR'], 2)
-        macd = round(ultimo['MACD'], 4)
-        macd_signal = round(ultimo['MACD_SIGNAL'], 4)
-
-        base_dati = f"RSI {rsi} | MACD {macd}/{macd_signal} | EMA {ema7}/{ema25}/{ema99} | ATR {atr}"
-
-        if segnale in ["BUY", "SELL"]:
-            logging.info(f"✔️ Simulazione autorizzata per {symbol} @ {close:.6f} [{segnale}] | TP={tp:.6f}, SL={sl:.6f}")
-
-           
-            entry_price = close
-            tp = round(tp, 4)
-            sl = round(sl, 4)
-            
-            logging.info(f"[CREATE SIM] {symbol} -> segnale={segnale}, close={close:.6f}, tp={tp:.6f}, sl={sl:.6f}, spread={spread:.4f}")
-            posizioni_attive[symbol] = {
-                "tipo": segnale,
-                "entry": entry_price,
-                "tp": tp,
-                "sl": sl,
-                "ora_apertura": time.time(),
-                "spread": spread,
-                "motivo": "",
-                "tp_esteso": 0,
-                "chiusa_da_backend": False
-            }
-            logging.info(f"✅ Nuova simulazione {segnale} su {symbol.upper()} @ {entry_price}$ | TP: {tp}, SL: {sl} | Spread: {spread:.2f}%")
-
-            tp_pct = round(abs((tp - close) / close) * 100, 2)
-            sl_pct = round(abs((sl - close) / close) * 100, 2)
-
-            if any("💥" in riga for riga in note):
-                base_dati = "💥 BREAKOUT rilevato\n" + base_dati
-
-            header = "BUY confermato 🧭" if segnale == "BUY" else "SELL confermato 🧭"
-
-            commento = (
-                f"{header} | {symbol.upper()} @ {close}$\n"
-                f"🎯 TP: {tp}   🛡 SL: {sl}\n"
-                f"RSI {rsi} • MACD {macd}/{macd_signal} • "
-                f"EMA {ema7}/{ema25}/{ema99} • ATR {atr}\n"
-                + "\n".join(note)
-            )
-
-            return SignalResponse(
-                symbol=symbol.upper(),
-                segnale=segnale,
-                commento=commento,
-                prezzo=entry_price,
-                take_profit=tp,
-                stop_loss=sl,
-                rsi=rsi,
-                macd=macd,
-                macd_signal=macd_signal,
-                atr=atr,
-                ema7=ema7,
-                ema25=ema25,
-                ema99=ema99,
                 timeframe="15m",
                 spread=spread,
-                motivo=motivo_attuale,
+                motivo="Spread eccessivo",
                 chiusa_da_backend=False
             )
 
-        header = f"🚱 HOLD | {symbol.upper()} @ {close}$"
-        logging.info(f"🚫 Nessun segnale valido per {symbol.upper()} – Stato finale: HOLD")
+        # Dati Binance
+        df_15m = get_binance_df(symbol, "15m", 300)
+        df_1h = get_binance_df(symbol, "1h", 300)
+        df_1d = get_binance_df(symbol, "1d", 300)
 
-        corpo = f"{base_dati}\n📉 Supporto: {supporto}$\n" + "\n".join(note)
+        segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread)
+        note = note15.split("\n") if note15 else []
+
+        # 📌 Anche se HOLD, recupera sempre gli ultimi dati tecnici
+        try:
+            ultimo = hist.iloc[-1]
+            close = round(ultimo['close'], 4)
+            rsi = round(ultimo['RSI'], 2)
+            ema7 = round(ultimo['EMA_7'], 2)
+            ema25 = round(ultimo['EMA_25'], 2)
+            ema99 = round(ultimo['EMA_99'], 2)
+            atr = round(ultimo['ATR'], 2)
+            macd = round(ultimo['MACD'], 4)
+            macd_signal = round(ultimo['MACD_SIGNAL'], 4)
+        except Exception as e:
+            logging.warning(f"⚠️ Errore nell’estrazione dei dati tecnici: {e}")
+            close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
+
+        # Logging e analisi timeframe superiori
+        logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
+        logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
+        logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
+
+        segnale_1h, *_ = analizza_trend(df_1h, spread)
+        segnale_1d, *_ = analizza_trend(df_1d, spread)
+
+        logging.debug(f"[1h] {symbol} – Segnale: {segnale_1h}")
+        logging.debug(f"[1d] {symbol} – Segnale: {segnale_1d}")
+
+        # Verifica 1h
+        if segnale != segnale_1h:
+            logging.info(f"🧭 {symbol} – 1h NON conferma {segnale} (1h = {segnale_1h})")
+            try:
+                ultimo_1h = df_1h.iloc[-1]
+                macd_1h = ultimo_1h['MACD']
+                signal_1h = ultimo_1h['MACD_SIGNAL']
+                rsi_1h = ultimo_1h['RSI']
+
+                if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
+                    note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL")
+                elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
+                    note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY")
+                else:
+                    note.append(f"⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})")
+
+                trend_1h = conta_candele_trend(df_1h, rialzista=(segnale == "BUY"))
+                if trend_1h < 2:
+                    note.append(f"⚠️ Trend su 1h debole ({trend_1h} candele)")
+            except Exception as e:
+                logging.warning(f"⚠️ Errore dati 1h: {e}")
+        else:
+            note.append("🧭 1h✓")
+
+        # Verifica 1d
+        if segnale in ["BUY", "SELL"]:
+            if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
+                note.append(f"⚠️ Timeframe 1d in conflitto con il segnale ({segnale_1d})")
+            else:
+                note.append("📅 1d✓")
+
+            logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
+            posizioni_attive[symbol] = {
+                "tipo": segnale,
+                "entry": close,
+                "tp": tp,
+                "sl": sl,
+                "spread": spread,
+                "chiusa_da_backend": False,
+                "motivo": " | ".join(note)
+            }
+
+        commento = "\n".join(note) if note else "Nessuna nota"
+
         return SignalResponse(
-            symbol=symbol.upper(),
-            segnale="HOLD",
-            commento=f"{header}\n{corpo}",
+            symbol=symbol,
+            segnale=segnale,
+            commento=commento,
             prezzo=close,
-            take_profit=0.0,
-            stop_loss=0.0,
+            take_profit=tp,
+            stop_loss=sl,
             rsi=rsi,
             macd=macd,
             macd_signal=macd_signal,
@@ -237,15 +185,16 @@ def analyze(symbol: str):
             ema99=ema99,
             timeframe="15m",
             spread=spread,
-            motivo=motivo_attuale,
+            motivo=" | ".join(note),
             chiusa_da_backend=False
         )
 
     except Exception as e:
+        logging.error(f"❌ Errore durante /analyze per {symbol}: {e}")
         return SignalResponse(
-            symbol=symbol.upper(),
-            segnale="ERROR",
-            commento=f"Errore durante l'analisi di {symbol.upper()}: {e}",
+            symbol=symbol,
+            segnale="HOLD",
+            commento=f"Errore durante l'analisi: {e}",
             prezzo=0.0,
             take_profit=0.0,
             stop_loss=0.0,
@@ -258,9 +207,9 @@ def analyze(symbol: str):
             ema99=0.0,
             timeframe="",
             spread=0.0,
-            motivo=f"Errore durante l'analisi di {symbol.upper()}: {e}",
+            motivo="Errore interno",
             chiusa_da_backend=False
-        )        
+        )
 @router.get("/price")
 def get_price(symbol: str):
     import time
