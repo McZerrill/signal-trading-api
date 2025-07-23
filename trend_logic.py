@@ -87,8 +87,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         logging.warning("⚠️ Dati insufficienti per l'analisi")
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
 
-    close = 0.0
-
     ema = calcola_ema(hist, [7, 25, 99])
     hist['EMA_7'] = ema[7]
     hist['EMA_25'] = ema[25]
@@ -100,17 +98,22 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     if MODALITA_TEST_FORZATA:
         logging.debug("🧪 Modalità test forzata attiva: segnale BUY immediato")
         return "BUY", hist, 0.0015, "🧪 Segnale BUY forzato (inizio funzione)", 0.0, 0.0, 0.0
-    
-    logging.debug(f"[DATI] Close={hist['close'].iloc[-1]:.6f}, RSI={hist['RSI'].iloc[-1]:.2f}, MACD={hist['MACD'].iloc[-1]:.4f}, Signal={hist['MACD_SIGNAL'].iloc[-1]:.4f}, ATR={hist['ATR'].iloc[-1]:.6f}")
 
     try:
         ultimo = hist.iloc[-1]
         penultimo = hist.iloc[-2]
         antepenultimo = hist.iloc[-3]
-        ema7, ema25, ema99 = ultimo['EMA_7'], ultimo['EMA_25'], ultimo['EMA_99']
-        close, rsi, atr = ultimo['close'], ultimo['RSI'], ultimo['ATR']
-        macd, macd_signal = ultimo['MACD'], ultimo['MACD_SIGNAL']
+        ema7 = ultimo['EMA_7']
+        ema25 = ultimo['EMA_25']
+        ema99 = ultimo['EMA_99']
+        close = ultimo['close']
+        rsi = ultimo['RSI']
+        atr = ultimo['ATR']
+        macd = ultimo['MACD']
+        macd_signal = ultimo['MACD_SIGNAL']
         supporto = calcola_supporto(hist)
+
+        logging.debug(f"[DATI] Close={close:.6f}, RSI={rsi:.2f}, MACD={macd:.4f}, Signal={macd_signal:.4f}, ATR={atr:.6f}")
     except Exception as e:
         logging.error(f"❌ Errore nell'accesso ai dati finali: {e}")
         return "HOLD", hist, 0.0, "Errore su iloc finali", 0.0, 0.0, 0.0
