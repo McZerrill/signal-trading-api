@@ -96,11 +96,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     hist['RSI'] = calcola_rsi(hist['close'])
     hist['ATR'] = calcola_atr(hist)
     hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['close'])
-    
+
     if MODALITA_TEST_FORZATA:
         logging.debug("🧪 Modalità test forzata attiva: segnale BUY immediato")
         return "BUY", hist, 0.0015, "🧪 Segnale BUY forzato (inizio funzione)", 0.0, 0.0, 0.0
-
+    
     logging.debug(f"[DATI] Close={hist['close'].iloc[-1]:.6f}, RSI={hist['RSI'].iloc[-1]:.2f}, MACD={hist['MACD'].iloc[-1]:.4f}, Signal={hist['MACD_SIGNAL'].iloc[-1]:.4f}, ATR={hist['ATR'].iloc[-1]:.6f}")
 
     try:
@@ -114,6 +114,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     except Exception as e:
         logging.error(f"❌ Errore nell'accesso ai dati finali: {e}")
         return "HOLD", hist, 0.0, "Errore su iloc finali", 0.0, 0.0, 0.0
+
+
 
 
     note = []
@@ -237,9 +239,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         note.append("⚠️ RSI e MACD neutri: segnale evitato")
         segnale = "HOLD"
 
-    if MODALITA_TEST and segnale == "HOLD":
-        segnale = "BUY"
-        note.append("🧪 Forzato segnale BUY per test")
         
     if segnale not in ["BUY", "SELL"]:
         segnale = "HOLD"
