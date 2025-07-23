@@ -186,28 +186,33 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     tp = sl = 0.0
 
     if (trend_up or recupero_buy or breakout_valido) and distanza_ema / close > distanza_minima:
-        if rsi >= 50 and (macd_buy_ok or macd_buy_debole):
-            segnale = "BUY"
+        if rsi >= 52 and macd_buy_ok:
             durata_trend = candele_trend_up
-            note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
-            note.append("✅ BUY confermato: trend forte" if macd_buy_ok else "⚠️ BUY anticipato: MACD ≈ signal")
-            if durata_trend >= 6 and accelerazione < 0:
+            if durata_trend < 6 or accelerazione >= 0:
+                segnale = "BUY"
+                note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
+                note.append("✅ BUY confermato: trend forte")
+            else:
                 note.append(f"⛔ Trend BUY troppo maturo e in rallentamento ({durata_trend} candele)")
-                segnale = "HOLD"
-            elif durata_trend >= 5:
-                note.append(f"⚠️ Trend maturo: {durata_trend} candele")
-            
-                
+        elif rsi >= 50 and macd_buy_debole:
+            note.append("⚠️ BUY debole: RSI > 50 e MACD > signal, ma segnale incerto")
 
     if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
-        if rsi <= 55 and (macd_sell_ok or macd_sell_debole):
-            segnale = "SELL"
+        if rsi <= 48 and macd_sell_ok:
             durata_trend = candele_trend_down
-            note.append(f"🕒 Trend SELL attivo da {durata_trend} candele")
-            note.append("✅ SELL confermato: trend forte" if macd_sell_ok else "⚠️ SELL anticipato: MACD ≈ signal")
-            if durata_trend >= 5:
-                note.append(f"⛔ Segnale evitato: trend SELL troppo maturo ({durata_trend} candele)")
-                segnale = "HOLD"
+            if durata_trend < 5 or accelerazione <= 0:
+                segnale = "SELL"
+                note.append(f"🕒 Trend SELL attivo da {durata_trend} candele")
+                note.append("✅ SELL confermato: trend forte")
+            else:
+                note.append(f"⛔ Trend SELL troppo maturo e in rallentamento ({durata_trend} candele)")
+        elif rsi <= 55 and macd_sell_debole:
+            note.append("⚠️ SELL debole: RSI < 55 e MACD < signal, ma segnale incerto")
+
+    if segnale == "HOLD":
+        note.append("🔎 Nessun segnale valido rilevato: condizioni insufficienti")
+
+
            
                 
 
