@@ -426,19 +426,11 @@ def verifica_posizioni_attive():
                 rsi = df_1m["RSI"].iloc[-1]
                 macd, macd_sig = df_1m[["MACD", "MACD_SIGNAL"]].iloc[-1]
 
-                logging.info(
-                    f"[DEBUG INDICATORI] {symbol} – tipo={tipo} | "
-                    f"EMA7={ema7:.6f}, EMA25={ema25:.6f} | "
-                    f"RSI={rsi:.2f} | MACD={macd:.5f}, Segnale={macd_sig:.5f} | "
-                    f"TP={tp}, SL={sl}, Entry={entry}, Prezzo attuale={prezzo_corrente}"
-                )
-
-
                 if any(pd.isna(v) for v in (ema7, ema25, rsi, macd, macd_sig)):
                     simulazione["motivo"] = "⚠️ Dati 1m non validi"
                     continue
 
-                # Chiusura anticipata se almeno 2 condizioni contrarie
+                # 📉 Chiusura anticipata se almeno 2 condizioni contrarie
                 condizioni_contrarie = 0
                 motivi = []
                 if tipo == "BUY":
@@ -470,79 +462,68 @@ def verifica_posizioni_attive():
                     logging.info(f"[STOPLOSS FORZATO] {symbol} – {simulazione['motivo']} @ {prezzo_corrente}")
                     continue
 
-                # ✅ Microtrend forte
+                # ✅ Verifica microtrend favorevole
                 microtrend_ok = (
                     (tipo == "BUY" and ema7 > ema25 and rsi >= 55 and macd >= macd_sig) or
                     (tipo == "SELL" and ema7 < ema25 and rsi <= 52 and macd <= macd_sig)
                 )
-                logging.info(f"[DEBUG TP ESTESO 1] {symbol} – Condizioni per estensione:")
-                logging.info(f"→ tp_esteso={tp_esteso}, progresso={progresso:.2f}, microtrend_ok={microtrend_ok}")
-                logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
 
-                # Estensione automatica TP (prima volta)
+                # 📈 Estensione automatica TP – primo livello
                 if tp_esteso == 0 and progresso > 0.8 and microtrend_ok:
                     nuovo_tp = round(entry + (tp - entry) * 1.5, 6) if tipo == "BUY" else round(entry - (entry - tp) * 1.5, 6)
                     simulazione["tp"] = nuovo_tp
                     simulazione["tp_esteso"] = 1
-                    simulazione["motivo"] = simulazione.get("motivo", "") + " 📈 TP esteso automaticamente (trend forte)"
+                    simulazione["motivo"] = "📈 TP esteso automaticamente (trend forte)"
                     logging.info(f"[TP ESTESO] {symbol} – Nuovo TP: {nuovo_tp}")
+                    continue
 
-                logging.info(f"[DEBUG TP ESTESO 2] {symbol} – Condizioni per seconda estensione:")
-                logging.info(f"→ tp_esteso={tp_esteso}, tp_esteso2={tp_esteso2}, progresso={progresso:.2f}, microtrend_ok={microtrend_ok}")
-                logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
-
-
-                # Estensione automatica TP (seconda volta)
-                if tp_esteso == 1 and tp_esteso2 == 0 and progresso > 0.8 and microtrend_ok:
-                    nuovo_tp = round(entry + (tp - entry) * 1.3, 6) if tipo == "BUY" else round(entry - (entry - tp) * 1.3, 6)
-                    simulazione["tp"] = nuovo_tp
-                    simulazione["tp_esteso2"] = 2
-                    simulazione["motivo"] = simulazione.get("motivo", "") + " 📈 TP esteso ulteriormente (trend ancora forte)"
-                    logging.info(f"[TP ESTESO x2] {symbol} – Nuovo TP: {nuovo_tp}")
-
-                # 🛑 Chiusura anticipata se TP esteso ma microtrend debole
-                if (tp_esteso or tp_esteso2) and progresso > 0.8:
+                # 🛑 Chiusura anticipata dopo TP esteso (1) se microtrend si indebolisce
+                if tp_esteso == 1 and progresso > 0.8:
                     microtrend_sfavorevole = (
                         (tipo == "BUY" and (ema7 < ema25 or rsi < 50 or macd < macd_sig)) or
                         (tipo == "SELL" and (ema7 > ema25 or rsi > 57 or macd > macd_sig))
                     )
-                    logging.info(f"[DEBUG CHIUSURA ANTICIPATA] {symbol} – TP esteso attivo, progresso={progresso:.2f}, tipo={tipo}")
-                    logging.info(f"→ EMA7={ema7:.5f}, EMA25={ema25:.5f}, RSI={rsi:.2f}, MACD={macd:.5f}, Segnale={macd_sig:.5f}")
-                    logging.info(f"→ microtrend_sfavorevole={microtrend_sfavorevole}")
-
                     if microtrend_sfavorevole:
                         simulazione["tp"] = prezzo_corrente
                         simulazione["esito"] = "Profitto"
-                        simulazione["motivo"] = simulazione.get("motivo", "") + " 🛑 Uscita anticipata con TP esteso (microtrend indebolito)"
+                        simulazione["motivo"] = "🛑 Uscita anticipata con TP esteso (microtrend indebolito)"
                         simulazione["chiusa_da_backend"] = True
-                        logging.info(f"[CHIUSURA ANTICIPATA] {symbol} – TP esteso ma microtrend debole @ {prezzo_corrente}")
+                        logging.info(f"[CHIUSURA ANTICIPATA] {symbol} – TP1 esteso ma trend indebolito @ {prezzo_corrente}")
                         continue
 
-                # Motivo descrittivo aggiornato
-                vicini = []
-                if tipo == "BUY":
-                    if ema7 >= ema25 and (ema7 - ema25) / ema25 < 0.002:
-                        vicini.append("EMA7≈EMA25")
-                    if 54.5 <= rsi < 55:
-                        vicini.append(f"RSI={rsi:.1f}")
-                    if 0 <= macd - macd_sig < 0.001:
-                        vicini.append("MACD≈Segnale")
-                else:
-                    if ema25 >= ema7 and (ema25 - ema7) / ema25 < 0.002:
-                        vicini.append("EMA7≈EMA25")
-                    if 52 < rsi <= 53:
-                        vicini.append(f"RSI={rsi:.1f}")
-                    if 0 <= macd_sig - macd < 0.001:
-                        vicini.append("MACD≈Segnale")
+                # 📈 Estensione automatica TP – secondo livello
+                if tp_esteso == 1 and tp_esteso2 == 0 and progresso > 0.9 and microtrend_ok:
+                    nuovo_tp = round(entry + (tp - entry) * 1.3, 6) if tipo == "BUY" else round(entry - (entry - tp) * 1.3, 6)
+                    simulazione["tp"] = nuovo_tp
+                    simulazione["tp_esteso2"] = 2
+                    simulazione["motivo"] = "📈 TP esteso ulteriormente (trend ancora forte)"
+                    logging.info(f"[TP ESTESO x2] {symbol} – Nuovo TP: {nuovo_tp}")
+                    continue
 
+                # 🛑 Chiusura anticipata dopo TP esteso 2 se microtrend si indebolisce
+                if tp_esteso2 == 2 and progresso > 0.9:
+                    microtrend_sfavorevole = (
+                        (tipo == "BUY" and (ema7 < ema25 or rsi < 50 or macd < macd_sig)) or
+                        (tipo == "SELL" and (ema7 > ema25 or rsi > 57 or macd > macd_sig))
+                    )
+                    if microtrend_sfavorevole:
+                        simulazione["tp"] = prezzo_corrente
+                        simulazione["esito"] = "Profitto"
+                        simulazione["motivo"] = "🛑 Uscita anticipata dopo secondo TP esteso (microtrend indebolito)"
+                        simulazione["chiusa_da_backend"] = True
+                        logging.info(f"[CHIUSURA ANTICIPATA] {symbol} – TP2 esteso ma trend indebolito @ {prezzo_corrente}")
+                        continue
+
+                # 🔄 Aggiorna sempre il motivo visibile nel frontend
                 if microtrend_ok:
                     simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
                 elif condizioni_contrarie >= 1:
-                    simulazione["motivo"] = "👀 Possibile inversione: " + ", ".join(motivi)
+                    simulazione["motivo"] = "👀 Possibile inversione in avvicinamento"
                 else:
                     simulazione["motivo"] = "⚠️ Microtrend 1m incerto"
-                # 📊 Log riassuntivo finale per monitoraggio stato asset
-                logging.info(f"[STATO] {symbol} – Entry={entry:.6f}, Prezzo attuale={prezzo_corrente:.6f}, TP={tp:.6f}, SL={sl:.6f}, Progresso={progresso:.2f}, TP_Esteso={tp_esteso}, TP_Esteso2={tp_esteso2}, Microtrend_OK={microtrend_ok}, Motivo={simulazione['motivo']}")
+
+                # 📊 Log riassuntivo
+                logging.info(f"[STATO] {symbol} – Entry={entry:.6f}, Prezzo={prezzo_corrente:.6f}, TP={tp:.6f}, SL={sl:.6f}, Progresso={progresso:.2f}, Motivo={simulazione['motivo']}")
 
             except Exception as err:
                 simulazione["motivo"] = f"❌ Errore microtrend 1m: {err}"
