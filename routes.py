@@ -430,31 +430,32 @@ def verifica_posizioni_attive():
                     simulazione["motivo"] = "⚠️ Dati 1m non validi"
                     continue
 
-                # 📉 Chiusura anticipata se almeno 2 condizioni contrarie
-                condizioni_contrarie = 0
                 motivi = []
-                if tipo == "BUY":
-                    if ema7 < ema25:
-                        condizioni_contrarie += 1
-                        motivi.append("EMA7 < EMA25")
-                    if rsi < 50:
-                        condizioni_contrarie += 1
-                        motivi.append(f"RSI {rsi:.1f} < 50")
-                    if (macd - macd_sig) < -0.003:
-                        condizioni_contrarie += 1
-                        motivi.append(f"MACD {macd:.4f} ≪ Segnale {macd_sig:.4f}")
-                else:
-                    if ema7 > ema25:
-                        condizioni_contrarie += 1
-                        motivi.append("EMA7 > EMA25")
-                    if rsi > 57:
-                        condizioni_contrarie += 1
-                        motivi.append(f"RSI {rsi:.1f} > 57")
-                    if (macd - macd_sig) > 0.003:
-                        condizioni_contrarie += 1
-                        motivi.append(f"MACD {macd:.4f} ≫ Segnale {macd_sig:.4f}")
+                chiusura = False
 
-                if condizioni_contrarie >= 2:
+                if tipo == "BUY":
+                    cond1 = ema7 < ema25 and rsi < 50
+                    cond2 = ema7 < ema25 and macd < macd_sig - 0.003
+                    cond3 = ema7 < ema25 and rsi < 50 and macd < macd_sig - 0.003
+
+                    if cond1 or cond2 or cond3:
+                        if ema7 < ema25: motivi.append("EMA7 < EMA25")
+                        if rsi < 50: motivi.append(f"RSI {rsi:.1f} < 50")
+                        if macd < macd_sig - 0.003: motivi.append(f"MACD {macd:.4f} ≪ Segnale {macd_sig:.4f}")
+                        chiusura = True
+
+                else:  # SELL
+                    cond1 = ema7 > ema25 and rsi > 57
+                    cond2 = ema7 > ema25 and macd > macd_sig + 0.003
+                    cond3 = ema7 > ema25 and rsi > 57 and macd > macd_sig + 0.003
+
+                    if cond1 or cond2 or cond3:
+                        if ema7 > ema25: motivi.append("EMA7 > EMA25")
+                        if rsi > 57: motivi.append(f"RSI {rsi:.1f} > 57")
+                        if macd > macd_sig + 0.003: motivi.append(f"MACD {macd:.4f} ≫ Segnale {macd_sig:.4f}")
+                        chiusura = True
+
+                if chiusura:
                     simulazione["sl"] = prezzo_corrente
                     simulazione["esito"] = "Perdita"
                     simulazione["motivo"] = "📉 Inversione 1m: " + ", ".join(motivi)
@@ -462,13 +463,12 @@ def verifica_posizioni_attive():
                     logging.info(f"[STOPLOSS FORZATO] {symbol} – {simulazione['motivo']} @ {prezzo_corrente}")
                     continue
 
-                # ✅ Verifica microtrend favorevole
+                # microtrend coerente
                 microtrend_ok = (
                     (tipo == "BUY" and ema7 > ema25 and rsi >= 55 and macd >= macd_sig) or
                     (tipo == "SELL" and ema7 < ema25 and rsi <= 52 and macd <= macd_sig)
                 )
 
-                # 📈 Estensione automatica TP – primo livello
                 if tp_esteso == 0 and progresso > 0.8 and microtrend_ok:
                     nuovo_tp = round(entry + (tp - entry) * 1.5, 6) if tipo == "BUY" else round(entry - (entry - tp) * 1.5, 6)
                     simulazione["tp"] = nuovo_tp
@@ -477,7 +477,6 @@ def verifica_posizioni_attive():
                     logging.info(f"[TP ESTESO] {symbol} – Nuovo TP: {nuovo_tp}")
                     continue
 
-                # 🛑 Chiusura anticipata dopo TP esteso (1) se microtrend si indebolisce
                 if tp_esteso == 1 and progresso > 0.8:
                     microtrend_sfavorevole = (
                         (tipo == "BUY" and (ema7 < ema25 or rsi < 50 or macd < macd_sig)) or
@@ -491,7 +490,6 @@ def verifica_posizioni_attive():
                         logging.info(f"[CHIUSURA ANTICIPATA] {symbol} – TP1 esteso ma trend indebolito @ {prezzo_corrente}")
                         continue
 
-                # 📈 Estensione automatica TP – secondo livello
                 if tp_esteso == 1 and tp_esteso2 == 0 and progresso > 0.9 and microtrend_ok:
                     nuovo_tp = round(entry + (tp - entry) * 1.3, 6) if tipo == "BUY" else round(entry - (entry - tp) * 1.3, 6)
                     simulazione["tp"] = nuovo_tp
@@ -500,7 +498,6 @@ def verifica_posizioni_attive():
                     logging.info(f"[TP ESTESO x2] {symbol} – Nuovo TP: {nuovo_tp}")
                     continue
 
-                # 🛑 Chiusura anticipata dopo TP esteso 2 se microtrend si indebolisce
                 if tp_esteso2 == 2 and progresso > 0.9:
                     microtrend_sfavorevole = (
                         (tipo == "BUY" and (ema7 < ema25 or rsi < 50 or macd < macd_sig)) or
@@ -514,15 +511,13 @@ def verifica_posizioni_attive():
                         logging.info(f"[CHIUSURA ANTICIPATA] {symbol} – TP2 esteso ma trend indebolito @ {prezzo_corrente}")
                         continue
 
-                # 🔄 Aggiorna sempre il motivo visibile nel frontend
                 if microtrend_ok:
                     simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                elif condizioni_contrarie >= 1:
+                elif len(motivi) >= 1:
                     simulazione["motivo"] = "👀 Possibile inversione in avvicinamento"
                 else:
                     simulazione["motivo"] = "⚠️ Microtrend 1m incerto"
 
-                # 📊 Log riassuntivo
                 logging.info(f"[STATO] {symbol} – Entry={entry:.6f}, Prezzo={prezzo_corrente:.6f}, TP={tp:.6f}, SL={sl:.6f}, Progresso={progresso:.2f}, Motivo={simulazione['motivo']}")
 
             except Exception as err:
