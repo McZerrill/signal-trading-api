@@ -436,7 +436,7 @@ def verifica_posizioni_attive():
                 if tipo == "BUY":
                     cond1 = ema7 < ema25 and rsi < 50
                     cond2 = ema7 < ema25 and macd < macd_sig - 0.003
-                    cond3 = ema7 < ema25 and rsi < 50 and macd < macd_sig - 0.003
+                    cond3 = cond1 and cond2
 
                     if cond1 or cond2 or cond3:
                         if ema7 < ema25: motivi.append("EMA7 < EMA25")
@@ -447,7 +447,7 @@ def verifica_posizioni_attive():
                 else:  # SELL
                     cond1 = ema7 > ema25 and rsi > 57
                     cond2 = ema7 > ema25 and macd > macd_sig + 0.003
-                    cond3 = ema7 > ema25 and rsi > 57 and macd > macd_sig + 0.003
+                    cond3 = cond1 and cond2
 
                     if cond1 or cond2 or cond3:
                         if ema7 > ema25: motivi.append("EMA7 > EMA25")
@@ -511,12 +511,21 @@ def verifica_posizioni_attive():
                         logging.info(f"[CHIUSURA ANTICIPATA] {symbol} – TP2 esteso ma trend indebolito @ {prezzo_corrente}")
                         continue
 
-                if microtrend_ok:
-                    simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
-                elif len(motivi) >= 1:
-                    simulazione["motivo"] = "👀 Possibile inversione in avvicinamento"
-                else:
-                    simulazione["motivo"] = "⚠️ Microtrend 1m incerto"
+                # Aggiunta finale solo se il motivo NON è già importante
+                motivo_corrente = simulazione.get("motivo", "")
+                has_motivo_importante = (
+                    "TP esteso" in motivo_corrente or
+                    "Uscita anticipata" in motivo_corrente or
+                    "Inversione 1m:" in motivo_corrente
+                )
+
+                if not has_motivo_importante:
+                    if microtrend_ok:
+                        simulazione["motivo"] = "✅ Microtrend 1m in linea col trend principale"
+                    elif len(motivi) >= 1:
+                        simulazione["motivo"] = "👀 Possibile inversione in avvicinamento"
+                    else:
+                        simulazione["motivo"] = "⚠️ Microtrend 1m incerto"
 
                 logging.info(f"[STATO] {symbol} – Entry={entry:.6f}, Prezzo={prezzo_corrente:.6f}, TP={tp:.6f}, SL={sl:.6f}, Progresso={progresso:.2f}, Motivo={simulazione['motivo']}")
 
