@@ -291,7 +291,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # 🔽 Calcolo TP/SL solo qui in fondo se il segnale è confermato
     forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
     coeff_tp = min(max(1.5 + (accelerazione * 10), 1.2), 2.0)
-    coeff_sl = min(max(1.0 - (accelerazione * 5), 0.7), 1.0)
+    coeff_sl = min(max(1.0 + (accelerazione * 5), 1.0), 1.3)
 
     durata_trend = candele_trend_up if segnale == "BUY" else candele_trend_down
     if durata_trend >= 6:
