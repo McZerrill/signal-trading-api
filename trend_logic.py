@@ -276,7 +276,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
     # ✅ Nuova condizione: conferma su timeframe 1m
-    min_candele_1m = 10 if not MODALITA_TEST else 5
+    min_candele_1m = 10 if not MODALITA_TEST else 8
     confermato_1m = conferma_trend_micro(hist_1m, rialzista=(segnale == "BUY"), min_candele=min_candele_1m)
     if not confermato_1m:
         note.append(f"⛔ Segnale {segnale} annullato: trend non confermato su 1m ({min_candele_1m} candele)")
