@@ -516,7 +516,8 @@ def verifica_posizioni_attive():
                 has_motivo_importante = (
                     "TP esteso" in motivo_corrente or
                     "Uscita anticipata" in motivo_corrente or
-                    "Inversione 1m:" in motivo_corrente
+                    "Inversione 1m" in motivo_corrente or
+                    simulazione.get("esito") in ("Profitto", "Perdita")
                 )
 
                 if not has_motivo_importante:
