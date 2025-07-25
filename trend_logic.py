@@ -29,25 +29,28 @@ def conta_candele_trend(hist: pd.DataFrame, rialzista: bool = True, max_candele:
             break
     return count
 
-def conferma_trend_micro(hist_1m: pd.DataFrame, rialzista: bool = True, min_candele: int = 10) -> bool:
-    if hist_1m is None or len(hist_1m) < min_candele + 1:
+def ema_in_movimento_coerente(hist_1m: pd.DataFrame, rialzista: bool = True, n_candele: int = 15) -> bool:
+    if hist_1m is None or len(hist_1m) < n_candele + 1:
         return False
+
     ema = calcola_ema(hist_1m, [7, 25, 99])
     hist_1m['EMA_7'] = ema[7]
     hist_1m['EMA_25'] = ema[25]
     hist_1m['EMA_99'] = ema[99]
-    count = 0
-    for i in range(-1, -min_candele - 1, -1):
-        e7 = hist_1m['EMA_7'].iloc[i]
-        e25 = hist_1m['EMA_25'].iloc[i]
-        e99 = hist_1m['EMA_99'].iloc[i]
-        if rialzista and e7 > e25 > e99:
-            count += 1
-        elif not rialzista and e7 < e25 < e99:
-            count += 1
-        else:
-            break
-    return count >= min_candele
+
+    e7 = hist_1m['EMA_7'].tail(n_candele)
+    e25 = hist_1m['EMA_25'].tail(n_candele)
+    e99 = hist_1m['EMA_99'].tail(n_candele)
+
+    delta7 = e7.iloc[-1] - e7.iloc[0]
+    delta25 = e25.iloc[-1] - e25.iloc[0]
+    delta99 = e99.iloc[-1] - e99.iloc[0]
+
+    if rialzista:
+        return delta7 > 0 and delta25 > 0 and delta99 > 0
+    else:
+        return delta7 < 0 and delta25 < 0 and delta99 < 0
+
 
 
 def riconosci_pattern_candela(df: pd.DataFrame) -> str:
@@ -275,13 +278,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         segnale = "HOLD"
         return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
-    # ✅ Nuova condizione: conferma su timeframe 1m
-    min_candele_1m = 10 if not MODALITA_TEST else 8
-    confermato_1m = conferma_trend_micro(hist_1m, rialzista=(segnale == "BUY"), min_candele=min_candele_1m)
-    if not confermato_1m:
-        note.append(f"⛔ Segnale {segnale} annullato: trend non confermato su 1m ({min_candele_1m} candele)")
+    # ✅ Nuova condizione: movimento coerente delle EMA su 1m
+    coerente_1m = ema_in_movimento_coerente(hist_1m, rialzista=(segnale == "BUY"), n_candele=15)
+    if not coerente_1m:
+        note.append("⛔ Segnale annullato: EMA su 1m non in movimento coerente col trend 15m")
         segnale = "HOLD"
         return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
 
 
     
