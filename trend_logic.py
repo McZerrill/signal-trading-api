@@ -29,6 +29,27 @@ def conta_candele_trend(hist: pd.DataFrame, rialzista: bool = True, max_candele:
             break
     return count
 
+def conferma_trend_micro(hist_1m: pd.DataFrame, rialzista: bool = True, min_candele: int = 10) -> bool:
+    if hist_1m is None or len(hist_1m) < min_candele + 1:
+        return False
+    ema = calcola_ema(hist_1m, [7, 25, 99])
+    hist_1m['EMA_7'] = ema[7]
+    hist_1m['EMA_25'] = ema[25]
+    hist_1m['EMA_99'] = ema[99]
+    count = 0
+    for i in range(-1, -min_candele - 1, -1):
+        e7 = hist_1m['EMA_7'].iloc[i]
+        e25 = hist_1m['EMA_25'].iloc[i]
+        e99 = hist_1m['EMA_99'].iloc[i]
+        if rialzista and e7 > e25 > e99:
+            count += 1
+        elif not rialzista and e7 < e25 < e99:
+            count += 1
+        else:
+            break
+    return count >= min_candele
+
+
 def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     c = df.iloc[-1]
     o, h, l, close = c['open'], c['high'], c['low'], c['close']
@@ -78,7 +99,8 @@ def rileva_pattern_v(hist: pd.DataFrame) -> bool:
     return pattern and rsi_start < 30 and rsi_end > 50 and abs(macd) < 0.01
 
 
-def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
+def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None):
+    
     logging.debug("🔍 Inizio analisi trend")
     
     hist = hist.copy()
@@ -111,10 +133,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
         macd_signal = ultimo['MACD_SIGNAL']
         supporto = calcola_supporto(hist)
 
-        #if MODALITA_TEST_FORZATA:
-            #logging.debug("🧪 Modalità test forzata attiva: segnale BUY immediato")
-            #return "BUY", hist, 0.0015, "🧪 Segnale BUY forzato (dopo inizializzazione)", 0.0, 0.0, supporto
-
+ 
         logging.debug(f"[DATI] Close={close:.6f}, RSI={rsi:.2f}, MACD={macd:.4f}, Signal={macd_signal:.4f}, ATR={atr:.6f}")
     except Exception as e:
         logging.error(f"❌ Errore nell'accesso ai dati finali: {e}")
@@ -255,6 +274,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0):
     if segnale not in ["BUY", "SELL"]:
         segnale = "HOLD"
         return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
+    # ✅ Nuova condizione: conferma su timeframe 1m
+    min_candele_1m = 10 if not MODALITA_TEST else 5
+    confermato_1m = conferma_trend_micro(hist_1m, rialzista=(segnale == "BUY"), min_candele=min_candele_1m)
+    if not confermato_1m:
+        note.append(f"⛔ Segnale {segnale} annullato: trend non confermato su 1m ({min_candele_1m} candele)")
+        segnale = "HOLD"
+        return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
 
     
     # 🔽 Calcolo TP/SL solo qui in fondo se il segnale è confermato
