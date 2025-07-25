@@ -95,8 +95,9 @@ def analyze(symbol: str):
         df_15m = get_binance_df(symbol, "15m", 300)
         df_1h = get_binance_df(symbol, "1h", 300)
         df_1d = get_binance_df(symbol, "1d", 300)
+        df_1m = get_binance_df(symbol, "1m", 100)
 
-        segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread)
+        segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread, df_1m)
 
         note = note15.split("\n") if note15 else []
         
