@@ -279,7 +279,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
     # ✅ Nuova condizione: movimento coerente delle EMA su 1m
-    coerente_1m = ema_in_movimento_coerente(hist_1m, rialzista=(segnale == "BUY"), n_candele=15)
+    n_check_ema = 5 if MODALITA_TEST else 15
+    coerente_1m = ema_in_movimento_coerente(hist_1m, rialzista=(segnale == "BUY"), n_candele=n_check_ema)
+
     if not coerente_1m:
         note.append("⛔ Segnale annullato: EMA su 1m non in movimento coerente col trend 15m")
         segnale = "HOLD"
