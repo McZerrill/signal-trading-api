@@ -300,20 +300,39 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         coeff_tp *= 0.9
         coeff_sl *= 1.1
 
+    # Calcolo robusto del delta minimo assoluto
     delta_pct = calcola_percentuale_guadagno(
         guadagno_netto_target,
         investimento,
         spread,
         commissione
     )
-    delta_price = close * delta_pct
+    min_delta_abs = 0.002  # almeno 0.2% di variazione
+    delta_price = max(close * delta_pct, min_delta_abs)
 
+    # Validazione coefficienti
+    if coeff_tp <= 0 or coeff_sl <= 0:
+        logging.warning(f"❌ Coefficienti negativi: coeff_tp={coeff_tp:.2f}, coeff_sl={coeff_sl:.2f}")
+        coeff_tp = 1.5
+        coeff_sl = 1.0
+        note.append("⚠️ Coefficienti TP/SL corretti automaticamente")
+
+    # Calcolo coerente di TP/SL
     if segnale == "BUY":
         tp = round(close + delta_price * coeff_tp, 4)
         sl = round(close - delta_price * coeff_sl, 4)
     elif segnale == "SELL":
         tp = round(close - delta_price * coeff_tp, 4)
         sl = round(close + delta_price * coeff_sl, 4)
+
+    # Verifica coerenza logica, ma non blocca il segnale
+    if segnale == "BUY" and (sl >= close or tp <= close):
+        logging.warning(f"⚠️ TP/SL incoerenti (BUY): ingresso={close}, TP={tp}, SL={sl}")
+        note.append("⚠️ TP/SL BUY potenzialmente incoerenti")
+
+    if segnale == "SELL" and (sl <= close or tp >= close):
+        logging.warning(f"⚠️ TP/SL incoerenti (SELL): ingresso={close}, TP={tp}, SL={sl}")
+        note.append("⚠️ TP/SL SELL potenzialmente incoerenti")
 
     logging.debug(f"[TP/SL] TP={tp:.4f}, SL={sl:.4f}, coeff_tp={coeff_tp:.2f}, coeff_sl={coeff_sl:.2f}, Δ% richiesta={delta_pct:.4%}")
 
