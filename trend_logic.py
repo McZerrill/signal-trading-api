@@ -306,10 +306,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
 
-# 🟢 BUY forzato se incrocio progressivo EMA rilevato (anche senza altri segnali)
-if segnale == "HOLD" and rileva_incrocio_progressivo(hist):
-    segnale = "BUY"
-    note.append("📈 Incrocio progressivo EMA(7>25>99) rilevato: BUY confermato")
+    # 🟢 BUY forzato se incrocio progressivo EMA rilevato (anche senza altri segnali)
+    if segnale == "HOLD" and rileva_incrocio_progressivo(hist):
+        segnale = "BUY"
+        note.append("📈 Incrocio progressivo EMA(7>25>99) rilevato: BUY confermato")
 
 
     
