@@ -101,6 +101,24 @@ def rileva_pattern_v(hist: pd.DataFrame) -> bool:
 
     return pattern and rsi_start < 30 and rsi_end > 50 and abs(macd) < 0.01
 
+def rileva_incrocio_progressivo(hist: pd.DataFrame) -> bool:
+    if len(hist) < 5:
+        return False
+
+    e7 = hist['EMA_7']
+    e25 = hist['EMA_25']
+    e99 = hist['EMA_99']
+
+    if not (e7.iloc[-4] < e25.iloc[-4] < e99.iloc[-4]):
+        return False
+    if not (e7.iloc[-3] > e25.iloc[-3] and e25.iloc[-3] < e99.iloc[-3]):
+        return False
+    if not (e7.iloc[-1] > e25.iloc[-1] > e99.iloc[-1]):
+        return False
+
+    return True
+
+
 
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None):
     
@@ -287,6 +305,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         segnale = "HOLD"
         return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
+
+# 🟢 BUY forzato se incrocio progressivo EMA rilevato (anche senza altri segnali)
+if segnale == "HOLD" and rileva_incrocio_progressivo(hist):
+    segnale = "BUY"
+    note.append("📈 Incrocio progressivo EMA(7>25>99) rilevato: BUY confermato")
 
 
     
