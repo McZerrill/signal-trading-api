@@ -344,12 +344,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if segnale == "BUY" and pattern and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"]):
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
         segnale = "HOLD"
+        return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
     if segnale == "SELL" and pattern and "Hammer" in pattern:
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
         segnale = "HOLD"
+        return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
     if segnale in ["BUY", "SELL"] and 48 < rsi < 52 and abs(macd - macd_signal) < 0.001:
         note.append("⚠️ RSI e MACD neutri: segnale evitato")
         segnale = "HOLD"
+        return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
 
 
@@ -359,8 +362,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     if not coerente_1m:
         note.append("⛔ Segnale annullato: EMA su 1m non in movimento coerente col trend 15m")
-        segnale = "HOLD"
-        return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+        return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
 
     # 🟢 BUY forzato se incrocio progressivo EMA rilevato (anche senza altri segnali)
@@ -392,7 +394,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     print(f"[DEBUG ANALYZE] Segnale={segnale}, Note:\n{note}")
 
     if segnale not in ["BUY", "SELL"]:
-        segnale = "HOLD"
+        return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
         
     
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
