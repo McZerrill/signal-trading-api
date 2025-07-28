@@ -1,6 +1,6 @@
 import pandas as pd
 import logging
-from indicators import calcola_ema
+from indicators import calcola_ema, calcola_rsi, calcola_macd, calcola_atr
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -59,6 +59,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     hist['EMA_7'] = ema[7]
     hist['EMA_25'] = ema[25]
     hist['EMA_99'] = ema[99]
+
+    # Aggiungiamo anche altri indicatori per uso futuro
+    hist['RSI'] = calcola_rsi(hist['close'])
+    hist['MACD'], hist['MACD_SIGNAL'] = calcola_macd(hist['close'])
+    hist['ATR'] = calcola_atr(hist)
 
     ultimo = hist.iloc[-1]
     penultimo = hist.iloc[-2]
