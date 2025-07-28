@@ -8,6 +8,8 @@ logging.basicConfig(level=logging.DEBUG)
 
 MODALITA_TEST = True
 MODALITA_TEST_FORZATA = True
+SOGLIA_PUNTEGGIO = 3
+
 
 def valuta_distanza(distanza: float) -> str:
     if distanza < 1:
@@ -117,6 +119,41 @@ def rileva_incrocio_progressivo(hist: pd.DataFrame) -> bool:
         return False
 
     return True
+    
+def calcola_punteggio_trend(ema7, ema25, ema99, rsi, macd, macd_signal, volume_attuale, volume_medio, distanza_ema, atr, close):
+    punteggio = 0
+
+    if ema7 > ema25 > ema99:
+        punteggio += 2
+    elif ema7 < ema25 < ema99:
+        punteggio -= 2
+
+    if rsi > 60:
+        punteggio += 1
+    elif rsi < 40:
+        punteggio -= 1
+
+    if macd > macd_signal:
+        punteggio += 1
+    elif macd < macd_signal:
+        punteggio -= 1
+
+    if volume_attuale > volume_medio * 1.5:
+        punteggio += 1
+    else:
+        punteggio -= 1
+
+    if distanza_ema / close > 0.0015:
+        punteggio += 1
+    elif distanza_ema / close < 0.001:
+        punteggio -= 1
+
+    if atr / close > 0.0015:
+        punteggio += 1
+    elif atr / close < 0.001:
+        punteggio -= 1
+
+    return punteggio
 
 
 
@@ -203,6 +240,23 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     pattern = riconosci_pattern_candela(hist)
     macd_gap = macd - macd_signal
 
+    punteggio_trend = calcola_punteggio_trend(
+    ema7, ema25, ema99, rsi, macd, macd_signal, volume_attuale, volume_medio, distanza_ema, atr, close
+    )
+    note.append(f"📊 Punteggio trend complessivo: {punteggio_trend}")
+
+    if punteggio_trend >= 4:
+        note.append("🔥 Trend forte")
+    elif punteggio_trend >= 2:
+        note.append("👍 Trend moderato")
+    elif punteggio_trend <= -4:
+        note.append("❌ Trend ribassista forte")
+    elif punteggio_trend <= -2:
+        note.append("⚠️ Trend ribassista moderato")
+    else:
+        note.append("🔍 Trend incerto")
+
+
     breakout_valido = False
     massimo_20 = hist['high'].iloc[-21:-1].max()
     minimo_20 = hist['low'].iloc[-21:-1].min()
@@ -228,7 +282,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # BUY
     if (trend_up or recupero_buy or breakout_valido) and distanza_ema / close > distanza_minima:
         durata_trend = candele_trend_up
-        if rsi >= 52 and macd_buy_ok:
+        if rsi >= 52 and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
             if durata_trend >= 6:
                 note.append(f"⛔ Trend BUY troppo maturo ({durata_trend} candele)")
             elif accelerazione < 0:
@@ -243,7 +297,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # SELL
     if (trend_down or recupero_sell) and distanza_ema / close > distanza_minima:
         durata_trend = candele_trend_down
-        if rsi <= 48 and macd_sell_ok:
+        if rsi <= 48 and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO:
             if durata_trend >= 5:
                 note.append(f"⛔ Trend SELL troppo maturo ({durata_trend} candele)")
             elif accelerazione > 0:
