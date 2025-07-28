@@ -462,4 +462,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if segnale not in ["BUY", "SELL"]:
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
+    note = list(dict.fromkeys(note))
+
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
