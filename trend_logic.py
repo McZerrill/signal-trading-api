@@ -389,7 +389,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         logging.warning(f"⚠️ TP/SL incoerenti (SELL): ingresso={close}, TP={tp}, SL={sl}")
         note.append("⚠️ TP/SL SELL potenzialmente incoerenti")
 
-    logging.debug(f"[TP/SL] TP={tp:.4f}, SL={sl:.4f}, coeff_tp={coeff_tp:.2f}, coeff_sl={coeff_sl:.2f}, Δ% richiesta={delta_pct:.4%}")
 
     logging.debug("✅ Analisi completata\n")
     print(f"[DEBUG ANALYZE] Segnale={segnale}, Note:\n{note}")
