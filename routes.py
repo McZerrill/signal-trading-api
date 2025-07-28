@@ -42,6 +42,13 @@ def analyze(symbol: str):
         if symbol in posizioni_attive:
             logging.info(f"⏳ Simulazione già attiva su {symbol} – tipo: {posizioni_attive[symbol]['tipo']} @ {posizioni_attive[symbol]['entry']}$")
             posizione = posizioni_attive[symbol]
+
+            if segnale == "HOLD" and "Segnale annullato" in note15:
+                posizione["tipo"] = "HOLD"
+                posizione["esito"] = "Annullata"          # opzionale
+                posizione["chiusa_da_backend"] = True
+                posizione["motivo"] = note15
+            
             return SignalResponse(
                 symbol=symbol,
                 segnale="HOLD",
