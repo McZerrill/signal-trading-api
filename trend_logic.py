@@ -372,40 +372,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
 
     
-    # 🔽 Calcolo TP/SL solo qui in fondo se il segnale è confermato
-    forza_trend = min(max(distanza_ema / close, 0.001), 0.01)
-    coeff_tp = min(max(1.5 + (accelerazione * 10), 1.2), 2.0)
-    coeff_sl = min(max(1.0 + (accelerazione * 5), 1.0), 1.3)
-
-    durata_trend = candele_trend_up if segnale == "BUY" else candele_trend_down
-    if durata_trend >= 6:
-        coeff_tp *= 0.9
-        coeff_sl *= 1.1
-
-    # Calcolo robusto del delta minimo assoluto
-    delta_pct = calcola_percentuale_guadagno(
-        guadagno_netto_target,
-        investimento,
-        spread,
-        commissione
-    )
-    min_delta_abs = 0.002  # almeno 0.2% di variazione
-    delta_price = max(close * delta_pct, min_delta_abs)
-
-    # Validazione coefficienti
-    if coeff_tp <= 0 or coeff_sl <= 0:
-        logging.warning(f"❌ Coefficienti negativi: coeff_tp={coeff_tp:.2f}, coeff_sl={coeff_sl:.2f}")
-        coeff_tp = 1.5
-        coeff_sl = 1.0
-        note.append("⚠️ Coefficienti TP/SL corretti automaticamente")
-
     # Calcolo coerente di TP/SL
     if segnale == "BUY":
-        tp = round(close + delta_price * coeff_tp, 4)
-        sl = round(close - delta_price * coeff_sl, 4)
+        tp = round(close + distanza_ema * 0.3, 4)
+        sl = round(ema99 - (ema7 - ema99) * 0.5, 4)
     elif segnale == "SELL":
-        tp = round(close - delta_price * coeff_tp, 4)
-        sl = round(close + delta_price * coeff_sl, 4)
+        tp = round(close - distanza_ema * 0.3, 4)
+        sl = round(ema99 + (ema99 - ema7) * 0.5, 4)
 
     # Verifica coerenza logica, ma non blocca il segnale
     if segnale == "BUY" and (sl >= close or tp <= close):
