@@ -245,16 +245,21 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     )
     note.append(f"📊 Punteggio trend complessivo: {punteggio_trend}")
 
+    # Aggiungi una descrizione testuale in base al valore
     if punteggio_trend >= 4:
-        note.append("🔥 Trend forte")
+         note.append("🔥 Trend forte")
     elif punteggio_trend >= 2:
-        note.append("👍 Trend moderato")
+         note.append("👍 Trend moderato")
+    elif punteggio_trend == 1:
+         note.append("🟡 Trend debole positivo")
+    elif punteggio_trend == 0:
+         note.append("🔍 Trend neutro")
+    elif punteggio_trend == -1:
+         note.append("🟠 Trend debole negativo")
     elif punteggio_trend <= -4:
-        note.append("❌ Trend ribassista forte")
+         note.append("❌ Trend ribassista forte")
     elif punteggio_trend <= -2:
-        note.append("⚠️ Trend ribassista moderato")
-    else:
-        note.append("🔍 Trend incerto")
+         note.append("⚠️ Trend ribassista moderato")
 
 
     breakout_valido = False
