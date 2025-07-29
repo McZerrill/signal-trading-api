@@ -17,11 +17,11 @@ SOGLIA_PUNTEGGIO = 3
 
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
-    "volume_soglia": 100,
-    "atr_minimo": 0.0012,
-    "distanza_minima": 0.0010,
-    "macd_rsi_range": (44, 56),
-    "macd_signal_threshold": 0.0005,
+    "volume_soglia": 70,
+    "atr_minimo": 0.0007,
+    "distanza_minima": 0.0006,
+    "macd_rsi_range": (45, 55),
+    "macd_signal_threshold": 0.0003,
 }
 
 _PARAMS_PROD = {
