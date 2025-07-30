@@ -445,13 +445,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # Calcolo TP/SL finale
     # ------------------------------------------------------------------
     if segnale == "BUY":
-        tp = round(close + distanza_ema * 0.3, 4)
+        tp = round(close + distanza_ema * 0.6, 4)
         sl = round(ema99 - (ema7 - ema99) * 0.5, 4)
         if sl >= close or tp <= close:
             logging.warning(f"⚠️ TP/SL incoerenti (BUY): ingresso={close}, TP={tp}, SL={sl}")
             note.append("⚠️ TP/SL BUY potenzialmente incoerenti")
     elif segnale == "SELL":
-        tp = round(close - distanza_ema * 0.3, 4)
+        tp = round(close - distanza_ema * 0.6, 4)
         sl = round(ema99 + (ema99 - ema7) * 0.5, 4)
         if sl <= close or tp >= close:
             logging.warning(f"⚠️ TP/SL incoerenti (SELL): ingresso={close}, TP={tp}, SL={sl}")
