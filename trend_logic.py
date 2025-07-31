@@ -13,7 +13,7 @@ import logging
 # -----------------------------------------------------------------------------
 MODALITA_TEST = True
 MODALITA_TEST_FORZATA = True
-SOGLIA_PUNTEGGIO = 3
+SOGLIA_PUNTEGGIO = 2
 
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
@@ -357,7 +357,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if (trend_up or recupero_buy or breakout_valido) and (distanza_ema / close) > _p("distanza_minima"):
         durata_trend = candele_trend_up
         if rsi >= 52 and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
-            if durata_trend >= 6:
+            if durata_trend >= 8:
                 note.append(f"⛔ Trend BUY troppo maturo ({durata_trend} candele)")
             elif accelerazione < 0:
                 note.append(f"⚠️ BUY evitato: accelerazione negativa ({accelerazione:.6f})")
@@ -374,7 +374,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if (trend_down or recupero_sell) and (distanza_ema / close) > _p("distanza_minima"):
         durata_trend = candele_trend_down
         if rsi <= 48 and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO:
-            if durata_trend >= 5:
+            if durata_trend >= 8:
                 note.append(f"⛔ Trend SELL troppo maturo ({durata_trend} candele)")
             elif accelerazione > 0:
                 note.append(f"⚠️ SELL evitato: accelerazione in risalita ({accelerazione:.6f})")
