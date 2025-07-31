@@ -18,7 +18,7 @@ SOGLIA_PUNTEGGIO = 3
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
     "volume_soglia": 70,
-    "atr_minimo": 0.0007,
+    "atr_minimo": 0.0004,
     "distanza_minima": 0.0006,
     "macd_rsi_range": (45, 55),
     "macd_signal_threshold": 0.0003,
@@ -445,17 +445,27 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # Calcolo TP/SL finale
     # ------------------------------------------------------------------
     if segnale == "BUY":
-        tp = round(close + distanza_ema * 0.6, 4)
-        sl = round(ema99 - (ema7 - ema99) * 0.5, 4)
+        tp = round(close + atr * 6, 4)
+        sl = round(close - atr * 3, 4)
         if sl >= close or tp <= close:
             logging.warning(f"⚠️ TP/SL incoerenti (BUY): ingresso={close}, TP={tp}, SL={sl}")
             note.append("⚠️ TP/SL BUY potenzialmente incoerenti")
     elif segnale == "SELL":
-        tp = round(close - distanza_ema * 0.6, 4)
-        sl = round(ema99 + (ema99 - ema7) * 0.5, 4)
+        tp = round(close - atr * 6, 4)
+        sl = round(close + atr * 3, 4)
         if sl <= close or tp >= close:
             logging.warning(f"⚠️ TP/SL incoerenti (SELL): ingresso={close}, TP={tp}, SL={sl}")
             note.append("⚠️ TP/SL SELL potenzialmente incoerenti")
+
+    # 🆕 Calcolo tempo stimato per raggiungere TP
+    try:
+        if segnale in ["BUY", "SELL"] and atr > 0 and tp > 0:
+            candele_stimate = abs(tp - close) / atr
+            ore_stimate = round(candele_stimate * 0.25, 1)  # Timeframe 15m = 0.25h
+            note.append(f"🎯 Target stimato in ~{ore_stimate}h (ATR={atr:.5f})")
+    except Exception as e:
+        logging.warning(f"⚠️ Errore calcolo tempo stimato: {e}")
+
 
     logging.debug("✅ Analisi completata")
 
