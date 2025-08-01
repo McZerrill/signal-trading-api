@@ -14,6 +14,7 @@ import logging
 MODALITA_TEST = True
 MODALITA_TEST_FORZATA = True
 SOGLIA_PUNTEGGIO = 2
+DISATTIVA_CHECK_EMA_1M = True
 
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
@@ -426,13 +427,16 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append("⚠️ RSI e MACD neutri: segnale evitato")
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
-    # ------------------------------------------------------------------
-    # Controllo EMA su 1m
-    # ------------------------------------------------------------------
-    n_check_ema = 5 if MODALITA_TEST else 15
-    if not ema_in_movimento_coerente(hist_1m, rialzista=(segnale == "BUY"), n_candele=n_check_ema):
-        note.append("⛔ Segnale annullato: EMA su 1m non in movimento coerente col trend 15m")
-        return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+    # --------------------------------------------------------------
+    # Controllo facoltativo: EMA su 1 m coerenti col trend 15 m
+    # --------------------------------------------------------------
+
+    if not DISATTIVA_CHECK_EMA_1M:
+        n_check_ema = 5 if MODALITA_TEST else 15
+        if not ema_in_movimento_coerente(hist_1m, rialzista=(segnale == "BUY"), n_candele=n_check_ema):
+            note.append("⛔ Segnale annullato: EMA su 1m non in movimento coerente col trend 15m")
+            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
 
     # ------------------------------------------------------------------
     # BUY forzato su incrocio progressivo
