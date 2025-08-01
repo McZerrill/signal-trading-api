@@ -400,108 +400,97 @@ import threading
 # ------------------------------------------------------------------
 # Flag globale: mettilo a True quando vorrai riattivare la gestione
 # ------------------------------------------------------------------
-GESTIONE_ATTIVA = False
+GESTIONE_ATTIVA        = True     # lascia False se vuoi solo log, True per aggiornare TP
+CHECK_INTERVAL_SEC     = 60       # ogni minuto
+TIMEFRAME_TREND        = "15m"
+CANDLE_LIMIT           = 50       # ~12 h
+EMA_DIST_MIN_PERC      = 0.0008   # 0,08 %
+EMA_DIST_MAX_PERC      = 0.0030   # 0,30 %
+SL_BUFFER_PERC         = 0.25     # retracement: se prezzo torna entro il 25 % fra entry e SL
+TP_TRAIL_FACTOR        = 1.20     # TP = entry + (prezzo-entry)*1.20  (BUY); viceversa SELL
+
 
 def verifica_posizioni_attive():
     while True:
-        time.sleep(5)
+        time.sleep(CHECK_INTERVAL_SEC)
 
         for symbol in list(posizioni_attive.keys()):
-            simulazione = posizioni_attive.get(symbol)
-            if simulazione is None or simulazione.get("esito") in ("Profitto", "Perdita"):
+            sim = posizioni_attive.get(symbol)
+            if sim is None or sim.get("esito") in ("Profitto", "Perdita"):
                 continue
 
-            tipo = simulazione["tipo"]
+            tipo = sim["tipo"]            # BUY / SELL
             try:
-                # ----- dati di mercato -------------------------------------------------
-                book = get_bid_ask(symbol)
-                prezzo_corrente = book["ask"] if tipo == "BUY" else book["bid"]
-                entry, tp, sl = simulazione["entry"], simulazione["tp"], simulazione["sl"]
-                progresso = abs(prezzo_corrente - entry) / abs(tp - entry)
+                # ===== prezzo corrente =====
+                book      = get_bid_ask(symbol)
+                prezzo    = book["ask"] if tipo == "BUY" else book["bid"]
+                entry     = sim["entry"]
+                tp        = sim["tp"]
+                sl        = sim["sl"]
+                distanza_entry = abs(prezzo - entry)
+                progresso = abs(prezzo - entry) / abs(tp - entry) if tp != entry else 0
 
-                # ----- 1m dataframe & indicatori ---------------------------------------
-                df_1m = get_binance_df(symbol, "1m", limit=50)
-                if df_1m.empty:
-                    simulazione["motivo"] = "⚠️ Dati insufficienti (1m)"
+                # ===== dataframe 15 m =====
+                df = get_binance_df(symbol, TIMEFRAME_TREND, limit=CANDLE_LIMIT)
+                if df.empty:
+                    sim["motivo"] = f"⚠️ Dati insufficienti ({TIMEFRAME_TREND})"
                     continue
 
-                df_1m["EMA_7"] = df_1m["close"].ewm(span=7).mean()
-                df_1m["EMA_25"] = df_1m["close"].ewm(span=25).mean()
-                df_1m["RSI"] = calcola_rsi(df_1m["close"])
-                df_1m["MACD"], df_1m["MACD_SIGNAL"] = calcola_macd(df_1m["close"])
+                df["EMA_7"]  = df["close"].ewm(span=7).mean()
+                df["EMA_25"] = df["close"].ewm(span=25).mean()
 
-                ema7, ema25 = df_1m["EMA_7"].iloc[-1], df_1m["EMA_25"].iloc[-1]
-                rsi = df_1m["RSI"].iloc[-1]
-                macd, macd_sig = df_1m[["MACD", "MACD_SIGNAL"]].iloc[-1]
+                ema7  = df["EMA_7"].iloc[-1]
+                ema25 = df["EMA_25"].iloc[-1]
+                dist_ema = abs(ema7 - ema25)
 
-                if any(pd.isna(v) for v in (ema7, ema25, rsi, macd, macd_sig)):
-                    simulazione["motivo"] = "⚠️ Dati 1m non validi"
-                    continue
-
-                # ----- regole di inversione / micro‑trend ------------------------------
-                motivi, chiusura = [], False
-                if tipo == "BUY":
-                    cond1 = ema7 < ema25 and rsi < 50
-                    cond2 = ema7 < ema25 and macd < macd_sig - 0.003
-                    if cond1 or cond2:
-                        if ema7 < ema25: motivi.append("EMA7 < EMA25")
-                        if rsi < 50:    motivi.append(f"RSI {rsi:.1f} < 50")
-                        if macd < macd_sig - 0.003:
-                            motivi.append(f"MACD {macd:.4f} ≪ Sig {macd_sig:.4f}")
-                        chiusura = True
-                else:  # SELL
-                    cond1 = ema7 > ema25 and rsi > 57
-                    cond2 = ema7 > ema25 and macd > macd_sig + 0.003
-                    if cond1 or cond2:
-                        if ema7 > ema25: motivi.append("EMA7 > EMA25")
-                        if rsi > 57:    motivi.append(f"RSI {rsi:.1f} > 57")
-                        if macd > macd_sig + 0.003:
-                            motivi.append(f"MACD {macd:.4f} ≫ Sig {macd_sig:.4f}")
-                        chiusura = True
-
-                # ----- solo motivo + log; stop‑loss reale disattivato ------------------
-                if chiusura:
-                    simulazione["motivo"] = "📉 Inversione 1m: " + ", ".join(motivi)
-                    if GESTIONE_ATTIVA:
-                        simulazione["sl"] = prezzo_corrente
-                        simulazione["esito"] = "Perdita"
-                        simulazione["chiusa_da_backend"] = True
-                        logging.info(f"[STOPLOSS FORZATO] {symbol} – {simulazione['motivo']} @ {prezzo_corrente}")
-                        continue    # operativa; se disattivo, non salto il resto
-
-                # ----- micro‑trend ok / incerto ----------------------------------------
-                microtrend_ok = (
-                    (tipo == "BUY"  and ema7 > ema25 and rsi >= 55 and macd >= macd_sig) or
-                    (tipo == "SELL" and ema7 < ema25 and rsi <= 52 and macd <= macd_sig)
+                in_range = EMA_DIST_MIN_PERC*prezzo <= dist_ema <= EMA_DIST_MAX_PERC*prezzo
+                trend_ok = (
+                    (tipo == "BUY"  and prezzo >= ema7 and ema7 > ema25 and in_range) or
+                    (tipo == "SELL" and prezzo <= ema7 and ema7 < ema25 and in_range)
                 )
 
-                # ----- gestione TP estesi (bloccata se flag False) ---------------------
-                if GESTIONE_ATTIVA:
-                    if simulazione.get("tp_esteso", 0) == 0 and progresso > 0.8 and microtrend_ok:
-                        nuovo_tp = round(entry + (tp - entry) * (1.5 if tipo == "BUY" else -1.5), 6)
-                        simulazione["tp"] = nuovo_tp
-                        simulazione["tp_esteso"] = 1
-                        simulazione["motivo"] = "📈 TP esteso automaticamente (trend forte)"
-                        logging.info(f"[TP ESTESO] {symbol} – Nuovo TP: {nuovo_tp}")
-                        continue
-                    # … (replica stessa logica per step 2 se vuoi)
+                # ===== retracement verso SL? =====
+                if sl != 0:                       # SL definito → verifica retracement
+                    if tipo == "BUY":
+                        verso_sl = prezzo <= entry - SL_BUFFER_PERC * abs(entry - sl)
+                    else:  # SELL
+                        verso_sl = prezzo >= entry + SL_BUFFER_PERC * abs(entry - sl)
+                else:                              # SL non impostato → nessun retracement
+                    verso_sl = False
 
-                # ----- update motivo descrittivo di default ----------------------------
-                motivo_corrente = simulazione.get("motivo", "")
-                if "Inversione 1m" not in motivo_corrente and "TP esteso" not in motivo_corrente:
-                    simulazione["motivo"] = (
-                        "✅ Microtrend 1m in linea col trend principale" if microtrend_ok
-                        else "⚠️ Microtrend 1m incerto"
-                    )
+                # ===== aggiornamento TP dinamico =====
+                if GESTIONE_ATTIVA and trend_ok and not verso_sl:
+                    # attiva una sola volta la modalità trailing
+                    sim.setdefault("tp_esteso", 1)
+
+                    # nuovo TP proporzionale alla distanza percorsa
+                    if tipo == "BUY":
+                        nuovo_tp = round(entry + distanza_entry * TP_TRAIL_FACTOR, 6)
+                        if nuovo_tp > tp:       # sposta solo in avanti
+                            sim["tp"] = nuovo_tp
+                            sim["motivo"] = "📈 TP aggiornato (trend 15 m costante)"
+                    else:  # SELL
+                        nuovo_tp = round(entry - distanza_entry * TP_TRAIL_FACTOR, 6)
+                        if nuovo_tp < tp:
+                            sim["tp"] = nuovo_tp
+                            sim["motivo"] = "📈 TP aggiornato (trend 15 m costante)"
+
+                # ===== messaggio di stato =====
+                if not trend_ok:
+                    sim["motivo"] = "⚠️ Trend 15 m incerto: condizioni non ideali"
+                elif verso_sl:
+                    sim["motivo"] = "⏸️ Trend in ritracciamento, TP stabile"
+                elif "TP aggiornato" not in sim.get("motivo", ""):
+                    sim["motivo"] = "✅ Trend 15 m in linea"
 
                 logging.info(
-                    f"[STATO] {symbol} – Entry={entry:.6f}, Prezzo={prezzo_corrente:.6f}, "
-                    f"TP={tp:.6f}, SL={sl:.6f}, Progresso={progresso:.2f}, Motivo={simulazione['motivo']}"
+                    f"[15m] {symbol} Entry={entry:.6f} Prezzo={prezzo:.6f} "
+                    f"TP={sim['tp']:.6f} SL={sl:.6f} Prog={progresso:.2f} Motivo={sim['motivo']}"
                 )
 
-            except Exception as err:
-                simulazione["motivo"] = f"❌ Errore microtrend 1m: {err}"
-                logging.error(f"[ERRORE] Verifica {symbol}: {err}")
+            except Exception as e:
+                sim["motivo"] = f"❌ Errore monitor 15 m: {e}"
+                logging.error(f"[ERRORE] {symbol}: {e}")
 
 
 # Thread monitor
