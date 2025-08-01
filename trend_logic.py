@@ -363,8 +363,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 note.append(f"⚠️ BUY evitato: accelerazione negativa ({accelerazione:.6f})")
             else:
                 segnale = "BUY"
-                note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
-                note.append("✅ BUY confermato: trend forte")
+                #note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
+                note.append("✅ BUY confermato")
         elif rsi >= 50 and macd_buy_debole:
             note.append("⚠️ BUY debole: RSI > 50 e MACD > signal, ma segnale incerto")
 
@@ -380,8 +380,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 note.append(f"⚠️ SELL evitato: accelerazione in risalita ({accelerazione:.6f})")
             else:
                 segnale = "SELL"
-                note.append(f"🕒 Trend SELL attivo da {durata_trend} candele")
-                note.append("✅ SELL confermato: trend forte")
+                #note.append(f"🕒 Trend SELL attivo da {durata_trend} candele")
+                note.append("✅ SELL confermato")
         elif rsi <= 55 and macd_sell_debole:
             note.append("⚠️ SELL debole: RSI < 55 e MACD < signal, ma segnale incerto")
 
