@@ -18,11 +18,11 @@ DISATTIVA_CHECK_EMA_1M = True
 
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
-    "volume_soglia": 70,
+    "volume_soglia": 150,
     "atr_minimo": 0.0004,
-    "distanza_minima": 0.0006,
+    "distanza_minima": 0.0007,
     "macd_rsi_range": (45, 55),
-    "macd_signal_threshold": 0.0003,
+    "macd_signal_threshold": 0.0004,
 }
 
 _PARAMS_PROD = {
