@@ -255,6 +255,47 @@ def calcola_punteggio_trend(
     return punteggio
 
 
+
+def calcola_probabilita_successo(ema7, ema25, ema99, rsi, macd, macd_signal, candele_attive, breakout, volume_ok, atr):
+    punteggio = 0
+
+    # Direzione trend coerente (EMA)
+    if ema7 > ema25 > ema99 or ema7 < ema25 < ema99:
+        punteggio += 20
+
+    # RSI coerente con direzione
+    if ema7 > ema25 and rsi > 55:
+        punteggio += 10
+    elif ema7 < ema25 and rsi < 45:
+        punteggio += 10
+
+    # MACD coerente
+    if ema7 > ema25 and macd > macd_signal:
+        punteggio += 10
+    elif ema7 < ema25 and macd < macd_signal:
+        punteggio += 10
+
+    # Trend attivo da almeno 4 candele
+    if candele_attive >= 4:
+        punteggio += 10
+
+    # Breakout recente
+    if breakout:
+        punteggio += 10
+
+    # Volume ok
+    if volume_ok:
+        punteggio += 10
+
+    # Penalità per ATR troppo basso o troppo alto (volatilità)
+    if atr < 0.0002 or atr > 0.005:
+        punteggio -= 10
+
+    probabilita = min(max(round(punteggio * 1.25), 10), 95)
+    return probabilita
+
+
+
 # -----------------------------------------------------------------------------
 # Funzione principale: analizza_trend (semplificata internamente)
 # -----------------------------------------------------------------------------
@@ -410,9 +451,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             note.append(f"✅ Pattern candlestick rilevato: {pattern}")
     else:
         if trend_up and candele_trend_up <= 2:
-            note.append("🟡 Trend attivo ma debole")
+            note.append("🟡 Trend attivo")
         elif trend_down and candele_trend_down <= 2:
-            note.append("🟡 Trend ribassista ma debole")
+            note.append("🟡 Trend ribassista")
         elif candele_trend_up <= 1 and not trend_up:
             note.append("⚠️ Trend concluso: attenzione a inversioni")
 
@@ -484,6 +525,20 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     except Exception as e:
         logging.warning(f"⚠️ Errore calcolo tempo stimato: {e}")
 
+    # Calcolo probabilità di successo
+    try:
+        if segnale in ["BUY", "SELL"]:
+            probabilita = calcola_probabilita_successo(
+                ema7=ema7, ema25=ema25, ema99=ema99,
+                rsi=rsi, macd=macd, macd_signal=macd_signal,
+                candele_attive=trend_attivo,
+                breakout=breakout_positivo if 'breakout_positivo' in locals() else False,
+                volume_ok=volume_ok if 'volume_ok' in locals() else False,
+                atr=atr
+            )
+            note.append(f"📊 Prob. successo stimata: {probabilita}%")
+    except Exception as e:
+        logging.warning(f"⚠️ Errore calcolo probabilità successo: {e}")
 
     logging.debug("✅ Analisi completata")
 
