@@ -256,42 +256,99 @@ def calcola_punteggio_trend(
 
 
 
-def calcola_probabilita_successo(ema7, ema25, ema99, rsi, macd, macd_signal, candele_attive, breakout, volume_ok, atr):
+def calcola_probabilita_successo(
+    ema7,
+    ema25,
+    ema99,
+    rsi,
+    macd,
+    macd_signal,
+    candele_attive,
+    breakout,
+    volume_attuale,
+    volume_medio,
+    distanza_ema,
+    atr,
+    close,
+    accelerazione,
+    segnale
+):
     punteggio = 0
 
-    # Direzione trend coerente (EMA)
-    if ema7 > ema25 > ema99 or ema7 < ema25 < ema99:
+    # 1. Direzione trend chiara (EMA progressive)
+    if (ema7 > ema25 > ema99 and segnale == "BUY") or (ema7 < ema25 < ema99 and segnale == "SELL"):
         punteggio += 20
 
-    # RSI coerente con direzione
-    if ema7 > ema25 and rsi > 55:
+    # 2. RSI coerente
+    if segnale == "BUY" and rsi >= 52:
         punteggio += 10
-    elif ema7 < ema25 and rsi < 45:
+    elif segnale == "SELL" and rsi <= 48:
         punteggio += 10
+    elif 48 < rsi < 52:
+        punteggio -= 5  # RSI neutro penalizzato
 
-    # MACD coerente
-    if ema7 > ema25 and macd > macd_signal:
-        punteggio += 10
-    elif ema7 < ema25 and macd < macd_signal:
-        punteggio += 10
+    # 3. MACD coerente con segnale
+    macd_gap = macd - macd_signal
+    if segnale == "BUY":
+        if macd > macd_signal and macd_gap > 0.001:
+            punteggio += 10
+        elif macd > 0 and macd_gap > 0:
+            punteggio += 5  # MACD debole
+        elif abs(macd_gap) < 0.001:
+            punteggio -= 5  # MACD neutro
+    elif segnale == "SELL":
+        if macd < macd_signal and macd_gap < -0.001:
+            punteggio += 10
+        elif macd < 0 and macd_gap < 0:
+            punteggio += 5
+        elif abs(macd_gap) < 0.001:
+            punteggio -= 5
 
-    # Trend attivo da almeno 4 candele
-    if candele_attive >= 4:
+    # 4. Volume coerente
+    if volume_attuale > volume_medio * 1.5:
         punteggio += 10
+    elif volume_attuale < volume_medio:
+        punteggio -= 5  # volume scarso penalizzato
 
-    # Breakout recente
+    # 5. Breakout forte
     if breakout:
         punteggio += 10
 
-    # Volume ok
-    if volume_ok:
-        punteggio += 10
+    # 6. Accelerazione coerente
+    if segnale == "BUY" and accelerazione > 0:
+        punteggio += 5
+    elif segnale == "SELL" and accelerazione < 0:
+        punteggio += 5
+    else:
+        punteggio -= 5  # accelerazione non coerente penalizzata
 
-    # Penalità per ATR troppo basso o troppo alto (volatilità)
+    # 7. Trend attivo da almeno 3-4 candele, ma non troppo lungo
+    if 3 <= candele_attive <= 7:
+        punteggio += 10
+    elif candele_attive < 3:
+        punteggio -= 5  # trend troppo giovane
+    elif candele_attive > 8:
+        punteggio -= 5  # trend troppo maturo
+
+    # 8. Distanza EMA significativa
+    distanza_pct = distanza_ema / close
+    if distanza_pct > 0.0015:
+        punteggio += 5
+    elif distanza_pct < 0.0008:
+        punteggio -= 5
+
+    # 9. Volatilità accettabile (ATR)
+    if atr / close > 0.0015:
+        punteggio += 5
+    elif atr / close < 0.0008:
+        punteggio -= 5
+
+    # 10. Penalità se ATR assoluto è troppo basso/alto
     if atr < 0.0002 or atr > 0.005:
         punteggio -= 10
 
-    probabilita = min(max(round(punteggio * 1.25), 10), 95)
+    # Normalizzazione finale
+    probabilita = min(max(round(punteggio * 1.25), 5), 95)
     return probabilita
 
 
@@ -528,13 +585,23 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # Calcolo probabilità di successo
     try:
         if segnale in ["BUY", "SELL"]:
+            n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
             probabilita = calcola_probabilita_successo(
-                ema7=ema7, ema25=ema25, ema99=ema99,
-                rsi=rsi, macd=macd, macd_signal=macd_signal,
-                candele_attive=trend_attivo,
-                breakout=breakout_positivo if 'breakout_positivo' in locals() else False,
-                volume_ok=volume_ok if 'volume_ok' in locals() else False,
-                atr=atr
+                ema7=ema7,
+                ema25=ema25,
+                ema99=ema99,
+                rsi=rsi,
+                macd=macd,
+                macd_signal=macd_signal,
+                candele_attive=n_candele,
+                breakout=breakout_valido,
+                volume_attuale=volume_attuale,
+                volume_medio=volume_medio,
+                distanza_ema=distanza_ema,
+                atr=atr,
+                close=close,
+                accelerazione=accelerazione,
+                segnale=segnale
             )
             note.append(f"📊 Prob. successo stimata: {probabilita}%")
     except Exception as e:
