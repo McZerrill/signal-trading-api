@@ -571,18 +571,28 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             note.append("⚠️ TP/SL SELL potenzialmente incoerenti")
 
     # ------------------------------------------------------------------
-    # Calcolo tempo stimato per raggiungere TP (con forchetta)
+    # Calcolo tempo stimato per raggiungere TP (forchetta realistica)
     # ------------------------------------------------------------------
     try:
-        if segnale in ["BUY", "SELL"] and atr > 0 and tp > 0:
+        if segnale in ["BUY", "SELL"] and tp > 0:
             distanza = abs(tp - close)
 
-            # Coefficiente di efficienza: quanto ATR "va nella direzione giusta"
-            EFFICIENZA_MIN = 0.3  # più lento, più rimbalzi
-            EFFICIENZA_MAX = 0.6  # più diretto
+            # Escursione media delle ultime 10 candele
+            range_medio = (hist["high"] - hist["low"]).iloc[-10:].mean()
 
-            ore_min = round((distanza / (atr * EFFICIENZA_MAX)) * 0.25, 1)
-            ore_max = round((distanza / (atr * EFFICIENZA_MIN)) * 0.25, 1)
+            if range_medio == 0:
+                raise ValueError("Range medio nullo")
+
+            # Efficienza adattiva in base al punteggio del trend
+            if punteggio_trend >= 4:
+                eff_min, eff_max = 0.4, 0.7   # Trend forte
+            elif punteggio_trend >= 2:
+                eff_min, eff_max = 0.3, 0.55  # Trend moderato
+            else:
+                eff_min, eff_max = 0.2, 0.4   # Trend debole
+
+            ore_min = round((distanza / (range_medio * eff_max)) * 0.25, 1)
+            ore_max = round((distanza / (range_medio * eff_min)) * 0.25, 1)
 
             if ore_min == ore_max:
                 note.append(f"🎯 Target stimato in ~{ore_min}h")
@@ -590,6 +600,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 note.append(f"🎯 Target stimato tra ~{ore_min}h e {ore_max}h")
     except Exception as e:
         logging.warning(f"⚠️ Errore calcolo tempo stimato: {e}")
+
 
 
     # Calcolo probabilità di successo
