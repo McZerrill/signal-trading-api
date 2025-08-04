@@ -571,16 +571,26 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             note.append("⚠️ TP/SL SELL potenzialmente incoerenti")
 
     # ------------------------------------------------------------------
-    # Calcolo tempo stimato per raggiungere TP
+    # Calcolo tempo stimato per raggiungere TP (con forchetta)
     # ------------------------------------------------------------------
     try:
         if segnale in ["BUY", "SELL"] and atr > 0 and tp > 0:
             distanza = abs(tp - close)
-            candele_stimate = distanza / atr
-            ore_stimate = round(candele_stimate * 0.25, 1)  # timeframe 15m
-            note.append(f"🎯 Target stimato in ~{ore_stimate}h (ATR={atr:.5f})")
+
+            # Coefficiente di efficienza: quanto ATR "va nella direzione giusta"
+            EFFICIENZA_MIN = 0.3  # più lento, più rimbalzi
+            EFFICIENZA_MAX = 0.6  # più diretto
+
+            ore_min = round((distanza / (atr * EFFICIENZA_MAX)) * 0.25, 1)
+            ore_max = round((distanza / (atr * EFFICIENZA_MIN)) * 0.25, 1)
+
+            if ore_min == ore_max:
+                note.append(f"🎯 Target stimato in ~{ore_min}h")
+            else:
+                note.append(f"🎯 Target stimato tra ~{ore_min}h e {ore_max}h")
     except Exception as e:
         logging.warning(f"⚠️ Errore calcolo tempo stimato: {e}")
+
 
     # Calcolo probabilità di successo
     try:
