@@ -551,9 +551,23 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     PERCENTUALE_TP_MAX = 0.05  # 5%
     massimo_tp = close * PERCENTUALE_TP_MAX
 
-    # Calcolo moltiplicatore massimo per ATR in base alla distanza massima
-    fattore_tp = min(6.0, massimo_tp / atr)
-    fattore_sl = fattore_tp / 2  # SL più stretto
+    # Calcola moltiplicatori dinamici TP/SL basati sulla probabilità
+    if probabilita >= 80:
+        fattore_tp = 5.0
+        fattore_sl = 2.0
+    elif probabilita >= 65:
+        fattore_tp = 4.0
+        fattore_sl = 1.5
+    elif probabilita >= 50:
+        fattore_tp = 3.0
+        fattore_sl = 1.2
+    else:
+        fattore_tp = 2.0
+        fattore_sl = 1.0  # SL più largo per segnali incerti
+
+    # Evita TP esagerati
+    fattore_tp = min(fattore_tp, massimo_tp / atr)
+
 
     # Calcolo TP/SL in base al segnale
     if segnale == "BUY":
