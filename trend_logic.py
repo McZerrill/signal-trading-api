@@ -12,7 +12,6 @@ import logging
 # Costanti di configurazione
 # -----------------------------------------------------------------------------
 MODALITA_TEST = True
-MODALITA_TEST_FORZATA = True
 SOGLIA_PUNTEGGIO = 2
 DISATTIVA_CHECK_EMA_1M = True
 
@@ -181,7 +180,7 @@ def rileva_pattern_v(hist: pd.DataFrame) -> bool:
         logging.warning(f"⚠️ Errore nel rilevamento pattern V: {e}")
         return False
 
-    for i in range(-3, 0):
+    for i in range(3): 
         rossa = sub.iloc[i]["close"] < sub.iloc[i]["open"]
         verde = sub.iloc[i + 1]["close"] > sub.iloc[i + 1]["open"]
         corpo_rossa = abs(sub.iloc[i]["close"] - sub.iloc[i]["open"])
@@ -222,34 +221,59 @@ def calcola_punteggio_trend(
 ):
     punteggio = 0
 
+    # 1. Direzione del trend (più forte)
     if is_trend_up(ema7, ema25, ema99):
-        punteggio += 2
+        punteggio += 3
     elif is_trend_down(ema7, ema25, ema99):
+        punteggio -= 3
+
+    # 2. RSI
+    if rsi >= 65:
+        punteggio += 2
+    elif rsi >= 55:
+        punteggio += 1
+    elif rsi <= 35:
+        punteggio -= 2
+    elif rsi <= 45:
+        punteggio -= 1
+
+    # 3. MACD
+    macd_gap = macd - macd_signal
+    if macd_gap > 0.002:
+        punteggio += 2
+    elif macd_gap > 0:
+        punteggio += 1
+    elif macd_gap < -0.002:
+        punteggio -= 2
+    elif macd_gap < 0:
+        punteggio -= 1
+
+    # 4. Volume
+    if volume_attuale > volume_medio * 2:
+        punteggio += 2
+    elif volume_attuale > volume_medio * 1.2:
+        punteggio += 1
+    elif volume_attuale < volume_medio * 0.8:
+        punteggio -= 1
+    elif volume_attuale < volume_medio * 0.5:
         punteggio -= 2
 
-    if rsi > 60:
+    # 5. Distanza EMA
+    distanza_pct = distanza_ema / close
+    if distanza_pct > 0.002:
+        punteggio += 2
+    elif distanza_pct > 0.001:
         punteggio += 1
-    elif rsi < 40:
+    elif distanza_pct < 0.0005:
         punteggio -= 1
 
-    if macd > macd_signal:
+    # 6. Volatilità (ATR)
+    atr_pct = atr / close
+    if atr_pct > 0.002:
+        punteggio += 2
+    elif atr_pct > 0.001:
         punteggio += 1
-    elif macd < macd_signal:
-        punteggio -= 1
-
-    if volume_attuale > volume_medio * 1.5:
-        punteggio += 1
-    else:
-        punteggio -= 1
-
-    if distanza_ema / close > 0.0015:
-        punteggio += 1
-    elif distanza_ema / close < 0.001:
-        punteggio -= 1
-
-    if atr / close > 0.0015:
-        punteggio += 1
-    elif atr / close < 0.001:
+    elif atr_pct < 0.0005:
         punteggio -= 1
 
     return punteggio
@@ -271,7 +295,12 @@ def calcola_probabilita_successo(
     atr,
     close,
     accelerazione,
-    segnale
+    segnale,
+    hist=None,
+    tp=None,
+    sl=None,
+    escursione_media=None,
+    supporto=None
 ):
     punteggio = 0
 
@@ -285,7 +314,7 @@ def calcola_probabilita_successo(
     elif segnale == "SELL" and rsi <= 48:
         punteggio += 10
     elif 48 < rsi < 52:
-        punteggio -= 5  # RSI neutro penalizzato
+        punteggio -= 5
 
     # 3. MACD coerente con segnale
     macd_gap = macd - macd_signal
@@ -293,9 +322,9 @@ def calcola_probabilita_successo(
         if macd > macd_signal and macd_gap > 0.001:
             punteggio += 10
         elif macd > 0 and macd_gap > 0:
-            punteggio += 5  # MACD debole
+            punteggio += 5
         elif abs(macd_gap) < 0.001:
-            punteggio -= 5  # MACD neutro
+            punteggio -= 5
     elif segnale == "SELL":
         if macd < macd_signal and macd_gap < -0.001:
             punteggio += 10
@@ -308,7 +337,7 @@ def calcola_probabilita_successo(
     if volume_attuale > volume_medio * 1.5:
         punteggio += 10
     elif volume_attuale < volume_medio:
-        punteggio -= 5  # volume scarso penalizzato
+        punteggio -= 5
 
     # 5. Breakout forte
     if breakout:
@@ -320,15 +349,15 @@ def calcola_probabilita_successo(
     elif segnale == "SELL" and accelerazione < 0:
         punteggio += 5
     else:
-        punteggio -= 5  # accelerazione non coerente penalizzata
+        punteggio -= 5
 
-    # 7. Trend attivo da almeno 3-4 candele, ma non troppo lungo
+    # 7. Trend attivo da almeno 3-4 candele
     if 3 <= candele_attive <= 7:
         punteggio += 10
     elif candele_attive < 3:
-        punteggio -= 5  # trend troppo giovane
+        punteggio -= 5
     elif candele_attive > 8:
-        punteggio -= 5  # trend troppo maturo
+        punteggio -= 5
 
     # 8. Distanza EMA significativa
     distanza_pct = distanza_ema / close
@@ -343,11 +372,54 @@ def calcola_probabilita_successo(
     elif atr / close < 0.0008:
         punteggio -= 5
 
-    # 10. Penalità se ATR assoluto è troppo basso/alto
+    # 10. Penalità se ATR assoluto troppo basso/alto
     if atr < 0.0002 or atr > 0.005:
         punteggio -= 10
 
-    # Normalizzazione finale
+    # ------------------------------------------
+    # 🔍 Estensioni avanzate (filtri ex-bloccanti)
+    # ------------------------------------------
+
+    if hist is not None:
+        try:
+            # a. Curvatura EMA25
+            curvatura_ema25 = ema25 - hist["EMA_25"].iloc[-2]
+            if segnale == "BUY" and curvatura_ema25 <= 0:
+                punteggio -= 4
+            elif segnale == "SELL" and curvatura_ema25 >= 0:
+                punteggio -= 4
+
+            # b. Escursione media troppo bassa
+            if escursione_media / close < 0.002:
+                punteggio -= 3
+
+            # c. Candela attuale contraria
+            open_attuale = hist["open"].iloc[-1]
+            if segnale == "BUY" and close < open_attuale:
+                punteggio -= 3
+            elif segnale == "SELL" and close > open_attuale:
+                punteggio -= 3
+
+            # d. Supporto vicino (solo per SELL)
+            if segnale == "SELL":
+                distanza_supporto = abs(close - supporto) / close
+                if distanza_supporto < 0.005:
+                    punteggio -= 5
+
+            # e. Rischio/Rendimento sfavorevole
+            if tp and sl:
+                rischio = abs(close - sl)
+                rendimento = abs(tp - close)
+                if rischio == 0 or rendimento / rischio < 1.5:
+                    punteggio -= 5
+
+        except Exception as e:
+            import logging
+            logging.warning(f"⚠️ Errore calcolo penalità avanzate: {e}")
+
+    # ------------------------------------------
+    # 🧮 Normalizzazione finale
+    # ------------------------------------------
     probabilita = min(max(round(punteggio * 1.25), 5), 95)
     return probabilita
 
@@ -360,6 +432,7 @@ def calcola_probabilita_successo(
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None):
     logging.debug("🔍 Inizio analisi trend")
 
+    
     if len(hist) < 22:
         logging.warning("⚠️ Dati insufficienti per l'analisi")
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
@@ -381,6 +454,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     volume_attuale = hist["volume"].iloc[-1]
     volume_medio = hist["volume"].iloc[-21:-1].mean()
+    escursione_media = (hist["high"] - hist["low"]).iloc[-10:].mean()
     distanza_ema = abs(ema7 - ema25)
     curvatura_ema25 = ema25 - penultimo["EMA_25"]
     curvatura_precedente = penultimo["EMA_25"] - antepenultimo["EMA_25"]
@@ -399,7 +473,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append("⚠️ ATR troppo basso: mercato poco volatile")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-    if volume_attuale < volume_medio * 2.5 and not MODALITA_TEST:
+    if volume_attuale < volume_medio * 3 and not MODALITA_TEST:
         note.append("⚠️ Volume basso: segnale debole")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
@@ -443,19 +517,20 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     # Condizioni MACD / RSI
     # ------------------------------------------------------------------
-    macd_buy_ok = macd > macd_signal and macd_gap > 0.001
-    macd_buy_debole = macd > 0 and macd_gap > 0
-    macd_sell_ok = macd < macd_signal and macd_gap < -_p("macd_signal_threshold")
-    macd_sell_debole = macd < 0 and macd_gap < 0.005
+    macd_buy_ok = macd > macd_signal and macd_gap > 0.002
+    macd_buy_debole = macd > 0 and macd_gap > 0.001
+    macd_sell_ok = macd < macd_signal and macd_gap < -0.002
+    macd_sell_debole = macd < 0 and macd_gap < -0.001
 
     segnale, tp, sl = "HOLD", 0.0, 0.0
+    probabilita = 50
 
     # ------------------------------------------------------------------
     # BUY logic
     # ------------------------------------------------------------------
     if (trend_up or recupero_buy or breakout_valido) and (distanza_ema / close) > _p("distanza_minima"):
         durata_trend = candele_trend_up
-        if rsi >= 52 and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
+        if rsi >= 54 and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
             if durata_trend >= 8:
                 note.append(f"⛔ Trend BUY troppo maturo ({durata_trend} candele)")
             elif accelerazione < 0:
@@ -472,7 +547,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     if (trend_down or recupero_sell) and (distanza_ema / close) > _p("distanza_minima"):
         durata_trend = candele_trend_down
-        if rsi <= 48 and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO:
+        if rsi <= 46 and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO:
             if durata_trend >= 8:
                 note.append(f"⛔ Trend SELL troppo maturo ({durata_trend} candele)")
             elif accelerazione > 0:
@@ -521,7 +596,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
-    if segnale in ["BUY", "SELL"] and 48 < rsi < 52 and abs(macd_gap) < 0.001:
+    if segnale in ["BUY", "SELL"] and 46 < rsi < 54 and abs(macd_gap) < 0.002:
         note.append("⚠️ RSI e MACD neutri: segnale evitato")
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
@@ -542,6 +617,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if segnale == "HOLD" and rileva_incrocio_progressivo(hist):
         segnale = "BUY"
         note.append("📈 Incrocio progressivo EMA(7>25>99) rilevato: BUY confermato")
+        
+
 
     # ------------------------------------------------------------------
     # Calcolo TP/SL finale realistico ma coerente con l’ATR
@@ -616,8 +693,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         logging.warning(f"⚠️ Errore calcolo tempo stimato: {e}")
 
 
-
-    # Calcolo probabilità di successo
+    # Calcolo probabilità di successo (con penalità avanzate)
     try:
         if segnale in ["BUY", "SELL"]:
             n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
@@ -636,7 +712,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 atr=atr,
                 close=close,
                 accelerazione=accelerazione,
-                segnale=segnale
+                segnale=segnale,
+                hist=hist,      # ⬅️ Aggiunto per candela contraria, curvatura, ecc.
+                tp=tp,          # ⬅️ Aggiunto per rischio/rendimento
+                sl=sl,           # ⬅️ Aggiunto per rischio/rendimento
+                supporto=supporto,
+                escursione_media=escursione_media
+
             )
             note.append(f"📊 Prob. successo stimata: {probabilita}%")
     except Exception as e:
@@ -644,9 +726,20 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     logging.debug("✅ Analisi completata")
 
+
+
     if segnale not in ["BUY", "SELL"]:
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
-    note = list(dict.fromkeys(note))
+    # Ordina note: conferme → punteggi → warning → altro
+    priorita = lambda x: (
+        0 if "✅" in x else
+        1 if "📊" in x or "🎯" in x else
+        2 if "⚠️" in x or "⛔" in x else
+        3
+    )
+    note = list(dict.fromkeys(note))  # Elimina duplicati
+    note.sort(key=priorita)
+
 
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
