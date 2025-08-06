@@ -18,18 +18,56 @@ DISATTIVA_CHECK_EMA_1M = True
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
     "volume_soglia": 150,
+    "volume_alto": 2.0,
+    "volume_medio": 1.2,
+    "volume_basso": 0.8,
+    "volume_molto_basso": 0.5,
     "atr_minimo": 0.0004,
+    "atr_buono": 0.0015,
+    "atr_basso": 0.0008,
+    "atr_troppo_basso": 0.0002,
+    "atr_troppo_alto": 0.005,
     "distanza_minima": 0.0007,
+    "distanza_bassa": 0.0005,
+    "distanza_media": 0.001,
+    "distanza_alta": 0.002,
     "macd_rsi_range": (45, 55),
     "macd_signal_threshold": 0.0004,
+    "macd_gap_forte": 0.002,
+    "macd_gap_debole": 0.001,
+    "rsi_buy_forte": 54,
+    "rsi_buy_debole": 50,
+    "rsi_sell_forte": 46,
+    "rsi_sell_debole": 55,
+    "accelerazione_minima": 0.00005,
+
 }
 
 _PARAMS_PROD = {
     "volume_soglia": 300,
+    "volume_alto": 2.0,
+    "volume_medio": 1.2,
+    "volume_basso": 0.8,
+    "volume_molto_basso": 0.5,
     "atr_minimo": 0.0009,
+    "atr_buono": 0.0015,
+    "atr_basso": 0.0008,
+    "atr_troppo_basso": 0.0002,
+    "atr_troppo_alto": 0.005,
     "distanza_minima": 0.0012,
+    "distanza_bassa": 0.0005,
+    "distanza_media": 0.001,
+    "distanza_alta": 0.002,
     "macd_rsi_range": (47, 53),
     "macd_signal_threshold": 0.0006,
+    "macd_gap_forte": 0.002,
+    "macd_gap_debole": 0.001,
+    "rsi_buy_forte": 54,
+    "rsi_buy_debole": 50,
+    "rsi_sell_forte": 46,
+    "rsi_sell_debole": 55,
+    "accelerazione_minima": 0.00001,
+
 }
 
 
@@ -102,10 +140,11 @@ def pattern_contrario(segnale: str, pattern: str) -> bool:
 # Funzioni originali, ripulite dalle ripetizioni
 # -----------------------------------------------------------------------------
 
-def valuta_distanza(distanza: float) -> str:
-    if distanza < 1:
+def valuta_distanza(distanza: float, close: float) -> str:
+    distanza_pct = distanza / close
+    if distanza_pct < _p("distanza_bassa") * 1000:
         return "bassa"
-    elif distanza < 3:
+    elif distanza_pct < _p("distanza_media") * 1000:
         return "media"
     return "alta"
 
@@ -249,32 +288,34 @@ def calcola_punteggio_trend(
         punteggio -= 1
 
     # 4. Volume
-    if volume_attuale > volume_medio * 2:
+    if volume_attuale > volume_medio * _p("volume_alto"):
         punteggio += 2
-    elif volume_attuale > volume_medio * 1.2:
+    elif volume_attuale > volume_medio * _p("volume_medio"):
         punteggio += 1
-    elif volume_attuale < volume_medio * 0.8:
+    elif volume_attuale < volume_medio * _p("volume_basso"):
         punteggio -= 1
-    elif volume_attuale < volume_medio * 0.5:
+    elif volume_attuale < volume_medio * _p("volume_molto_basso"):
         punteggio -= 2
+
 
     # 5. Distanza EMA
     distanza_pct = distanza_ema / close
-    if distanza_pct > 0.002:
+    if distanza_pct > _p("distanza_alta"):
         punteggio += 2
-    elif distanza_pct > 0.001:
+    elif distanza_pct > _p("distanza_media"):
         punteggio += 1
-    elif distanza_pct < 0.0005:
+    elif distanza_pct < _p("distanza_bassa"):
         punteggio -= 1
 
     # 6. Volatilità (ATR)
     atr_pct = atr / close
-    if atr_pct > 0.002:
+    if atr_pct > _p("atr_buono"):
         punteggio += 2
-    elif atr_pct > 0.001:
+    elif atr_pct > _p("atr_minimo"):
         punteggio += 1
-    elif atr_pct < 0.0005:
+    elif atr_pct < _p("atr_basso"):
         punteggio -= 1
+
 
     return punteggio
 
@@ -313,8 +354,10 @@ def calcola_probabilita_successo(
         punteggio += 10
     elif segnale == "SELL" and rsi <= 48:
         punteggio += 10
-    elif 48 < rsi < 52:
+    low, high = _p("macd_rsi_range")
+    if low < rsi < high:
         punteggio -= 5
+
 
     # 3. MACD coerente con segnale
     macd_gap = macd - macd_signal
@@ -323,20 +366,20 @@ def calcola_probabilita_successo(
             punteggio += 10
         elif macd > 0 and macd_gap > 0:
             punteggio += 5
-        elif abs(macd_gap) < 0.001:
+        elif abs(macd_gap) < _p("macd_signal_threshold"):  
             punteggio -= 5
     elif segnale == "SELL":
         if macd < macd_signal and macd_gap < -0.001:
             punteggio += 10
         elif macd < 0 and macd_gap < 0:
             punteggio += 5
-        elif abs(macd_gap) < 0.001:
+        elif abs(macd_gap) < _p("macd_signal_threshold"):   
             punteggio -= 5
 
     # 4. Volume coerente
-    if volume_attuale > volume_medio * 1.5:
+    if volume_attuale > volume_medio * _p("volume_alto"):
         punteggio += 10
-    elif volume_attuale < volume_medio:
+    elif volume_attuale < volume_medio * _p("volume_basso"):
         punteggio -= 5
 
     # 5. Breakout forte
@@ -344,12 +387,15 @@ def calcola_probabilita_successo(
         punteggio += 10
 
     # 6. Accelerazione coerente
-    if segnale == "BUY" and accelerazione > 0:
+    soglia_acc = _p("accelerazione_minima")
+
+    if segnale == "BUY" and accelerazione > soglia_acc:
         punteggio += 5
-    elif segnale == "SELL" and accelerazione < 0:
+    elif segnale == "SELL" and accelerazione < -soglia_acc:
         punteggio += 5
     else:
         punteggio -= 5
+
 
     # 7. Trend attivo da almeno 3-4 candele
     if 3 <= candele_attive <= 7:
@@ -361,19 +407,20 @@ def calcola_probabilita_successo(
 
     # 8. Distanza EMA significativa
     distanza_pct = distanza_ema / close
-    if distanza_pct > 0.0015:
+    if distanza_pct > _p("distanza_media"):
         punteggio += 5
-    elif distanza_pct < 0.0008:
+    elif distanza_pct < _p("distanza_bassa"):
         punteggio -= 5
 
     # 9. Volatilità accettabile (ATR)
-    if atr / close > 0.0015:
+    atr_pct = atr / close
+    if atr_pct > _p("atr_buono"):
         punteggio += 5
-    elif atr / close < 0.0008:
+    elif atr_pct < _p("atr_basso"):
         punteggio -= 5
 
     # 10. Penalità se ATR assoluto troppo basso/alto
-    if atr < 0.0002 or atr > 0.005:
+    if atr < _p("atr_troppo_basso") or atr > _p("atr_troppo_alto"):
         punteggio -= 10
 
     # ------------------------------------------
@@ -465,6 +512,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     candele_trend_up = conta_candele_trend(hist, rialzista=True)
     candele_trend_down = conta_candele_trend(hist, rialzista=False)
     macd_gap = macd - macd_signal
+    gap_forte = _p("macd_gap_forte")
+    gap_debole = _p("macd_gap_debole")
 
     # ------------------------------------------------------------------
     # Filtri preliminari (ATR, Volume, distanza)
@@ -473,9 +522,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append("⚠️ ATR troppo basso: mercato poco volatile")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-    if volume_attuale < volume_medio * 3 and not MODALITA_TEST:
-        note.append("⚠️ Volume basso: segnale debole")
+    if volume_attuale < _p("volume_soglia") and not MODALITA_TEST:
+        note.append(f"⚠️ Volume troppo basso: {volume_attuale:.0f} < soglia minima {_p('volume_soglia')}")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+
 
     # ------------------------------------------------------------------
     # Punteggio complessivo + descrizione
@@ -517,11 +567,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     # Condizioni MACD / RSI
     # ------------------------------------------------------------------
-    macd_buy_ok = macd > macd_signal and macd_gap > 0.002
-    macd_buy_debole = macd > 0 and macd_gap > 0.001
-    macd_sell_ok = macd < macd_signal and macd_gap < -0.002
-    macd_sell_debole = macd < 0 and macd_gap < -0.001
-
+    macd_buy_ok = macd > macd_signal and macd_gap > gap_forte
+    macd_buy_debole = macd > 0 and macd_gap > gap_debole
+    
+    macd_sell_ok = macd < macd_signal and macd_gap < -gap_forte
+    macd_sell_debole = macd < 0 and macd_gap < -gap_debole
+    
     segnale, tp, sl = "HOLD", 0.0, 0.0
     probabilita = 50
 
@@ -530,7 +581,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     if (trend_up or recupero_buy or breakout_valido) and (distanza_ema / close) > _p("distanza_minima"):
         durata_trend = candele_trend_up
-        if rsi >= 54 and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
+        if rsi >= _p("rsi_buy_forte") and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
             if durata_trend >= 8:
                 note.append(f"⛔ Trend BUY troppo maturo ({durata_trend} candele)")
             elif accelerazione < 0:
@@ -539,7 +590,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 segnale = "BUY"
                 #note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
                 note.append("✅ BUY confermato")
-        elif rsi >= 50 and macd_buy_debole:
+        elif rsi >= _p("rsi_buy_debole") and macd_buy_debole:
             note.append("⚠️ BUY debole: RSI > 50 e MACD > signal, ma segnale incerto")
 
     # ------------------------------------------------------------------
@@ -547,7 +598,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     if (trend_down or recupero_sell) and (distanza_ema / close) > _p("distanza_minima"):
         durata_trend = candele_trend_down
-        if rsi <= 46 and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO:
+        if rsi <= _p("rsi_sell_forte") and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO:
             if durata_trend >= 8:
                 note.append(f"⛔ Trend SELL troppo maturo ({durata_trend} candele)")
             elif accelerazione > 0:
@@ -556,7 +607,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 segnale = "SELL"
                 #note.append(f"🕒 Trend SELL attivo da {durata_trend} candele")
                 note.append("✅ SELL confermato")
-        elif rsi <= 55 and macd_sell_debole:
+        elif rsi <= _p("rsi_sell_debole") and macd_sell_debole:
             note.append("⚠️ SELL debole: RSI < 55 e MACD < signal, ma segnale incerto")
 
     if segnale == "HOLD" and not any([trend_up, trend_down]):
@@ -596,9 +647,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
-    if segnale in ["BUY", "SELL"] and 46 < rsi < 54 and abs(macd_gap) < 0.002:
-        note.append("⚠️ RSI e MACD neutri: segnale evitato")
+    low, high = _p("macd_rsi_range")
+    soglia_macd = _p("macd_signal_threshold")
+
+    if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < soglia_macd:
+        note.append(f"⚠️ RSI ({rsi:.1f}) e MACD neutri (gap={macd_gap:.5f}): segnale evitato")
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
 
     # --------------------------------------------------------------
     # Controllo facoltativo: EMA su 1 m coerenti col trend 15 m
@@ -648,10 +703,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             note.append(f"📊 Prob. successo stimata: {probabilita}%")
     except Exception as e:
         logging.warning(f"⚠️ Errore calcolo probabilità successo: {e}")
-
         
-
-
     # ------------------------------------------------------------------
     # Calcolo TP/SL realistico in base a probabilità, ATR e qualità trend
     # ------------------------------------------------------------------
@@ -659,9 +711,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # Escursione di riferimento (fallback: 0.5% del prezzo)
     escursione = atr if atr else close * 0.005
 
-    # Moltiplicatori dinamici
-    tp_multiplier = 0.5 + (probabilita / 100)         # da 0.5x a 1.5x
-    sl_multiplier = 0.3 + (1 - (probabilita / 100))   # da 0.3x a 1.3x
+    # Moltiplicatori dinamici bilanciati
+    prob_norm = max(0.0, min(probabilita / 100, 1.0))
+    tp_multiplier = 0.9 + 0.6 * prob_norm          # da 0.9x a 1.5x
+    sl_multiplier = 0.7 + 0.3 * (1 - prob_norm)    # da 1.0x a 0.7x
+
+    # ✅ Verifica TP > SL
+    if tp_multiplier * escursione <= sl_multiplier * escursione:
+        delta_minimo = 0.2  # puoi anche centralizzarlo
+        tp_multiplier = sl_multiplier + delta_minimo
 
     # Applica TP/SL solo se segnale valido
     if segnale == "BUY":
