@@ -621,42 +621,52 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
 
     # ------------------------------------------------------------------
-    # Calcolo TP/SL finale realistico ma coerente con l’ATR
+    # Calcolo TP/SL realistico in base a probabilità, ATR e qualità trend
     # ------------------------------------------------------------------
 
-    # Massimo TP in percentuale del prezzo (es: 5%)
-    PERCENTUALE_TP_MAX = 0.05  # 5%
-    massimo_tp = close * PERCENTUALE_TP_MAX
+    # Parametri configurabili
+    TP_MAX_PERC = 0.045  # TP massimo = 4.5% del prezzo
+    TP_MIN_PERC = 0.008  # TP minimo = 0.8%
+    SL_MIN_PERC = 0.004  # SL minimo = 0.4%
 
-    # Calcola moltiplicatori dinamici TP/SL basati sulla probabilità
+    # Limiti statici sul prezzo
+    tp_max_assoluto = close * TP_MAX_PERC
+    tp_min_assoluto = close * TP_MIN_PERC
+    sl_min_assoluto = close * SL_MIN_PERC
+
+    # Fattori dinamici in base alla probabilità
     if probabilita >= 80:
-        fattore_tp = 5.0
-        fattore_sl = 2.0
+        tp_perc = 2.8
+        sl_perc = 0.8
     elif probabilita >= 65:
-        fattore_tp = 4.0
-        fattore_sl = 1.5
+        tp_perc = 2.2
+        sl_perc = 1.0
     elif probabilita >= 50:
-        fattore_tp = 3.0
-        fattore_sl = 1.2
+        tp_perc = 1.6
+        sl_perc = 1.2
     else:
-        fattore_tp = 2.0
-        fattore_sl = 1.0  # SL più largo per segnali incerti
+        tp_perc = 1.2
+        sl_perc = 1.4  # SL più largo per segnali deboli
 
-    # Evita TP esagerati
-    fattore_tp = min(fattore_tp, massimo_tp / atr)
+    # Calcolo preliminare
+    tp_raw = atr * tp_perc
+    sl_raw = atr * sl_perc
 
+    # Applica limiti max/min
+    tp_finale = max(min(tp_raw, tp_max_assoluto), tp_min_assoluto)
+    sl_finale = max(sl_raw, sl_min_assoluto)
 
-    # Calcolo TP/SL in base al segnale
+    # Assegna TP e SL in base al segnale
     if segnale == "BUY":
-        tp = round(close + atr * fattore_tp, 4)
-        sl = round(close - atr * fattore_sl, 4)
+        tp = round(close + tp_finale, 4)
+        sl = round(close - sl_finale, 4)
         if sl >= close or tp <= close:
             logging.warning(f"⚠️ TP/SL incoerenti (BUY): ingresso={close}, TP={tp}, SL={sl}")
             note.append("⚠️ TP/SL BUY potenzialmente incoerenti")
 
     elif segnale == "SELL":
-        tp = round(close - atr * fattore_tp, 4)
-        sl = round(close + atr * fattore_sl, 4)
+        tp = round(close - tp_finale, 4)
+        sl = round(close + sl_finale, 4)
         if sl <= close or tp >= close:
             logging.warning(f"⚠️ TP/SL incoerenti (SELL): ingresso={close}, TP={tp}, SL={sl}")
             note.append("⚠️ TP/SL SELL potenzialmente incoerenti")
