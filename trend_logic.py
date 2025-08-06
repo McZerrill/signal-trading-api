@@ -617,6 +617,38 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if segnale == "HOLD" and rileva_incrocio_progressivo(hist):
         segnale = "BUY"
         note.append("📈 Incrocio progressivo EMA(7>25>99) rilevato: BUY confermato")
+
+    # Calcolo probabilità di successo (con penalità avanzate)
+    try:
+        if segnale in ["BUY", "SELL"]:
+            n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
+            probabilita = calcola_probabilita_successo(
+                ema7=ema7,
+                ema25=ema25,
+                ema99=ema99,
+                rsi=rsi,
+                macd=macd,
+                macd_signal=macd_signal,
+                candele_attive=n_candele,
+                breakout=breakout_valido,
+                volume_attuale=volume_attuale,
+                volume_medio=volume_medio,
+                distanza_ema=distanza_ema,
+                atr=atr,
+                close=close,
+                accelerazione=accelerazione,
+                segnale=segnale,
+                hist=hist,      # ⬅️ Aggiunto per candela contraria, curvatura, ecc.
+                tp=tp,          # ⬅️ Aggiunto per rischio/rendimento
+                sl=sl,           # ⬅️ Aggiunto per rischio/rendimento
+                supporto=supporto,
+                escursione_media=escursione_media
+
+            )
+            note.append(f"📊 Prob. successo stimata: {probabilita}%")
+    except Exception as e:
+        logging.warning(f"⚠️ Errore calcolo probabilità successo: {e}")
+
         
 
 
@@ -624,52 +656,27 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # Calcolo TP/SL realistico in base a probabilità, ATR e qualità trend
     # ------------------------------------------------------------------
 
-    # Parametri configurabili
-    TP_MAX_PERC = 0.045  # TP massimo = 4.5% del prezzo
-    TP_MIN_PERC = 0.008  # TP minimo = 0.8%
-    SL_MIN_PERC = 0.004  # SL minimo = 0.4%
+    # Escursione di riferimento (fallback: 0.5% del prezzo)
+    escursione = atr if atr else close * 0.005
 
-    # Limiti statici sul prezzo
-    tp_max_assoluto = close * TP_MAX_PERC
-    tp_min_assoluto = close * TP_MIN_PERC
-    sl_min_assoluto = close * SL_MIN_PERC
+    # Moltiplicatori dinamici
+    tp_multiplier = 0.5 + (probabilita / 100)         # da 0.5x a 1.5x
+    sl_multiplier = 0.3 + (1 - (probabilita / 100))   # da 0.3x a 1.3x
 
-    # Fattori dinamici in base alla probabilità
-    if probabilita >= 80:
-        tp_perc = 2.8
-        sl_perc = 0.8
-    elif probabilita >= 65:
-        tp_perc = 2.2
-        sl_perc = 1.0
-    elif probabilita >= 50:
-        tp_perc = 1.6
-        sl_perc = 1.2
-    else:
-        tp_perc = 1.2
-        sl_perc = 1.4  # SL più largo per segnali deboli
-
-    # Calcolo preliminare
-    tp_raw = atr * tp_perc
-    sl_raw = atr * sl_perc
-
-    # Applica limiti max/min
-    tp_finale = max(min(tp_raw, tp_max_assoluto), tp_min_assoluto)
-    sl_finale = max(sl_raw, sl_min_assoluto)
-
-    # Assegna TP e SL in base al segnale
+    # Applica TP/SL solo se segnale valido
     if segnale == "BUY":
-        tp = round(close + tp_finale, 4)
-        sl = round(close - sl_finale, 4)
+        tp = round(close + escursione * tp_multiplier, 4)
+        sl = round(close - escursione * sl_multiplier, 4)
         if sl >= close or tp <= close:
-            logging.warning(f"⚠️ TP/SL incoerenti (BUY): ingresso={close}, TP={tp}, SL={sl}")
             note.append("⚠️ TP/SL BUY potenzialmente incoerenti")
+            logging.warning(f"⚠️ TP/SL incoerenti (BUY): ingresso={close}, TP={tp}, SL={sl}")
 
     elif segnale == "SELL":
-        tp = round(close - tp_finale, 4)
-        sl = round(close + sl_finale, 4)
+        tp = round(close - escursione * tp_multiplier, 4)
+        sl = round(close + escursione * sl_multiplier, 4)
         if sl <= close or tp >= close:
-            logging.warning(f"⚠️ TP/SL incoerenti (SELL): ingresso={close}, TP={tp}, SL={sl}")
             note.append("⚠️ TP/SL SELL potenzialmente incoerenti")
+            logging.warning(f"⚠️ TP/SL incoerenti (SELL): ingresso={close}, TP={tp}, SL={sl}")
 
     # ------------------------------------------------------------------
     # Calcolo tempo stimato per raggiungere TP (forchetta realistica)
@@ -703,37 +710,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         logging.warning(f"⚠️ Errore calcolo tempo stimato: {e}")
 
 
-    # Calcolo probabilità di successo (con penalità avanzate)
-    try:
-        if segnale in ["BUY", "SELL"]:
-            n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
-            probabilita = calcola_probabilita_successo(
-                ema7=ema7,
-                ema25=ema25,
-                ema99=ema99,
-                rsi=rsi,
-                macd=macd,
-                macd_signal=macd_signal,
-                candele_attive=n_candele,
-                breakout=breakout_valido,
-                volume_attuale=volume_attuale,
-                volume_medio=volume_medio,
-                distanza_ema=distanza_ema,
-                atr=atr,
-                close=close,
-                accelerazione=accelerazione,
-                segnale=segnale,
-                hist=hist,      # ⬅️ Aggiunto per candela contraria, curvatura, ecc.
-                tp=tp,          # ⬅️ Aggiunto per rischio/rendimento
-                sl=sl,           # ⬅️ Aggiunto per rischio/rendimento
-                supporto=supporto,
-                escursione_media=escursione_media
-
-            )
-            note.append(f"📊 Prob. successo stimata: {probabilita}%")
-    except Exception as e:
-        logging.warning(f"⚠️ Errore calcolo probabilità successo: {e}")
-
+    
     logging.debug("✅ Analisi completata")
 
 
