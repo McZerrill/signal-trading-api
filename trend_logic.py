@@ -608,7 +608,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 #note.append(f"🕒 Trend SELL attivo da {durata_trend} candele")
                 note.append("✅ SELL confermato")
         elif rsi <= _p("rsi_sell_debole") and macd_sell_debole:
-            note.append("⚠️ SELL debole: RSI < 55 e MACD < signal, ma segnale incerto")
+            note.append("🤔 SELL debole: RSI < 55 e MACD < signal, ma segnale incerto")
 
     if segnale == "HOLD" and not any([trend_up, trend_down]):
         note.append("🔎 Nessun segnale valido rilevato: condizioni insufficienti")
