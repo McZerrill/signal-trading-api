@@ -76,13 +76,22 @@ def analyze(symbol: str):
         book = get_bid_ask(symbol)
         spread = book["spread"]
         logging.debug(f"[SPREAD] {symbol} – Spread attuale: {spread:.4f}%")
-
         if spread > 5.0:
+            try:
+                df_15m = get_binance_df(symbol, "15m", 50)
+                if df_15m.empty:
+                    raise ValueError("DataFrame vuoto")
+                ultimo = df_15m.iloc[-1]
+                close = round(ultimo["close"], 6)
+            except Exception as e:
+                logging.warning(f"⚠️ Errore nel recupero del prezzo per {symbol} con spread alto: {e}")
+                close = 0.0  # fallback
+
             return SignalResponse(
                 symbol=symbol,
                 segnale="HOLD",
                 commento=f"Simulazione ignorata per {symbol} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
-                prezzo=0.0,
+                prezzo=close,  # ✅ Adesso ha un prezzo reale
                 take_profit=0.0,
                 stop_loss=0.0,
                 rsi=0.0,
