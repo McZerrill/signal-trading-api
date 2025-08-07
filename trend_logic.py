@@ -35,10 +35,10 @@ _PARAMS_TEST = {
     "macd_signal_threshold": 0.0002,
     "macd_gap_forte": 0.002,
     "macd_gap_debole": 0.001,
-    "rsi_buy_forte": 54,
-    "rsi_buy_debole": 50,
-    "rsi_sell_forte": 46,
-    "rsi_sell_debole": 55,
+    "rsi_buy_forte": 55,
+    "rsi_buy_debole": 52,
+    "rsi_sell_forte": 48,
+    "rsi_sell_debole": 45,
     "accelerazione_minima": 0.00005,
 
 }
