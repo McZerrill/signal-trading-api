@@ -651,8 +651,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     soglia_macd = _p("macd_signal_threshold")
 
     if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < soglia_macd:
-        note.append(f"⚠️ RSI ({rsi:.1f}) e MACD neutri (gap={macd_gap:.5f}): segnale evitato")
-        return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+        note.append(f"⚠️ RSI ({rsi:.1f}) e MACD neutri (gap={macd_gap:.5f}): probabilità ridotta")
+        probabilita = max(probabilita - 10, 5)
+
+    #if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < soglia_macd:
+        #note.append(f"⚠️ RSI ({rsi:.1f}) e MACD neutri (gap={macd_gap:.5f}): segnale evitato")
+        #return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
 
     # --------------------------------------------------------------
