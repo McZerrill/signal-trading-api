@@ -634,11 +634,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             note.append(f"✅ Pattern candlestick rilevato: {pattern}")
     else:
         if trend_up and candele_trend_up <= 2:
-            note.append("Trend attivo")
+            note.append("🔼 Trend attivo")
         elif trend_down and candele_trend_down <= 2:
-            note.append("Trend ribassista")
+            note.append("🔽 Trend ribassista")
         elif candele_trend_up <= 1 and not trend_up:
-            note.append("Trend concluso: attenzione a inversioni")
+            note.append("🔚 Trend concluso: attenzione a inversioni")
 
     # ------------------------------------------------------------------
     # Invalidation per pattern contrario o neutralità MACD/RSI
