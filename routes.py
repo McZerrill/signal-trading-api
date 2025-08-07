@@ -211,11 +211,21 @@ def analyze(symbol: str):
 
     except Exception as e:
         logging.error(f"❌ Errore durante /analyze per {symbol}: {e}")
+        try:
+            df_15m = get_binance_df(symbol, "15m", 50)
+            close = round(df_15m.iloc[-1]["close"], 6)
+        except Exception as e2:
+            logging.warning(f"⚠️ Fallito anche il recupero prezzo fallback: {e2}")
+            close = 0.0
         return SignalResponse(
             symbol=symbol,
             segnale="HOLD",
-            commento=f"Errore durante l'analisi: {e}",
-            prezzo=0.0,
+            commento = (
+                f"Errore durante l'analisi di {symbol}.\n"
+                f"Tentativo di recupero prezzo: {'Riuscito' if close > 0 else 'Fallito'}\n"
+                f"Errore originale: {e}"
+            ),
+            prezzo=close,
             take_profit=0.0,
             stop_loss=0.0,
             rsi=0.0,
