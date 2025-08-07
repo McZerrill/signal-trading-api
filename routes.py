@@ -87,11 +87,33 @@ def analyze(symbol: str):
                 logging.warning(f"⚠️ Errore nel recupero del prezzo per {symbol} con spread alto: {e}")
                 close = 0.0  # fallback
 
+            if close == 0.0:
+                logging.warning(f"⛔ Nessun prezzo disponibile per {symbol} (spread alto), risposta ignorata")
+                return SignalResponse(
+                    symbol=symbol,
+                    segnale="HOLD",
+                    commento=f"⚠️ Nessun prezzo disponibile per {symbol}.",
+                    prezzo=0.0,
+                    take_profit=0.0,
+                    stop_loss=0.0,
+                    rsi=0.0,
+                    macd=0.0,
+                    macd_signal=0.0,
+                    atr=0.0,
+                    ema7=0.0,
+                    ema25=0.0,
+                    ema99=0.0,
+                    timeframe="",
+                    spread=spread,
+                    motivo="Prezzo non disponibile",
+                    chiusa_da_backend=False
+                )
+
             return SignalResponse(
                 symbol=symbol,
                 segnale="HOLD",
                 commento=f"Simulazione ignorata per {symbol} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
-                prezzo=close,  # ✅ Adesso ha un prezzo reale
+                prezzo=close,
                 take_profit=0.0,
                 stop_loss=0.0,
                 rsi=0.0,
