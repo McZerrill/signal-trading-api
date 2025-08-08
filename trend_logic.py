@@ -610,7 +610,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if (trend_up or recupero_buy or breakout_valido) and distanza_ok:
         durata_trend = candele_trend_up
         if rsi >= _p("rsi_buy_forte") and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
-            if durata_trend >= 10:
+            if durata_trend >= 15:
                 note.append(f"⛔ Trend rialzista troppo maturo ({durata_trend} candele)")
             #elif accelerazione < -_p("accelerazione_minima"):
                 #note.append(f"⚠️ BUY evitato: accelerazione negativa ({accelerazione:.6f})")
@@ -632,7 +632,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if (trend_down or recupero_sell) and distanza_ok:
         durata_trend = candele_trend_down
         if rsi <= _p("rsi_sell_forte") and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO:
-            if durata_trend >= 10:
+            if durata_trend >= 15:
                 note.append(f"⛔ Trend ribassista troppo maturo ({durata_trend} candele)")
             #elif accelerazione > _p("accelerazione_minima"):
                 #note.append(f"⚠️ SELL evitato: accelerazione in risalita ({accelerazione:.6f})")
