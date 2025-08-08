@@ -591,7 +591,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 #note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
                 note.append("✅ BUY confermato")
         elif rsi >= _p("rsi_buy_debole") and macd_buy_debole:
-            note.append("⚠️ BUY debole: RSI > 50 e MACD > signal, ma segnale incerto")
+            note.append("🤔 BUY debole: RSI > 50 e MACD > signal, ma segnale incerto")
 
     # ------------------------------------------------------------------
     # SELL logic
@@ -612,6 +612,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     if segnale == "HOLD" and not any([trend_up, trend_down]):
         note.append("🔎 Nessun segnale valido rilevato: condizioni insufficienti")
+
+    if segnale == "HOLD":
+        note.append(
+            f"🧪 DEBUG – rsi={rsi:.1f} macd_gap={macd_gap:.5f} "
+            f"gap_rel={abs(macd_gap)/close:.6f} punteggio={punteggio_trend} "
+            f"distEMA%={(distanza_ema/close)*100:.3f} candele_up={candele_trend_up} candele_down={candele_trend_down}"
+        )
+
 
     # ------------------------------------------------------------------
     # Pattern V rapido
