@@ -27,17 +27,17 @@ _PARAMS_TEST = {
     "atr_basso": 0.0008,
     "atr_troppo_basso": 0.0002,
     "atr_troppo_alto": 0.005,
-    "distanza_minima": 0.0007,
+    "distanza_minima": 0.0005,
     "distanza_bassa": 0.0005,
     "distanza_media": 0.001,
     "distanza_alta": 0.002,
     "macd_rsi_range": (43, 57),
     "macd_signal_threshold": 0.0002,
-    "macd_gap_forte": 0.002,
+    "macd_gap_forte": 0.0015,
     "macd_gap_debole": 0.001,
-    "rsi_buy_forte": 55,
+    "rsi_buy_forte": 53,
     "rsi_buy_debole": 52,
-    "rsi_sell_forte": 48,
+    "rsi_sell_forte": 49,
     "rsi_sell_debole": 45,
     "accelerazione_minima": 0.00005,
 
@@ -582,7 +582,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if (trend_up or recupero_buy or breakout_valido) and (distanza_ema / close) > _p("distanza_minima"):
         durata_trend = candele_trend_up
         if rsi >= _p("rsi_buy_forte") and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
-            if durata_trend >= 8:
+            if durata_trend >= 10:
                 note.append(f"⛔ Trend rialzista troppo maturo ({durata_trend} candele)")
             #elif accelerazione < -_p("accelerazione_minima"):
                 #note.append(f"⚠️ BUY evitato: accelerazione negativa ({accelerazione:.6f})")
@@ -599,7 +599,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if (trend_down or recupero_sell) and (distanza_ema / close) > _p("distanza_minima"):
         durata_trend = candele_trend_down
         if rsi <= _p("rsi_sell_forte") and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO:
-            if durata_trend >= 8:
+            if durata_trend >= 10:
                 note.append(f"⛔ Trend ribassista troppo maturo ({durata_trend} candele)")
             #elif accelerazione > _p("accelerazione_minima"):
                 #note.append(f"⚠️ SELL evitato: accelerazione in risalita ({accelerazione:.6f})")
