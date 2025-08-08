@@ -142,9 +142,9 @@ def pattern_contrario(segnale: str, pattern: str) -> bool:
 
 def valuta_distanza(distanza: float, close: float) -> str:
     distanza_pct = distanza / close
-    if distanza_pct < _p("distanza_bassa") * 1000:
+    if distanza_pct < _p("distanza_bassa"):
         return "bassa"
-    elif distanza_pct < _p("distanza_media") * 1000:
+    elif distanza_pct < _p("distanza_media"):
         return "media"
     return "alta"
 
@@ -503,6 +503,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     volume_medio = hist["volume"].iloc[-21:-1].mean()
     escursione_media = (hist["high"] - hist["low"]).iloc[-10:].mean()
     distanza_ema = abs(ema7 - ema25)
+    distanza_ok = (distanza_ema / close) > _p("distanza_minima")
     curvatura_ema25 = ema25 - penultimo["EMA_25"]
     curvatura_precedente = penultimo["EMA_25"] - antepenultimo["EMA_25"]
     accelerazione = curvatura_ema25 - curvatura_precedente
@@ -544,7 +545,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         close,
     )
     note.append(f"📊 Punteggio trend complessivo: {punteggio_trend}")
-    note.append(trend_score_description(punteggio_trend))
+    desc = trend_score_description(punteggio_trend)
+    if desc:
+        note.append(desc)
 
     # ------------------------------------------------------------------
     # Breakout
@@ -576,10 +579,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     segnale, tp, sl = "HOLD", 0.0, 0.0
     probabilita = 50
 
+    # Se il trend c'è ma la distanza è insufficiente, spiega perché resti HOLD
+    if not distanza_ok and (trend_up or recupero_buy or trend_down or recupero_sell):
+        note.append(f"📏 Distanza EMA troppo bassa ({(distanza_ema/close):.4f} < {_p('distanza_minima'):.4f})")
+        
     # ------------------------------------------------------------------
     # BUY logic
     # ------------------------------------------------------------------
-    if (trend_up or recupero_buy or breakout_valido) and (distanza_ema / close) > _p("distanza_minima"):
+    if (trend_up or recupero_buy or breakout_valido) and distanza_ok:
         durata_trend = candele_trend_up
         if rsi >= _p("rsi_buy_forte") and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
             if durata_trend >= 10:
@@ -591,12 +598,17 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 #note.append(f"🕒 Trend BUY attivo da {durata_trend} candele")
                 note.append("✅ BUY confermato")
         elif rsi >= _p("rsi_buy_debole") and macd_buy_debole:
-            note.append("🤔 Segnale rialzista debole: RSI > 50 e MACD > signal, ma segnale incerto")
+            if punteggio_trend >= SOGLIA_PUNTEGGIO + 2 and candele_trend_up <= 10:
+                segnale = "BUY"
+                note.append("✅ BUY confermato (setup debole + punteggio alto)")
+            else:
+                note.append("🤔 Segnale rialzista debole: RSI > 50 e MACD > signal, ma segnale incerto")
+
 
     # ------------------------------------------------------------------
     # SELL logic
     # ------------------------------------------------------------------
-    if (trend_down or recupero_sell) and (distanza_ema / close) > _p("distanza_minima"):
+    if (trend_down or recupero_sell) and distanza_ok:
         durata_trend = candele_trend_down
         if rsi <= _p("rsi_sell_forte") and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO:
             if durata_trend >= 10:
@@ -608,7 +620,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 #note.append(f"🕒 Trend SELL attivo da {durata_trend} candele")
                 note.append("✅ SELL confermato")
         elif rsi <= _p("rsi_sell_debole") and macd_sell_debole:
-            note.append("🤔 Segnale ribassista debole: RSI < 55 e MACD < signal, ma segnale incerto")
+            if punteggio_trend <= -SOGLIA_PUNTEGGIO - 2 and candele_trend_down <= 10:
+                segnale = "SELL"
+                note.append("✅ SELL confermato (setup debole + punteggio alto)")
+            else:
+                note.append("🤔 Segnale ribassista debole: RSI < soglia e MACD < signal, ma segnale incerto")
+
 
     if segnale == "HOLD" and not any([trend_up, trend_down]):
         note.append("🔎 Nessun segnale valido rilevato: condizioni insufficienti")
@@ -784,8 +801,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     logging.debug("✅ Analisi completata")
 
 
-
     if segnale not in ["BUY", "SELL"]:
+        if not note:
+            note.append("ℹ️ Nessun criterio abbastanza forte per un segnale operativo")
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
     # Ordina note: conferme → punteggi → warning → altro
