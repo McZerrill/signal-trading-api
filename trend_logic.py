@@ -65,7 +65,7 @@ _PARAMS_PROD = {
     "rsi_buy_forte": 54,
     "rsi_buy_debole": 50,
     "rsi_sell_forte": 46,
-    "rsi_sell_debole": 55,
+    "rsi_sell_debole": 50,
     "accelerazione_minima": 0.00001,
 
 }
@@ -75,6 +75,21 @@ def _p(key):
     """Restituisce il parametro attivo (test o produzione)."""
     params = _PARAMS_TEST if MODALITA_TEST else _PARAMS_PROD
     return params[key]
+
+# --- Bridge punteggio_trend -> probabilità fusa (0..1) ---
+TREND_MIN, TREND_MAX = -6, 8   # adatta ai tuoi range osservati
+W_TREND, W_CONTEXT = 0.6, 0.4  # quanto pesa il trend vs la stima contestuale
+
+def _clamp(x, a=0.0, b=1.0):
+    return a if x < a else (b if x > b else x)
+
+def _norm_trend(score: float) -> float:
+    return _clamp((score - TREND_MIN) / (TREND_MAX - TREND_MIN))
+
+def _fuse_prob(punteggio_trend: float, probabilita_percent: float) -> float:
+    p_trend = _norm_trend(punteggio_trend)
+    p_ctx   = _clamp(probabilita_percent / 100.0, 0, 1)
+    return _clamp(W_TREND * p_trend + W_CONTEXT * p_ctx)
 
 
 # -----------------------------------------------------------------------------
@@ -189,20 +204,21 @@ def ema_in_movimento_coerente(hist_1m: pd.DataFrame, rialzista: bool = True, n_c
 def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     c = df.iloc[-1]
     o, h, l, close = c["open"], c["high"], c["low"], c["close"]
-    corpo = abs(close - o)
-    ombra_sup = h - max(o, close)
-    ombra_inf = min(o, close) - l
+    body = close - o
+    body_abs = abs(body)
+    upper = h - max(o, close)
+    lower = min(o, close) - l
 
-    if corpo == 0:
+    if body_abs == 0:
         return ""
 
-    if corpo > 0 and ombra_inf >= 2 * corpo and ombra_sup <= corpo * 0.3:
+    if body > 0 and lower >= 2 * body_abs and upper <= body_abs * 0.3:
         return "🪓 Hammer"
-    if corpo < 0 and ombra_sup >= 2 * abs(corpo) and ombra_inf <= abs(corpo) * 0.3:
+    if body < 0 and upper >= 2 * body_abs and lower <= body_abs * 0.3:
         return "🌠 Shooting Star"
-    if corpo > 0 and c["close"] > df["open"].iloc[-2] and c["open"] < df["close"].iloc[-2]:
+    if body > 0 and close > df["open"].iloc[-2] and o < df["close"].iloc[-2]:
         return "🔄 Bullish Engulfing"
-    if corpo < 0 and c["close"] < df["open"].iloc[-2] and c["open"] > df["close"].iloc[-2]:
+    if body < 0 and close < df["open"].iloc[-2] and o > df["close"].iloc[-2]:
         return "🔃 Bearish Engulfing"
     return ""
 
@@ -293,10 +309,10 @@ def calcola_punteggio_trend(
         punteggio += 2
     elif volume_attuale > volume_medio * _p("volume_medio"):
         punteggio += 1
-    elif volume_attuale < volume_medio * _p("volume_basso"):
-        punteggio -= 1
     elif volume_attuale < volume_medio * _p("volume_molto_basso"):
         punteggio -= 2
+    elif volume_attuale < volume_medio * _p("volume_basso"):
+        punteggio -= 1
 
 
     # 5. Distanza EMA
@@ -565,6 +581,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             breakout_valido = True
     elif close < minimo_20 and volume_attuale > volume_medio * 1.5:
         note.append("💥 Breakout ribassista con volume alto")
+        if corpo_candela > atr:
+            note.append("🚨 Spike ribassista con breakout solido")
+            breakout_valido = True
+
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout sospetto: volume insufficiente")
 
@@ -738,33 +758,127 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # Calcolo TP/SL realistico in base a probabilità, ATR e qualità trend
     # ------------------------------------------------------------------
 
-    # Escursione di riferimento (fallback: 0.5% del prezzo)
-    escursione = atr if atr else close * 0.005
+    if segnale in ["BUY", "SELL"]:
+        # ------------------- Fusione probabilità con punteggio_trend + penalità maturità -------------------
+        durata = candele_trend_up if segnale == "BUY" else candele_trend_down
+        pen_maturita = max(0, durata - 8) * 0.5        # -0.5 al trend per ogni candela oltre 8
+        punteggio_trend_adj = punteggio_trend - pen_maturita
 
-    # Moltiplicatori dinamici bilanciati
-    prob_norm = max(0.0, min(probabilita / 100, 1.0))
-    tp_multiplier = 0.9 + 0.6 * prob_norm          # da 0.9x a 1.5x
-    sl_multiplier = 0.7 + 0.3 * (1 - prob_norm)    # da 1.0x a 0.7x
+        prob_fusa = _fuse_prob(punteggio_trend_adj, probabilita)  # 0..1
+        note.append(f"🧪 Probabilità fusa (trend+contesto): {round(prob_fusa*100)}%")
 
-    # ✅ Verifica TP > SL
-    if tp_multiplier * escursione <= sl_multiplier * escursione:
-        delta_minimo = 0.2  # puoi anche centralizzarlo
-        tp_multiplier = sl_multiplier + delta_minimo
+        # ------------------- Gate unico di entrata coerente con prob_fusa -------------------
+        P_ENTER = 0.55  # 55% equivalente (regolabile)
+        if prob_fusa < P_ENTER:
+            note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
+            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
-    # Applica TP/SL solo se segnale valido
-    if segnale == "BUY":
-        tp = round(close + escursione * tp_multiplier, 4)
-        sl = round(close - escursione * sl_multiplier, 4)
-        if sl >= close or tp <= close:
-            note.append("⚠️ TP/SL BUY potenzialmente incoerenti")
-            logging.warning(f"⚠️ TP/SL incoerenti (BUY): ingresso={close}, TP={tp}, SL={sl}")
+        # ------------------- TP/SL proporzionali alla probabilità fusa -------------------
+        ATR_MIN_FRAC = 0.003
+        TP_BASE, TP_SPAN = 1.1, 1.2     # TP = 1.1x..2.3x ATR (crescente con prob_fusa)
+        SL_BASE, SL_SPAN = 1.0, 0.4     # SL = 1.0x..0.6x ATR (decrescente con prob_fusa)
+        RR_MIN = 1.5
+        DELTA_MINIMO = 0.1
+        TICK = 0.0001  # TODO: sostituisci con il tick_size reale del symbol
 
-    elif segnale == "SELL":
-        tp = round(close - escursione * tp_multiplier, 4)
-        sl = round(close + escursione * sl_multiplier, 4)
-        if sl <= close or tp >= close:
-            note.append("⚠️ TP/SL SELL potenzialmente incoerenti")
-            logging.warning(f"⚠️ TP/SL incoerenti (SELL): ingresso={close}, TP={tp}, SL={sl}")
+        atr_eff = atr if atr and atr > 0 else close * ATR_MIN_FRAC
+
+        tp_mult = TP_BASE + TP_SPAN * prob_fusa
+        sl_mult = SL_BASE - SL_SPAN * prob_fusa
+        if tp_mult <= sl_mult:
+            tp_mult = sl_mult + DELTA_MINIMO
+
+        if segnale == "BUY":
+            tp_raw = close + atr_eff * tp_mult
+            sl_raw = close - atr_eff * sl_mult
+        else:  # SELL
+            tp_raw = close - atr_eff * tp_mult
+            sl_raw = close + atr_eff * sl_mult
+
+        # Correzione spread realistica (ask/bid)
+        half_spread = (spread or 0.0) / 2.0
+        if segnale == "BUY":
+            tp_raw += half_spread
+            sl_raw -= half_spread
+        else:
+            tp_raw -= half_spread
+            sl_raw += half_spread
+
+        # Enforce RR minimo (prima allargo TP)
+        risk = abs(close - sl_raw)
+        reward = abs(tp_raw - close)
+        if risk == 0 or reward / risk < RR_MIN:
+            needed_tp = close + (RR_MIN * risk) if segnale == "BUY" else close - (RR_MIN * risk)
+            tp_raw = needed_tp
+            reward = abs(tp_raw - close)
+
+        # ------------------- Adattamento TP/SL alla finestra temporale stimata -------------------
+        #Tempo target (timeframe 15m => 0.25h per candela)
+        T_TARGET_MIN_H = 0.7          # evita target troppo vicino
+        T_TARGET_MAX_H = 6.0          # oltre è poco efficiente
+        T_HARD_CAP_H   = 12.0         # veto se troppo lungo
+        MAX_TP_SPAN_ATR = 3.0         # non allargare TP oltre 3x ATR
+
+        # Stima tempo con l'attuale TP
+        distanza_tp = abs(tp_raw - close)
+        range_medio = (hist["high"] - hist["low"]).iloc[-10:].mean()
+        if range_medio == 0:
+            range_medio = atr_eff if atr_eff > 0 else close * 0.003
+
+        # efficienza dinamica in base a prob_fusa (0..1) → 0.2..0.7
+        eff_min = 0.2 + 0.3 * prob_fusa
+        eff_max = eff_min + 0.2
+        ore_min = round((distanza_tp / (range_medio * eff_max)) * 0.25, 2)
+        ore_max = round((distanza_tp / (range_medio * eff_min)) * 0.25, 2)
+
+        # Se troppo lento, prova a stringere TP mantenendo RR minimo
+        if ore_max > T_TARGET_MAX_H:
+            scala = T_TARGET_MAX_H / ore_max
+            nuova_dist = distanza_tp * max(0.4, min(1.0, scala))  # non oltre -60% in un colpo
+            tp_candidato = (close + nuova_dist) if segnale == "BUY" else (close - nuova_dist)
+            reward_cand = abs(tp_candidato - close)
+            if risk > 0 and reward_cand / risk >= RR_MIN:
+                tp_raw = tp_candidato
+                distanza_tp = reward_cand
+                ore_min = round((distanza_tp / (range_medio * eff_max)) * 0.25, 2)
+                ore_max = round((distanza_tp / (range_medio * eff_min)) * 0.25, 2)
+            else:
+                note.append("⚠️ TP non ridotto: RR sarebbe < minimo")
+
+        # Se ancora troppo lento, veto hard
+        if ore_max > T_HARD_CAP_H:
+            note.append(f"⛔ Tempo stimato troppo lungo: {ore_min}–{ore_max}h (cap {T_HARD_CAP_H}h)")
+            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
+        # Se troppo veloce, allarga TP (entro un limite) preservando RR
+        if ore_min < T_TARGET_MIN_H:
+            dist_attuale_atr = distanza_tp / (atr_eff if atr_eff > 0 else 1)
+            if dist_attuale_atr < MAX_TP_SPAN_ATR:
+                scala_up = T_TARGET_MIN_H / max(ore_min, 0.05)
+                nuova_dist = min(distanza_tp * scala_up, MAX_TP_SPAN_ATR * atr_eff)
+                tp_candidato = (close + nuova_dist) if segnale == "BUY" else (close - nuova_dist)
+                reward_cand = abs(tp_candidato - close)
+                if risk > 0 and reward_cand / risk >= RR_MIN:
+                    tp_raw = tp_candidato
+                    distanza_tp = reward_cand
+                    ore_min = round((distanza_tp / (range_medio * eff_max)) * 0.25, 2)
+                    ore_max = round((distanza_tp / (range_medio * eff_min)) * 0.25, 2)
+
+        # Nota tempi finali
+        note.append(f"⏱️ Tempo stimato TP: ~{ore_min}–{ore_max}h")
+
+        # ------------------- Rounding a tick e safety finale -------------------
+        def _round_tick(x, tick=TICK):
+            return round(round(x / tick) * tick, 10)
+
+        tp = _round_tick(tp_raw)
+        sl = _round_tick(sl_raw)
+
+        if segnale == "BUY" and not (sl < close < tp):
+            note.append("⚠️ TP/SL BUY incoerenti, ricalcolo consigliato")
+        if segnale == "SELL" and not (tp < close < sl):
+            note.append("⚠️ TP/SL SELL incoerenti, ricalcolo consigliato")
+
 
     # ------------------------------------------------------------------
     # Calcolo tempo stimato per raggiungere TP (forchetta realistica)
@@ -792,8 +906,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
             if ore_min == ore_max:
                 note.append(f"🎯 Target stimato in ~{ore_min}h")
-            else:
-                note.append(f"🎯 Target stimato tra ~{ore_min}h e {ore_max}h")
+            #else:
+                #note.append(f"🎯 Target stimato tra ~{ore_min}h e {ore_max}h")
     except Exception as e:
         logging.warning(f"⚠️ Errore calcolo tempo stimato: {e}")
 
@@ -810,7 +924,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # Ordina note: conferme → punteggi → warning → altro
     priorita = lambda x: (
         0 if "✅" in x else
-        1 if "📊" in x or "🎯" in x else
+        1 if "📊" in x or "⏱️" in x else
         2 if "⚠️" in x or "⛔" in x else
         3
     )
