@@ -613,7 +613,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if segnale == "HOLD" and not any([trend_up, trend_down]):
         note.append("🔎 Nessun segnale valido rilevato: condizioni insufficienti")
 
-    if segnale == "HOLD":
+    if segnale == "HOLD" and False:
         note.append(
             f"🧪 DEBUG – rsi={rsi:.1f} macd_gap={macd_gap:.5f} "
             f"gap_rel={abs(macd_gap)/close:.6f} punteggio={punteggio_trend} "
