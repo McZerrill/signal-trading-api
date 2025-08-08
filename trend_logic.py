@@ -141,6 +141,7 @@ def pattern_contrario(segnale: str, pattern: str) -> bool:
 # -----------------------------------------------------------------------------
 
 def valuta_distanza(distanza: float, close: float) -> str:
+    
     distanza_pct = distanza / close
     if distanza_pct < _p("distanza_bassa"):
         return "bassa"
@@ -653,7 +654,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     pattern = riconosci_pattern_candela(hist)
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
-        dist_level = valuta_distanza(distanza_ema)
+        dist_level = valuta_distanza(distanza_ema, close)
         note.insert(0, f"📊 Trend attivo da {n_candele} candele | Distanza: {dist_level}")
         if pattern:
             note.append(f"✅ Pattern candlestick rilevato: {pattern}")
