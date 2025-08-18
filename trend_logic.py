@@ -768,7 +768,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append(f"🧪 Probabilità fusa (trend+contesto): {round(prob_fusa*100)}%")
 
         # ------------------- Gate unico di entrata coerente con prob_fusa -------------------
-        P_ENTER = 0.55  # 55% equivalente (regolabile)
+        P_ENTER = 0.52  # 52% equivalente (regolabile)
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
