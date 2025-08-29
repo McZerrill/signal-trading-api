@@ -17,31 +17,38 @@ DISATTIVA_CHECK_EMA_1M = True
 
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
-    "volume_soglia": 150,
-    "volume_alto": 2.0,
-    "volume_medio": 1.2,
-    "volume_basso": 0.8,
-    "volume_molto_basso": 0.5,
-    "atr_minimo": 0.0006,
-    "atr_buono": 0.0015,
-    "atr_basso": 0.0008,
-    "atr_troppo_basso": 0.0002,
-    "atr_troppo_alto": 0.005,
-    "distanza_minima": 0.0006,
-    "distanza_bassa": 0.0005,
-    "distanza_media": 0.001,
-    "distanza_alta": 0.002,
-    "macd_rsi_range": (44, 56),
-    "macd_signal_threshold": 0.0002,
-    "macd_gap_forte": 0.0010,
-    "macd_gap_debole": 0.001,
-    "rsi_buy_forte": 55,
-    "rsi_buy_debole": 52,
-    "rsi_sell_forte": 49,
-    "rsi_sell_debole": 45,
-    "accelerazione_minima": 0.00005,
+    "volume_soglia": 50,
+    "volume_alto": 1.5,
+    "volume_medio": 1.0,
+    "volume_basso": 0.7,
+    "volume_molto_basso": 0.4,
 
+    "atr_minimo": 0.0003,
+    "atr_buono": 0.001,
+    "atr_basso": 0.0005,
+    "atr_troppo_basso": 0.0001,
+    "atr_troppo_alto": 0.01,
+
+    "distanza_minima": 0.0004,
+    "distanza_bassa": 0.0003,
+    "distanza_media": 0.0008,
+    "distanza_alta": 0.0015,
+
+    "macd_rsi_range": (45, 55),
+    "macd_signal_threshold": 0.0001, #assoluta
+    "macd_gap_forte": 0.0005,
+    "macd_gap_debole": 0.0002,
+    "macd_gap_rel_forte": 8e-4,   # 0.08% del prezzo
+    "macd_gap_rel_debole": 3e-4,
+
+    "rsi_buy_forte": 52,
+    "rsi_buy_debole": 50,
+    "rsi_sell_forte": 48,
+    "rsi_sell_debole": 46,
+
+    "accelerazione_minima": 0.00002,
 }
+
 
 _PARAMS_PROD = {
     "volume_soglia": 300,
@@ -62,6 +69,8 @@ _PARAMS_PROD = {
     "macd_signal_threshold": 0.0006,
     "macd_gap_forte": 0.002,
     "macd_gap_debole": 0.001,
+    "macd_gap_rel_forte": 8e-4,   # 0.08% del prezzo
+    "macd_gap_rel_debole": 3e-4,
     "rsi_buy_forte": 54,
     "rsi_buy_debole": 50,
     "rsi_sell_forte": 46,
@@ -529,9 +538,21 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     recupero_sell = ema7 < ema25 > ema99 and close < ema25 and ema25 < penultimo["EMA_25"]
     candele_trend_up = conta_candele_trend(hist, rialzista=True)
     candele_trend_down = conta_candele_trend(hist, rialzista=False)
+    
+    # MACD: gap normalizzato sul prezzo → robusto a simboli diversi
     macd_gap = macd - macd_signal
-    gap_forte = _p("macd_gap_forte")
-    gap_debole = _p("macd_gap_debole")
+    gap_rel = abs(macd_gap) / max(close, 1e-9)
+
+    gap_rel_forte  = _p("macd_gap_rel_forte")
+    gap_rel_debole = _p("macd_gap_rel_debole")
+
+    macd_buy_ok      = (macd > macd_signal) and (gap_rel > gap_rel_forte)
+    macd_buy_debole  = (macd > 0)            and (gap_rel > gap_rel_debole)
+
+    macd_sell_ok     = (macd < macd_signal)  and (gap_rel > gap_rel_forte)
+    macd_sell_debole = (macd < 0)            and (gap_rel > gap_rel_debole)
+
+
 
     # ------------------------------------------------------------------
     # Filtri preliminari (ATR, Volume, distanza)
@@ -589,13 +610,41 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append("⚠️ Breakout sospetto: volume insufficiente")
 
     # ------------------------------------------------------------------
+    # Rilevamento Pump Verticale
+    # ------------------------------------------------------------------
+    pump_flag = False
+    try:
+
+        corpo_candela = abs(ultimo["close"] - ultimo["open"])
+        range_candela = ultimo["high"] - ultimo["low"]
+
+        corpo_medio = (hist["close"] - hist["open"]).iloc[-21:-1].abs().mean()
+        volume_medio_20 = hist["volume"].iloc[-21:-1].mean()
+
+        # Filtri utili: range ampio (vs ATR) e corpo "pieno" (poche shadow)
+        upper_wick = ultimo["high"] - max(ultimo["open"], ultimo["close"])
+        lower_wick = min(ultimo["open"], ultimo["close"]) - ultimo["low"]
+        wick_ratio = (upper_wick + lower_wick) / max(range_candela, 1e-9)  # 0=nessuna wick, 1=solo wick
+
+        cond_range = range_candela > 2.0 * atr                 # escursione molto ampia
+        cond_corpo  = corpo_candela > 3.0 * corpo_medio        # corpo >> media recente
+        cond_volume = volume_attuale > 2.0 * volume_medio_20   # volume >> media
+        cond_wick   = wick_ratio < 0.35                        # candela "piena"
+
+        if (cond_corpo and cond_volume) or (cond_range and cond_volume and cond_wick):
+            note.append("🚀 Possibile pump verticale rilevato")
+            pump_flag = True
+            breakout_valido = True
+            punteggio_trend += 1
+
+    except Exception as e:
+        logging.warning(f"⚠️ Errore rilevamento pump: {e}")
+
+
+
+    # ------------------------------------------------------------------
     # Condizioni MACD / RSI
     # ------------------------------------------------------------------
-    macd_buy_ok = macd > macd_signal and macd_gap > gap_forte
-    macd_buy_debole = macd > 0 and macd_gap > gap_debole
-    
-    macd_sell_ok = macd < macd_signal and macd_gap < -gap_forte
-    macd_sell_debole = macd < 0 and macd_gap < -gap_debole
     
     segnale, tp, sl = "HOLD", 0.0, 0.0
     probabilita = 50
@@ -610,7 +659,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if (trend_up or recupero_buy or breakout_valido) and distanza_ok:
         durata_trend = candele_trend_up
         if rsi >= _p("rsi_buy_forte") and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
-            if durata_trend >= 15:
+            if durata_trend >= 6:
                 note.append(f"⛔ Trend rialzista troppo maturo ({durata_trend} candele)")
             #elif accelerazione < -_p("accelerazione_minima"):
                 #note.append(f"⚠️ BUY evitato: accelerazione negativa ({accelerazione:.6f})")
@@ -765,7 +814,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         punteggio_trend_adj = punteggio_trend - pen_maturita
 
         prob_fusa = _fuse_prob(punteggio_trend_adj, probabilita)  # 0..1
+    
+        if pump_flag:
+            prob_fusa = min(1.0, prob_fusa + 0.03)
+            note.append("⚡ Boost probabilità per pump verticale")
+            
         note.append(f"🧪 Probabilità fusa (trend+contesto): {round(prob_fusa*100)}%")
+
 
         # ------------------- Gate unico di entrata coerente con prob_fusa -------------------
         P_ENTER = 0.52  # 52% equivalente (regolabile)
