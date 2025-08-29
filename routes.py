@@ -39,55 +39,22 @@ def analyze(symbol: str):
         symbol = symbol.upper()
         motivo_attuale = posizioni_attive.get(symbol, {}).get("motivo", "")
 
-        if symbol in posizioni_attive:
-            logging.info(f"⏳ Simulazione già attiva su {symbol} – tipo: {posizioni_attive[symbol]['tipo']} @ {posizioni_attive[symbol]['entry']}$")
-            posizione = posizioni_attive[symbol]
-
-            if segnale == "HOLD" and "Segnale annullato" in note15:
-                posizione["tipo"] = "HOLD"
-                posizione["esito"] = "Annullata"          # opzionale
-                posizione["chiusa_da_backend"] = True
-                posizione["motivo"] = note15
-            
-            return SignalResponse(
-                symbol=symbol,
-                segnale="HOLD",
-                commento=(
-                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
-                    f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
-                ),
-                prezzo=posizione["entry"],
-                take_profit=posizione["tp"],
-                stop_loss=posizione["sl"],
-                rsi=0.0,
-                macd=0.0,
-                macd_signal=0.0,
-                atr=0.0,
-                ema7=0.0,
-                ema25=0.0,
-                ema99=0.0,
-                timeframe="15m",
-                spread=posizione.get("spread", 0.0),
-                motivo=motivo_attuale,
-                chiusa_da_backend=posizione.get("chiusa_da_backend", False)
-            )
-
-        # Spread
+        # 1) Spread PRIMA (early return se eccessivo)
         book = get_bid_ask(symbol)
         spread = book["spread"]
         logging.debug(f"[SPREAD] {symbol} – Spread attuale: {spread:.4f}%")
         if spread > 5.0:
             try:
-                df_15m = get_binance_df(symbol, "15m", 50)
-                if df_15m.empty:
+                df_15m_tmp = get_binance_df(symbol, "15m", 50)
+                if df_15m_tmp.empty:
                     raise ValueError("DataFrame vuoto")
-                ultimo = df_15m.iloc[-1]
-                close = round(ultimo["close"], 6)
+                ultimo_tmp = df_15m_tmp.iloc[-1]
+                close_tmp = round(ultimo_tmp["close"], 6)
             except Exception as e:
                 logging.warning(f"⚠️ Errore nel recupero del prezzo per {symbol} con spread alto: {e}")
-                close = 0.0  # fallback
+                close_tmp = 0.0  # fallback
 
-            if close == 0.0:
+            if close_tmp == 0.0:
                 logging.warning(f"⛔ Nessun prezzo disponibile per {symbol} (spread alto), risposta ignorata")
                 return SignalResponse(
                     symbol=symbol,
@@ -113,7 +80,7 @@ def analyze(symbol: str):
                 symbol=symbol,
                 segnale="HOLD",
                 commento=f"Simulazione ignorata per {symbol} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
-                prezzo=close,
+                prezzo=close_tmp,
                 take_profit=0.0,
                 stop_loss=0.0,
                 rsi=0.0,
@@ -129,19 +96,64 @@ def analyze(symbol: str):
                 chiusa_da_backend=False
             )
 
-        # Dati Binance
+        # 2) Dati Binance (dopo lo spread) + analisi
         df_15m = get_binance_df(symbol, "15m", 300)
-        df_1h = get_binance_df(symbol, "1h", 300)
-        df_1d = get_binance_df(symbol, "1d", 300)
-        df_1m = get_binance_df(symbol, "1m", 100)
+        df_1h  = get_binance_df(symbol, "1h", 300)
+        df_1d  = get_binance_df(symbol, "1d", 300)
+        df_1m  = get_binance_df(symbol, "1m", 100)
 
         segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread, df_1m)
-
         note = note15.split("\n") if note15 else []
-        
 
+        # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
+        if symbol in posizioni_attive:
+            logging.info(
+                f"⏳ Simulazione già attiva su {symbol} – tipo: "
+                f"{posizioni_attive[symbol]['tipo']} @ {posizioni_attive[symbol]['entry']}$"
+            )
+            posizione = posizioni_attive[symbol]
 
-        # 📌 Anche se HOLD, recupera sempre gli ultimi dati tecnici
+            # se l’analisi ha “annullato” il segnale → marca la simulazione e restituisci HOLD annotato
+            if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
+                posizione["tipo"] = "HOLD"
+                posizione["esito"] = "Annullata"
+                posizione["chiusa_da_backend"] = True
+                posizione["motivo"] = note15
+                return SignalResponse(
+                    symbol=symbol,
+                    segnale="HOLD",
+                    commento=note15,
+                    prezzo=posizione["entry"],
+                    take_profit=posizione["tp"],
+                    stop_loss=posizione["sl"],
+                    rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
+                    ema7=0.0, ema25=0.0, ema99=0.0,
+                    timeframe="15m",
+                    spread=posizione.get("spread", 0.0),
+                    motivo=note15,
+                    chiusa_da_backend=True
+                )
+
+            # altrimenti ritorna lo stato della simulazione attiva
+            return SignalResponse(
+                symbol=symbol,
+                segnale="HOLD",
+                commento=(
+                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
+                    f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
+                ),
+                prezzo=posizione["entry"],
+                take_profit=posizione["tp"],
+                stop_loss=posizione["sl"],
+                rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
+                ema7=0.0, ema25=0.0, ema99=0.0,
+                timeframe="15m",
+                spread=posizione.get("spread", 0.0),
+                motivo=motivo_attuale,
+                chiusa_da_backend=posizione.get("chiusa_da_backend", False)
+            )
+
+        # 4) Estrai sempre i tecnici più recenti (anche se HOLD)
         try:
             ultimo = hist.iloc[-1]
             close = round(ultimo['close'], 4)
@@ -156,7 +168,7 @@ def analyze(symbol: str):
             logging.warning(f"⚠️ Errore nell’estrazione dei dati tecnici: {e}")
             close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
 
-        # Logging e analisi timeframe superiori
+        # 5) Logging timeframe e analisi di conferma
         logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
         logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
         logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
@@ -167,7 +179,7 @@ def analyze(symbol: str):
         logging.debug(f"[1h] {symbol} – Segnale: {segnale_1h}")
         logging.debug(f"[1d] {symbol} – Segnale: {segnale_1d}")
 
-        # Verifica 1h
+        # 6) Note di conferma/conflitto 1h
         if segnale != segnale_1h:
             logging.info(f"🧭 {symbol} – 1h NON conferma {segnale} (1h = {segnale_1h})")
             try:
@@ -191,7 +203,7 @@ def analyze(symbol: str):
         else:
             note.append("🧭 1h✓")
 
-        # Verifica 1d
+        # 7) Note 1d e possibile apertura simulazione
         if segnale in ["BUY", "SELL"]:
             if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
                 note.append(f"⚠️ Timeframe 1d in conflitto con il segnale ({segnale_1d})")
@@ -239,10 +251,11 @@ def analyze(symbol: str):
         except Exception as e2:
             logging.warning(f"⚠️ Fallito anche il recupero prezzo fallback: {e2}")
             close = 0.0
+
         return SignalResponse(
             symbol=symbol,
             segnale="HOLD",
-            commento = (
+            commento=(
                 f"Errore durante l'analisi di {symbol}.\n"
                 f"Tentativo di recupero prezzo: {'Riuscito' if close > 0 else 'Fallito'}\n"
                 f"Errore originale: {e}"
@@ -262,6 +275,8 @@ def analyze(symbol: str):
             motivo="Errore interno",
             chiusa_da_backend=False
         )
+
+        # <-- PAUSA -->
 @router.get("/price")
 def get_price(symbol: str):
     import time
