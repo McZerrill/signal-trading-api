@@ -368,7 +368,40 @@ def hot_assets():
                 _filtro_log["atr"] += 1
                 continue
 
-            distanza_relativa = abs(ema7 - ema99) / ema99
+            # --- Pump fast-track: non blocca le hot durante spike ---
+            ultimo = df.iloc[-1]
+            corpo_candela = abs(ultimo["close"] - ultimo["open"])
+            range_candela = ultimo["high"] - ultimo["low"]
+            corpo_medio   = (df["close"] - df["open"]).iloc[-21:-1].abs().mean()
+            volume_medio_20  = df["volume"].iloc[-21:-1].mean()
+
+            upper_wick = ultimo["high"] - max(ultimo["open"], ultimo["close"])
+            lower_wick = min(ultimo["open"], ultimo["close"]) - ultimo["low"]
+            wick_ratio = (upper_wick + lower_wick) / max(range_candela, 1e-9)
+
+            cond_range  = range_candela > 2.0 * atr
+            cond_corpo  = corpo_candela > 3.0 * max(corpo_medio, 1e-9)
+            cond_volume = df["volume"].iloc[-1] > 2.0 * max(volume_medio_20, 1e-9)
+            cond_wick   = wick_ratio < 0.35
+
+            if (cond_corpo and cond_volume) or (cond_range and cond_volume and cond_wick):
+                trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
+                candele_trend = conta_candele_trend(df, rialzista=(trend_pump == "BUY"))
+                risultati.append({
+                    "symbol": symbol,
+                    "segnali": 1,
+                    "trend": trend_pump,
+                    "rsi": round(rsi, 2),
+                    "ema7": round(ema7, 2),
+                    "ema25": round(ema25, 2),
+                    "ema99": round(ema99, 2),
+                    "prezzo": round(prezzo, 4),
+                    "candele_trend": candele_trend
+                })
+                continue  # salta i filtri successivi: la coin è "hot" per pump
+
+
+            distanza_relativa = abs(ema7 - ema99) / max(abs(ema99), 1e-9)
             if distanza_relativa < distanza_minima and prezzo < 1000:
                 _filtro_log["ema_flat"] += 1
                 continue
