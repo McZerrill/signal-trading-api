@@ -651,7 +651,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         elif rsi >= _p("rsi_buy_debole") and macd_buy_debole:
             if punteggio_trend >= SOGLIA_PUNTEGGIO + 2 and candele_trend_up <= 10:
                 segnale = "BUY"
-                note.append("✅ BUY confermato (setup debole + punteggio alto)")
+                note.append("✅ BUY debole ma score alto")
             else:
                 note.append("🤔 Segnale↑ Debole")
 
@@ -667,7 +667,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         elif rsi <= _p("rsi_sell_debole") and macd_sell_debole:
             if punteggio_trend <= -SOGLIA_PUNTEGGIO - 2 and candele_trend_down <= 10:
                 segnale = "SELL"
-                note.append("✅ SELL confermato (setup debole + punteggio alto)")
+                note.append("✅ SELL confermato ma score alto")
             else:
                 note.append("🤔 Segnale↓ Debole")
 
@@ -686,7 +686,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
         dist_level = valuta_distanza(distanza_ema, close)
-        note.insert(0, f"📊 Trend attivo da {n_candele} candele | Distanza: {dist_level}")
+        note.insert(0, f"📊 {n_candele} Candele | Distanza {dist_level}")
         if pattern:
             note.append(f"✅ Pattern: {pattern}")
     else:
@@ -751,7 +751,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         if pump_flag:
             prob_fusa = min(1.0, prob_fusa + 0.03)
             note.append("⚡ Boost Probabilità Pump")
-        note.append(f"🧪 Prob. Fusa (trend+contesto): {round(prob_fusa*100)}%")
+        note.append(f"🧪 Attendibilità: {round(prob_fusa*100)}%")
 
         # Gate di entrata coerente con prob_fusa
         P_ENTER = 0.50
