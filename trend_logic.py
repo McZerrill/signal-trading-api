@@ -693,7 +693,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         elif rsi >= _p("rsi_buy_debole") and macd_buy_debole:
             if punteggio_trend >= SOGLIA_PUNTEGGIO + 2 and candele_reali_up <= 10:
                 segnale = "BUY"
-                note.append("✅ BUY confermato ma score alto")
+                note.append("✅ BUY confermato Moderato")
             else:
                 note.append("🤔 Segnale↑ Debole")
 
@@ -709,7 +709,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         elif rsi <= _p("rsi_sell_debole") and macd_sell_debole:
             if punteggio_trend <= -SOGLIA_PUNTEGGIO - 2 and candele_reali_down <= 10:
                 segnale = "SELL"
-                note.append("✅ SELL confermato ma score alto")
+                note.append("✅ SELL confermato Moderato")
             else:
                 note.append("🤔 Segnale↓ Debole")
 
