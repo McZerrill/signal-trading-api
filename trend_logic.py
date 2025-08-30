@@ -206,6 +206,42 @@ def conta_candele_trend(hist: pd.DataFrame, rialzista: bool = True, max_candele:
             break
     return count
 
+def conta_candele_reali(hist: pd.DataFrame, side: str = "BUY", max_candele: int = 50) -> int:
+    """
+    Conteggio 'reale': quante candele consecutive rispettano la condizione operativa
+    che usi per entrare.
+      BUY : trend_up (7>25>99)  OPPURE recupero (7>25, 25<99, close>25, EMA25 in salita)
+      SELL: trend_down (7<25<99) OPPURE recupero (7<25, 25>99, close<25, EMA25 in discesa)
+    """
+    if len(hist) < 3:
+        return 0
+
+    count = 0
+    for i in range(len(hist) - 1, max(-1, len(hist) - 1 - max_candele), -1):
+        if i - 1 < 0:
+            break
+        e7   = hist["EMA_7"].iloc[i]
+        e25  = hist["EMA_25"].iloc[i]
+        e99  = hist["EMA_99"].iloc[i]
+        c    = hist["close"].iloc[i]
+        e25p = hist["EMA_25"].iloc[i - 1]
+
+        if side == "BUY":
+            cond_trend    = (e7 > e25 > e99)
+            cond_recupero = (e7 > e25) and (e25 < e99) and (c > e25) and (e25 > e25p)
+            cond = cond_trend or cond_recupero
+        else:  # SELL
+            cond_trend    = (e7 < e25 < e99)
+            cond_recupero = (e7 < e25) and (e25 > e99) and (c < e25) and (e25 < e25p)
+            cond = cond_trend or cond_recupero
+
+        if cond:
+            count += 1
+        else:
+            break
+    return count
+
+
 
 def ema_in_movimento_coerente(hist_1m: pd.DataFrame, rialzista: bool = True, n_candele: int = 15) -> bool:
     if hist_1m is None or len(hist_1m) < n_candele + 1:
@@ -541,8 +577,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     trend_up, trend_down = is_trend_up(ema7, ema25, ema99), is_trend_down(ema7, ema25, ema99)
     recupero_buy = ema7 > ema25 < ema99 and close > ema25 and ema25 > penultimo["EMA_25"]
     recupero_sell = ema7 < ema25 > ema99 and close < ema25 and ema25 < penultimo["EMA_25"]
-    candele_trend_up = conta_candele_trend(hist, rialzista=True)
-    candele_trend_down = conta_candele_trend(hist, rialzista=False)
+    
+    # Conteggio "strict" (solo 7>25>99 o 7<25<99)
+    candele_trend_up_strict = conta_candele_trend(hist, rialzista=True)
+    candele_trend_down_strict = conta_candele_trend(hist, rialzista=False)
+    # Conteggio "reale" (trend pieno O recupero progressivo)
+    candele_reali_up = conta_candele_reali(hist, side="BUY")
+    candele_reali_down = conta_candele_reali(hist, side="SELL")
+
 
     # MACD: gap normalizzato sul prezzo → robusto a simboli diversi
     macd_gap = macd - macd_signal
@@ -641,7 +683,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     # BUY logic
     if (trend_up or recupero_buy or breakout_valido) and distanza_ok:
-        durata_trend = candele_trend_up
+        durata_trend = candele_reali_up
         if rsi >= _p("rsi_buy_forte") and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
             if durata_trend >= 6:
                 note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
@@ -649,7 +691,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 segnale = "BUY"
                 note.append("✅ BUY confermato")
         elif rsi >= _p("rsi_buy_debole") and macd_buy_debole:
-            if punteggio_trend >= SOGLIA_PUNTEGGIO + 2 and candele_trend_up <= 10:
+            if punteggio_trend >= SOGLIA_PUNTEGGIO + 2 and candele_reali_up <= 10:
                 segnale = "BUY"
                 note.append("✅ BUY debole ma score alto")
             else:
@@ -657,7 +699,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     # SELL logic
     if (trend_down or recupero_sell) and distanza_ok:
-        durata_trend = candele_trend_down
+        durata_trend = candele_reali_down
         if rsi <= _p("rsi_sell_forte") and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO:
             if durata_trend >= 15:
                 note.append(f"⛔ Trend↓ Maturo ({durata_trend} candele)")
@@ -665,9 +707,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 segnale = "SELL"
                 note.append("✅ SELL confermato")
         elif rsi <= _p("rsi_sell_debole") and macd_sell_debole:
-            if punteggio_trend <= -SOGLIA_PUNTEGGIO - 2 and candele_trend_down <= 10:
+            if punteggio_trend <= -SOGLIA_PUNTEGGIO - 2 and candele_reali_down <= 10:
                 segnale = "SELL"
-                note.append("✅ SELL confermato ma score alto")
+                note.append("✅ SELL debole ma score alto")
             else:
                 note.append("🤔 Segnale↓ Debole")
 
@@ -684,17 +726,23 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # Se segnale BUY/SELL aggiungi meta info
     pattern = riconosci_pattern_candela(hist)
     if segnale in ["BUY", "SELL"]:
-        n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
+        n_candele = candele_reali_up if segnale == "BUY" else candele_reali_down
         dist_level = valuta_distanza(distanza_ema, close)
         note.insert(0, f"📊 {n_candele} Candele | Distanza {dist_level}")
+
+        if segnale == "BUY" and not is_trend_up(ema7, ema25, ema99):
+            note.append("↗️ Recupero 7>25 (99 sopra)")
+        elif segnale == "SELL" and not is_trend_down(ema7, ema25, ema99):
+            note.append("↘️ Recupero 7<25 (99 sotto)")
+        
         if pattern:
             note.append(f"✅ Pattern: {pattern}")
     else:
-        if trend_up and candele_trend_up <= 2:
-            note.append("🔼 Trend Rialzista")
-        elif trend_down and candele_trend_down <= 2:
-            note.append("🔽 Trend Ribassista")
-        elif candele_trend_up <= 1 and not trend_up:
+        if trend_up and candele_trend_up_strict <= 2:
+            note.append("🔼 Trend↑ Rialzista")
+        elif trend_down and candele_trend_down_strict <= 2:
+            note.append("🔽 Trend↓ Ribassista")
+        elif candele_trend_up_strict <= 1 and not trend_up:
             note.append("🔚 Trend Finito")
 
     # Invalidation per pattern contrario o neutralità MACD/RSI
@@ -723,7 +771,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # Calcolo probabilità di successo (con penalità avanzate)
     try:
         if segnale in ["BUY", "SELL"]:
-            n_candele = candele_trend_up if segnale == "BUY" else candele_trend_down
+            n_candele = candele_reali_up if segnale == "BUY" else candele_reali_down
             probabilita = calcola_probabilita_successo(
                 ema7=ema7, ema25=ema25, ema99=ema99, rsi=rsi,
                 macd=macd, macd_signal=macd_signal,
@@ -743,7 +791,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     if segnale in ["BUY", "SELL"]:
         # Fusione probabilità con punteggio_trend + penalità maturità
-        durata = candele_trend_up if segnale == "BUY" else candele_trend_down
+        durata = candele_reali_up if segnale == "BUY" else candele_reali_down
         pen_maturita = max(0, durata - 8) * 0.5        # -0.5 per candela oltre 8
         punteggio_trend_adj = punteggio_trend - pen_maturita
 
