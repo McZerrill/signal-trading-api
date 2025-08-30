@@ -156,19 +156,19 @@ def is_trend_down(e7: float, e25: float, e99: float) -> bool:
 
 def trend_score_description(score: int) -> str:
     if score >= 4:
-        return "🔥 Trend forte"
+        return "🔥 Trend↑ Forte"
     if score >= 2:
-        return "👍 Trend moderato"
+        return "👍 Trend↑ Moderato"
     if score == 1:
-        return "🟡 Trend debole positivo"
+        return "🟡 Trend↑ Debole"
     if score == 0:
-        return "🔍 Trend neutro"
+        return "🔍 Trend Neutro"
     if score == -1:
-        return "🟠 Trend debole negativo"
+        return "🟠 Trend↓ Debole"
     if score <= -4:
-        return "❌ Trend ribassista forte"
+        return "❌ Trend↓ Forte"
     if score <= -2:
-        return "⚠️ Trend ribassista moderato"
+        return "⚠️ Trend↓ Moderato"
     return ""
 
 
@@ -561,11 +561,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # Filtri preliminari (ATR, Volume)
     # ------------------------------------------------------------------
     if _frac_of_close(atr, close_s) < _p("atr_minimo"):
-        note.append("⚠️ ATR troppo basso: mercato poco volatile")
+        note.append("⚠️ ATR Basso: poco volatile")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     if volume_attuale < _p("volume_soglia") and not MODALITA_TEST:
-        note.append(f"⚠️ Volume troppo basso: {volume_attuale:.0f} < soglia minima {_p('volume_soglia')}")
+        note.append(f"⚠️ Volume Basso: {volume_attuale:.0f} < soglia minima {_p('volume_soglia')}")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     # ------------------------------------------------------------------
@@ -589,17 +589,17 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     corpo_candela = abs(ultimo["close"] - ultimo["open"])
 
     if close > massimo_20 and volume_attuale > volume_medio * 1.5:
-        note.append("💥 Breakout rialzista con volume alto")
+        note.append("💥 Breakout↑ con Volume Alto")
         if corpo_candela > atr:
-            note.append("🚀 Spike rialzista con breakout solido")
+            note.append("🚀 Spike↑ con Breakout")
             breakout_valido = True
     elif close < minimo_20 and volume_attuale > volume_medio * 1.5:
-        note.append("💥 Breakout ribassista con volume alto")
+        note.append("💥 Breakout↓ con Volume Alto")
         if corpo_candela > atr:
-            note.append("🚨 Spike ribassista con breakout solido")
+            note.append("🚨 Spike↓ con Breakout")
             breakout_valido = True
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
-        note.append("⚠️ Breakout sospetto: volume insufficiente")
+        note.append("⚠️ Breakout? Vol↓")
 
     # ------------------------------------------------------------------
     # Rilevamento Pump Verticale
@@ -623,7 +623,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
         if (cond_corpo and cond_volume) or (cond_range and cond_volume and cond_wick):
             pump_flag = True
-            pump_msg = "🚀 Possibile pump verticale rilevato"
+            pump_msg = "🚀 Possibile Pump Verticale"
             breakout_valido = True
             punteggio_trend += 1
     except Exception as e:
@@ -637,14 +637,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     # Se il trend c'è ma la distanza è insufficiente, spiega perché resti HOLD
     if not distanza_ok and (trend_up or recupero_buy or trend_down or recupero_sell):
-        note.append(f"📏 Distanza EMA troppo bassa ({_frac_of_close(distanza_ema, close_s):.4f} < {_p('distanza_minima'):.4f})")
+        note.append(f"📏 Dist EMA Bassa ({_frac_of_close(distanza_ema, close_s):.4f} < {_p('distanza_minima'):.4f})")
 
     # BUY logic
     if (trend_up or recupero_buy or breakout_valido) and distanza_ok:
         durata_trend = candele_trend_up
         if rsi >= _p("rsi_buy_forte") and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
             if durata_trend >= 6:
-                note.append(f"⛔ Trend rialzista troppo maturo ({durata_trend} candele)")
+                note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
             else:
                 segnale = "BUY"
                 note.append("✅ BUY confermato")
@@ -653,14 +653,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 segnale = "BUY"
                 note.append("✅ BUY confermato (setup debole + punteggio alto)")
             else:
-                note.append("🤔 Segnale rialzista debole: RSI > 50 e MACD > signal, ma segnale incerto")
+                note.append("🤔 Segnale↑ Debole")
 
     # SELL logic
     if (trend_down or recupero_sell) and distanza_ok:
         durata_trend = candele_trend_down
         if rsi <= _p("rsi_sell_forte") and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO:
             if durata_trend >= 15:
-                note.append(f"⛔ Trend ribassista troppo maturo ({durata_trend} candele)")
+                note.append(f"⛔ Trend↓ Maturo ({durata_trend} candele)")
             else:
                 segnale = "SELL"
                 note.append("✅ SELL confermato")
@@ -669,7 +669,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 segnale = "SELL"
                 note.append("✅ SELL confermato (setup debole + punteggio alto)")
             else:
-                note.append("🤔 Segnale ribassista debole: RSI < soglia e MACD < signal, ma segnale incerto")
+                note.append("🤔 Segnale↓ Debole")
 
     if segnale == "HOLD" and not any([trend_up, trend_down]):
         note.append("🔎 Nessun segnale valido rilevato: condizioni insufficienti")
@@ -679,7 +679,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
         sl = round(close - atr, 4)
-        note.append("📈 Pattern V rilevato: BUY da inversione rapida")
+        note.append("📈 Pattern V: BUY da inversione rapida")
 
     # Se segnale BUY/SELL aggiungi meta info
     pattern = riconosci_pattern_candela(hist)
@@ -688,18 +688,18 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         dist_level = valuta_distanza(distanza_ema, close)
         note.insert(0, f"📊 Trend attivo da {n_candele} candele | Distanza: {dist_level}")
         if pattern:
-            note.append(f"✅ Pattern candlestick rilevato: {pattern}")
+            note.append(f"✅ Pattern: {pattern}")
     else:
         if trend_up and candele_trend_up <= 2:
-            note.append("🔼 Trend attivo")
+            note.append("🔼 Trend Rialzista")
         elif trend_down and candele_trend_down <= 2:
-            note.append("🔽 Trend ribassista")
+            note.append("🔽 Trend Ribassista")
         elif candele_trend_up <= 1 and not trend_up:
-            note.append("🔚 Trend concluso: attenzione a inversioni")
+            note.append("🔚 Trend Finito")
 
     # Invalidation per pattern contrario o neutralità MACD/RSI
     if pattern_contrario(segnale, pattern):
-        note.append(f"⚠️ Pattern contrario: possibile inversione ({pattern})")
+        note.append(f"⚠️ Pattern contrario: inversione ({pattern})")
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
     low, high = _p("macd_rsi_range")
@@ -718,7 +718,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # BUY forzato su incrocio progressivo
     if segnale == "HOLD" and rileva_incrocio_progressivo(hist):
         segnale = "BUY"
-        note.append("📈 Incrocio progressivo EMA(7>25>99) rilevato: BUY confermato")
+        note.append("📈 Incrocio Progressivo EMA(7>25>99): BUY")
 
     # Calcolo probabilità di successo (con penalità avanzate)
     try:
@@ -750,8 +750,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         prob_fusa = _fuse_prob(punteggio_trend_adj, probabilita)  # 0..1
         if pump_flag:
             prob_fusa = min(1.0, prob_fusa + 0.03)
-            note.append("⚡ Boost probabilità per pump verticale")
-        note.append(f"🧪 Probabilità fusa (trend+contesto): {round(prob_fusa*100)}%")
+            note.append("⚡ Boost Probabilità Pump")
+        note.append(f"🧪 Prob. Fusa (trend+contesto): {round(prob_fusa*100)}%")
 
         # Gate di entrata coerente con prob_fusa
         P_ENTER = 0.50
@@ -841,7 +841,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
         # Se ancora troppo lento, veto hard
         if ore_max > T_HARD_CAP_H:
-            note.append(f"⛔ Tempo stimato troppo lungo: {ore_min}–{ore_max}h (cap {T_HARD_CAP_H}h)")
+            note.append(f"⛔ Tempo TP lungo: {ore_min}–{ore_max}h (cap {T_HARD_CAP_H}h)")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
         # Se troppo veloce, allarga TP (entro un limite) preservando RR
@@ -859,7 +859,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                     ore_max = round((distanza_tp / (range_medio * eff_min)) * 0.25, 2)
 
         # Nota tempi finali
-        note.append(f"⏱️ Tempo stimato TP: ~{ore_min}–{ore_max}h")
+        note.append(f"⏱️ Target TP: ~{ore_min}–{ore_max}h")
 
         # Se c’è pump, mostra la nota immediatamente dopo la stima tempi
         if pump_flag and pump_msg:
@@ -875,9 +875,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         sl = _round_tick(sl_raw)
 
         if segnale == "BUY" and not (sl < close < tp):
-            note.append("⚠️ TP/SL BUY incoerenti, ricalcolo consigliato")
+            note.append("⚠️ TP/SL BUY incoerenti")
         if segnale == "SELL" and not (tp < close < sl):
-            note.append("⚠️ TP/SL SELL incoerenti, ricalcolo consigliato")
+            note.append("⚠️ TP/SL SELL incoerenti")
 
     logging.debug("✅ Analisi completata")
 
