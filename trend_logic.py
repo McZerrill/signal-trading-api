@@ -798,7 +798,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         prob_fusa = _fuse_prob(punteggio_trend_adj, probabilita)  # 0..1
         if pump_flag:
             prob_fusa = min(1.0, prob_fusa + 0.03)
-            note.append("⚡ Boost Probabilità Pump")
+            #note.append("⚡ Boost Probabilità Pump")
         note.append(f"🧪 Attendibilità: {round(prob_fusa*100)}%")
 
         # Gate di entrata coerente con prob_fusa
