@@ -802,7 +802,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append(f"🧪 Attendibilità: {round(prob_fusa*100)}%")
 
         # Gate di entrata coerente con prob_fusa
-        P_ENTER = 0.58
+        P_ENTER = 0.52
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
