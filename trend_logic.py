@@ -17,13 +17,13 @@ DISATTIVA_CHECK_EMA_1M = True
 
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
-    "volume_soglia": 120,
+    "volume_soglia": 50,
     "volume_alto": 2.0,
     "volume_medio": 1.4,
     "volume_basso": 0.9,
     "volume_molto_basso": 0.6,
 
-    "atr_minimo": 0.0007,
+    "atr_minimo": 0.0005,
     "atr_buono": 0.0013,
     "atr_basso": 0.0006,
     "atr_troppo_basso": 0.0002,
@@ -41,7 +41,7 @@ _PARAMS_TEST = {
     "macd_gap_rel_forte": 0.0012,  
     "macd_gap_rel_debole": 0.0006,
 
-    "rsi_buy_forte": 58,
+    "rsi_buy_forte": 55,
     "rsi_buy_debole": 54,
     "rsi_sell_forte": 42,
     "rsi_sell_debole": 46,
