@@ -12,7 +12,7 @@ import logging
 # Costanti di configurazione
 # -----------------------------------------------------------------------------
 MODALITA_TEST = True
-SOGLIA_PUNTEGGIO = 5
+SOGLIA_PUNTEGGIO = 3
 DISATTIVA_CHECK_EMA_1M = True
 
 # Parametri separati per test / produzione
