@@ -12,41 +12,41 @@ import logging
 # Costanti di configurazione
 # -----------------------------------------------------------------------------
 MODALITA_TEST = True
-SOGLIA_PUNTEGGIO = 2
+SOGLIA_PUNTEGGIO = 5
 DISATTIVA_CHECK_EMA_1M = True
 
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
-    "volume_soglia": 50,
-    "volume_alto": 1.5,
-    "volume_medio": 1.0,
-    "volume_basso": 0.7,
-    "volume_molto_basso": 0.4,
+    "volume_soglia": 120,
+    "volume_alto": 2.0,
+    "volume_medio": 1.4,
+    "volume_basso": 0.9,
+    "volume_molto_basso": 0.6,
 
-    "atr_minimo": 0.0003,
-    "atr_buono": 0.001,
-    "atr_basso": 0.0005,
-    "atr_troppo_basso": 0.0001,
-    "atr_troppo_alto": 0.01,
+    "atr_minimo": 0.0007,
+    "atr_buono": 0.0013,
+    "atr_basso": 0.0006,
+    "atr_troppo_basso": 0.0002,
+    "atr_troppo_alto": 0.008,
 
-    "distanza_minima": 0.0004,
-    "distanza_bassa": 0.0003,
-    "distanza_media": 0.0008,
-    "distanza_alta": 0.0015,
+    "distanza_minima": 0.0008,
+    "distanza_bassa": 0.0006,
+    "distanza_media": 0.0012,
+    "distanza_alta": 0.0020,
 
     "macd_rsi_range": (45, 55),
-    "macd_signal_threshold": 0.0001,  # assoluta
+    "macd_signal_threshold": 0.00015,  # assoluta
     "macd_gap_forte": 0.0005,
     "macd_gap_debole": 0.0002,
-    "macd_gap_rel_forte": 8e-4,   # 0.08% del prezzo
-    "macd_gap_rel_debole": 3e-4,
+    "macd_gap_rel_forte": 0.0012,  
+    "macd_gap_rel_debole": 0.0006,
 
-    "rsi_buy_forte": 52,
-    "rsi_buy_debole": 50,
-    "rsi_sell_forte": 48,
+    "rsi_buy_forte": 58,
+    "rsi_buy_debole": 54,
+    "rsi_sell_forte": 42,
     "rsi_sell_debole": 46,
 
-    "accelerazione_minima": 0.00002,
+    "accelerazione_minima": 0.00005,
 }
 
 _PARAMS_PROD = {
@@ -802,7 +802,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append(f"🧪 Attendibilità: {round(prob_fusa*100)}%")
 
         # Gate di entrata coerente con prob_fusa
-        P_ENTER = 0.52
+        P_ENTER = 0.65
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
