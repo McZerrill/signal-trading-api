@@ -802,7 +802,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append(f"🧪 Attendibilità: {round(prob_fusa*100)}%")
 
         # Gate di entrata coerente con prob_fusa
-        P_ENTER = 0.50
+        P_ENTER = 0.52
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
@@ -858,8 +858,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         # Stima tempi TP
         # (timeframe 15m => 0.25h per candela)
         T_TARGET_MIN_H = 0.7          # evita target troppo vicino
-        T_TARGET_MAX_H = 8.0          # oltre è poco efficiente
-        T_HARD_CAP_H   = 24.0         # veto se troppo lungo
+        T_TARGET_MAX_H = 6.0          # oltre è poco efficiente
+        T_HARD_CAP_H   = 12.0         # veto se troppo lungo
         MAX_TP_SPAN_ATR = 3.0         # non allargare TP oltre 3x ATR
 
         distanza_tp = abs(tp_raw - close)
