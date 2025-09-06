@@ -681,40 +681,72 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if not distanza_ok and (trend_up or recupero_buy or trend_down or recupero_sell):
         note.append(f"📏 Dist EMA Bassa ({_frac_of_close(distanza_ema, close_s):.4f} < {_p('distanza_minima'):.4f})")
 
-    # BUY logic
+    # ------------------------------------------------------------------
+    # BUY logic (con RSI in crescita integrato)
+    # ------------------------------------------------------------------
     if (trend_up or recupero_buy or breakout_valido) and distanza_ok:
         durata_trend = candele_reali_up
-        if rsi >= _p("rsi_buy_forte") and macd_buy_ok and punteggio_trend >= SOGLIA_PUNTEGGIO:
+        rsi_in_crescita = (rsi > penultimo["RSI"] > antepenultimo["RSI"])
+
+        if (
+            rsi >= _p("rsi_buy_forte")
+            and macd_buy_ok
+            and punteggio_trend >= SOGLIA_PUNTEGGIO
+            and rsi_in_crescita
+        ):
             if durata_trend >= 6:
                 note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
             else:
                 segnale = "BUY"
                 note.append("✅ BUY confermato")
-        elif rsi >= _p("rsi_buy_debole") and macd_buy_debole:
-            if punteggio_trend >= SOGLIA_PUNTEGGIO + 2 and candele_reali_up <= 10:
+
+        elif (
+            rsi >= _p("rsi_buy_debole")
+            and macd_buy_debole
+            and rsi_in_crescita
+        ):
+            if punteggio_trend >= SOGLIA_PUNTEGGIO + 2 and durata_trend <= 10:
                 segnale = "BUY"
                 note.append("✅ BUY confermato Moderato")
             else:
                 note.append("🤔 Segnale↑ Debole")
 
-    # SELL logic
+    # ------------------------------------------------------------------
+    # SELL logic (con RSI in calo integrato)
+    # ------------------------------------------------------------------
     if (trend_down or recupero_sell) and distanza_ok:
         durata_trend = candele_reali_down
-        if rsi <= _p("rsi_sell_forte") and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO:
+        rsi_in_calo = (rsi < penultimo["RSI"] < antepenultimo["RSI"])
+
+        if (
+            rsi <= _p("rsi_sell_forte")
+            and macd_sell_ok
+            and punteggio_trend <= -SOGLIA_PUNTEGGIO
+            and rsi_in_calo
+        ):
             if durata_trend >= 15:
                 note.append(f"⛔ Trend↓ Maturo ({durata_trend} candele)")
             else:
                 segnale = "SELL"
                 note.append("✅ SELL confermato")
-        elif rsi <= _p("rsi_sell_debole") and macd_sell_debole:
-            if punteggio_trend <= -SOGLIA_PUNTEGGIO - 2 and candele_reali_down <= 10:
+
+        elif (
+            rsi <= _p("rsi_sell_debole")
+            and macd_sell_debole
+            and rsi_in_calo
+        ):
+            if punteggio_trend <= -SOGLIA_PUNTEGGIO - 2 and durata_trend <= 10:
                 segnale = "SELL"
                 note.append("✅ SELL confermato Moderato")
             else:
                 note.append("🤔 Segnale↓ Debole")
 
+    # ------------------------------------------------------------------
+    # Nessun segnale valido
+    # ------------------------------------------------------------------
     if segnale == "HOLD" and not any([trend_up, trend_down]):
         note.append("🔎 Nessun segnale valido rilevato: condizioni insufficienti")
+
 
     # Pattern V rapido
     if segnale == "HOLD" and rileva_pattern_v(hist):
