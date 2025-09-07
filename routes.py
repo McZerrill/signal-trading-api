@@ -208,7 +208,7 @@ def analyze(symbol: str):
                 elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
                     note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con BUY")
                 else:
-                    note.append(f"⚠️ {segnale} non confermato su 1h (1h = {segnale_1h})")
+                    note.append(f"⚠️ {segnale} non confermato su 1h")
 
                 trend_1h = conta_candele_trend(hist_1h, rialzista=(segnale == "BUY"))
                 if trend_1h < 2:
