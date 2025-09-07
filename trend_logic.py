@@ -18,8 +18,8 @@ DISATTIVA_CHECK_EMA_1M = True
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
     "volume_soglia": 50,
-    "volume_alto": 1.5,
-    "volume_medio": 1.0,
+    "volume_alto": 1.8,
+    "volume_medio": 1.2,
     "volume_basso": 0.7,
     "volume_molto_basso": 0.4,
 
@@ -29,7 +29,7 @@ _PARAMS_TEST = {
     "atr_troppo_basso": 0.0001,
     "atr_troppo_alto": 0.01,
 
-    "distanza_minima": 0.0004,
+    "distanza_minima": 0.0008,
     "distanza_bassa": 0.0003,
     "distanza_media": 0.0008,
     "distanza_alta": 0.0015,
@@ -834,7 +834,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append(f"🧪 Attendibilità: {round(prob_fusa*100)}%")
 
         # Gate di entrata coerente con prob_fusa
-        P_ENTER = 0.52
+        P_ENTER = 0.62
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
