@@ -17,7 +17,7 @@ DISATTIVA_CHECK_EMA_1M = True
 
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
-    "volume_soglia": 50,
+    "volume_soglia": 120,
     "volume_alto": 1.8,
     "volume_medio": 1.2,
     "volume_basso": 0.7,
@@ -263,24 +263,76 @@ def ema_in_movimento_coerente(hist_1m: pd.DataFrame, rialzista: bool = True, n_c
 
 
 def riconosci_pattern_candela(df: pd.DataFrame) -> str:
-    c = df.iloc[-1]
-    o, h, l, close = c["open"], c["high"], c["low"], c["close"]
-    body = close - o
-    body_abs = abs(body)
-    upper = h - max(o, close)
-    lower = min(o, close) - l
-
-    if body_abs == 0:
+    """Ritorna una stringa col pattern rilevato tra:
+       Hammer, Shooting Star, Bullish/Bearish Engulfing,
+       Three White Soldiers, Bullish Harami.
+       (Ritorna '' se nulla di significativo)
+    """
+    if len(df) < 3:
         return ""
 
-    if body > 0 and lower >= 2 * body_abs and upper <= body_abs * 0.3:
+    c1 = df.iloc[-1]
+    o1, h1, l1, c1c = c1["open"], c1["high"], c1["low"], c1["close"]
+    body1     = c1c - o1
+    body1_abs = abs(body1)
+    upper1 = h1 - max(o1, c1c)
+    lower1 = min(o1, c1c) - l1
+
+    # ---- pattern classici (già presenti) ----
+    if body1_abs == 0:
+        return ""
+
+    if body1 > 0 and lower1 >= 2 * body1_abs and upper1 <= body1_abs * 0.3:
         return "🪓 Hammer"
-    if body < 0 and upper >= 2 * body_abs and lower <= body_abs * 0.3:
+    if body1 < 0 and upper1 >= 2 * body1_abs and lower1 <= body1_abs * 0.3:
         return "🌠 Shooting Star"
-    if body > 0 and close > df["open"].iloc[-2] and o < df["close"].iloc[-2]:
-        return "🔄 Bullish Engulfing"
-    if body < 0 and close < df["open"].iloc[-2] and o > df["close"].iloc[-2]:
-        return "🔃 Bearish Engulfing"
+    if len(df) >= 2:
+        o0, c0 = df["open"].iloc[-2], df["close"].iloc[-2]
+        if body1 > 0 and c1c > o0 and o1 < c0:
+            return "🔄 Bullish Engulfing"
+        if body1 < 0 and c1c < o0 and o1 > c0:
+            return "🔃 Bearish Engulfing"
+
+    # ---- nuovi pattern ----
+    # 1) Three White Soldiers (ultime 3 verdi forti, progressione)
+    if len(df) >= 4:
+        a, b, c = df.iloc[-3], df.iloc[-2], df.iloc[-1]
+        def bull(c): return c["close"] > c["open"]
+        def body(c): return abs(c["close"] - c["open"])
+        def upper_wick(c): return c["high"] - max(c["open"], c["close"])
+        def lower_wick(c): return min(c["open"], c["close"]) - c["low"]
+
+        if bull(a) and bull(b) and bull(c):
+            # corpi in crescita e chiusure crescenti
+            if (c["close"] > b["close"] > a["close"] and
+                body(b) >= 0.7 * body(a) and body(c) >= 0.7 * body(b)):
+                # opens entro il corpo precedente (classico requisito dei Soldiers)
+                cond_open = (b["open"]  >= min(a["open"], a["close"]) and b["open"]  <= max(a["open"], a["close"]) and
+                             c["open"]  >= min(b["open"], b["close"]) and c["open"]  <= max(b["open"], b["close"]))
+                # shadow non eccessive
+                cond_wicks = (upper_wick(a) <= body(a) and lower_wick(a) <= body(a) and
+                              upper_wick(b) <= body(b) and lower_wick(b) <= body(b) and
+                              upper_wick(c) <= body(c) and lower_wick(c) <= body(c))
+                if cond_open and cond_wicks:
+                    return "🟩 Three White Soldiers"
+
+    # 2) Bullish Harami (grossa rossa + piccola verde interamente contenuta)
+    if len(df) >= 2:
+        prev = df.iloc[-2]
+        # dimensioni relative del corpo rispetto alla media recente
+        recent = (df["close"] - df["open"]).abs().iloc[-10:-2]
+        avg_body = recent.mean() if len(recent) else (abs(prev["close"] - prev["open"]) or 1e-9)
+
+        prev_red  = prev["close"] < prev["open"]
+        big_prev  = abs(prev["close"] - prev["open"]) > 1.1 * avg_body
+        small_now = body1_abs < 0.6 * abs(prev["close"] - prev["open"])
+
+        dentro = (min(o1, c1c) >= min(prev["open"], prev["close"]) and
+                  max(o1, c1c) <= max(prev["open"], prev["close"]))
+
+        if prev_red and (c1c > o1) and big_prev and small_now and dentro:
+            return "🤰 Bullish Harami"
+
     return ""
 
 
@@ -830,7 +882,21 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         prob_fusa = _fuse_prob(punteggio_trend_adj, probabilita)  # 0..1
         if pump_flag:
             prob_fusa = min(1.0, prob_fusa + 0.03)
-            #note.append("⚡ Boost Probabilità Pump")
+
+        # --- BOOST/MALUS da pattern candlestick (opzionale) ---
+        if pattern:
+            # aggiungi la nota solo se non già presente
+            if f"✅ Pattern: {pattern}" not in note:
+                note.append(f"✅ Pattern: {pattern}")
+
+        # esempi di aggiustamenti leggeri (solo BUY perché i due pattern sono bullish)
+        if segnale == "BUY":
+            if pattern in ("Three White Soldiers", "🟩 Three White Soldiers"):
+                prob_fusa = min(1.0, prob_fusa + 0.03)   # +3% affidabilità
+            elif pattern in ("Bullish Harami", "🤰 Bullish Harami"):
+                prob_fusa = min(1.0, prob_fusa + 0.02)   # +2% affidabilità
+
+        #note.append("⚡ Boost Probabilità Pump")
         note.append(f"🧪 Attendibilità: {round(prob_fusa*100)}%")
 
         # Gate di entrata coerente con prob_fusa
