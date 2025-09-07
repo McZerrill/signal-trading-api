@@ -223,7 +223,7 @@ def analyze(symbol: str):
         # 7) Note 1d e possibile apertura simulazione
         if segnale in ["BUY", "SELL"]:
             if daily_state == "NA":
-                note.append("📅 1d–")  # dati non disponibili / check fallito
+                note.append("📅 1d - Check fallito")  # dati non disponibili / check fallito
             else:
                 ok_daily = (segnale == "BUY" and daily_state == "BUY") or \
                    (segnale == "SELL" and daily_state == "SELL")
