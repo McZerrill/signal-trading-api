@@ -173,29 +173,44 @@ def analyze(symbol: str):
         logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
         logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
 
-        segnale_1h, *_ = analizza_trend(df_1h, spread)
-        segnale_1d, *_ = analizza_trend(df_1d, spread)
-
+        # 1h: ok usare ancora analizza_trend come conferma "soft"
+        segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread)
         logging.debug(f"[1h] {symbol} – Segnale: {segnale_1h}")
-        logging.debug(f"[1d] {symbol} – Segnale: {segnale_1d}")
+
+        # 1d: controllo RIGOROSO solo su EMA (niente recupero/RSI/MACD)
+        try:
+            from trend_logic import enrich_indicators  # se non già importato altrove
+            df_1d_chk = enrich_indicators(df_1d.copy())
+            e7d  = float(df_1d_chk["EMA_7"].iloc[-1])
+            e25d = float(df_1d_chk["EMA_25"].iloc[-1])
+            e99d = float(df_1d_chk["EMA_99"].iloc[-1])
+
+            daily_ok_buy  = (e7d > e25d > e99d)
+            daily_ok_sell = (e7d < e25d < e99d)
+            daily_state   = "BUY" if daily_ok_buy else ("SELL" if daily_ok_sell else "HOLD")
+            logging.debug(f"[1d STRICT] {symbol} – EMA7={e7d:.4f} EMA25={e25d:.4f} EMA99={e99d:.4f} -> {daily_state}")
+        except Exception as _err:
+            logging.warning(f"[daily-check] impossibile validare 1D per {symbol}: {_err}")
+            daily_state = "NA"  # neutro
+
 
         # 6) Note di conferma/conflitto 1h
         if segnale != segnale_1h:
             logging.info(f"🧭 {symbol} – 1h NON conferma {segnale} (1h = {segnale_1h})")
             try:
-                ultimo_1h = df_1h.iloc[-1]
-                macd_1h = ultimo_1h['MACD']
-                signal_1h = ultimo_1h['MACD_SIGNAL']
-                rsi_1h = ultimo_1h['RSI']
+                ultimo_1h = hist_1h.iloc[-1]  # <-- leggiamo dagli indicatori calcolati da analizza_trend
+                macd_1h    = float(ultimo_1h['MACD'])
+                signal_1h  = float(ultimo_1h['MACD_SIGNAL'])
+                rsi_1h     = float(ultimo_1h['RSI'])
 
                 if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
-                    note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con SELL")
+                    note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con SELL")
                 elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
-                    note.append("ℹ️ Timeframe 1h non confermato, ma MACD e RSI coerenti con BUY")
+                    note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con BUY")
                 else:
-                    note.append(f"⚠️ Segnale {segnale} non confermato su 1h (1h = {segnale_1h})")
+                    note.append(f"⚠️ {segnale} non confermato su 1h (1h = {segnale_1h})")
 
-                trend_1h = conta_candele_trend(df_1h, rialzista=(segnale == "BUY"))
+                trend_1h = conta_candele_trend(hist_1h, rialzista=(segnale == "BUY"))
                 if trend_1h < 2:
                     note.append(f"⚠️ Trend su 1h debole ({trend_1h} candele)")
             except Exception as e:
@@ -203,12 +218,19 @@ def analyze(symbol: str):
         else:
             note.append("🧭 1h✓")
 
+
+
         # 7) Note 1d e possibile apertura simulazione
         if segnale in ["BUY", "SELL"]:
-            if (segnale == "BUY" and segnale_1d == "SELL") or (segnale == "SELL" and segnale_1d == "BUY"):
-                note.append(f"⚠️ Timeframe 1d in conflitto con il segnale ({segnale_1d})")
+            if daily_state == "NA":
+                note.append("📅 1d–")  # dati non disponibili / check fallito
             else:
-                note.append("📅 1d✓")
+                ok_daily = (segnale == "BUY" and daily_state == "BUY") or \
+                   (segnale == "SELL" and daily_state == "SELL")
+                if ok_daily:
+                    note.append("📅 1d✓")
+                else:
+                    note.append(f"⚠️ 1d in conflitto (daily={daily_state})")
 
             logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
             posizioni_attive[symbol] = {
@@ -220,6 +242,7 @@ def analyze(symbol: str):
                 "chiusa_da_backend": False,
                 "motivo": " | ".join(note)
             }
+
 
         commento = "\n".join(note) if note else "Nessuna nota"
 
