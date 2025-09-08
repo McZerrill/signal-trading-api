@@ -15,6 +15,8 @@ import logging
 MODALITA_TEST = True
 SOGLIA_PUNTEGGIO = 2
 DISATTIVA_CHECK_EMA_1M = True
+SOLO_BUY = True
+
 
 # --- Override BUY da pattern strutturali ---
 CONF_MIN_PATTERN = 0.60        # confidenza minima del pattern per l'override
@@ -603,7 +605,8 @@ def calcola_probabilita_successo(
 # -----------------------------------------------------------------------------
 # Funzione principale: analizza_trend
 # -----------------------------------------------------------------------------
-def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None):
+def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None, sistema: str = "EMA"):
+
     logging.debug("🔍 Inizio analisi trend")
 
     if len(hist) < 22:
@@ -611,6 +614,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
 
     hist = enrich_indicators(hist.copy())
+
+    sistema = (sistema or "EMA").upper()
+    if sistema not in {"EMA", "DB", "TRI"}:
+        sistema = "EMA"
+
+    note = []
+    note.append(f"🔧 Sistema: {sistema}")
+
 
     try:
         ultimo, penultimo, antepenultimo = hist.iloc[-1], hist.iloc[-2], hist.iloc[-3]
@@ -622,7 +633,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         logging.error(f"❌ Errore nell'accesso ai dati finali: {e}")
         return "HOLD", hist, 0.0, "Errore su iloc finali", 0.0, 0.0, 0.0
 
-    note = []
+    
     pump_flag = False
     pump_msg = None
 
@@ -750,20 +761,36 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # Regole di override BUY:
     # - Doppio Minimo: breakout neckline + MACD gap > 0 + RSI > 50 + conf >= soglia
     # - Triangolo Ascendente: breakout + volume > 1.3× media + conf >= soglia
-    pattern_buy_override = False
     macd_gap = macd - macd_signal
 
-    if p_db.get("found") and p_db["confidence"] >= CONF_MIN_PATTERN and macd_gap > 0 and rsi > 50:
-            pattern_buy_override = True
+    # Valutazioni per singola strategia
+    pattern_db_ok = (
+        p_db.get("found")
+        and p_db["confidence"] >= CONF_MIN_PATTERN
+        and macd_gap > 0 and rsi > 50
+    )
 
-    if (not pattern_buy_override and
-        p_tri.get("found") and p_tri["confidence"] >= CONF_MIN_PATTERN and
-        volume_attuale > volume_medio * VOL_MULT_TRIANGLE):
-        pattern_buy_override = True
+    pattern_tri_ok = (
+        p_tri.get("found")
+        and p_tri["confidence"] >= CONF_MIN_PATTERN
+        and volume_attuale > volume_medio * VOL_MULT_TRIANGLE
+    )
 
-    # Richiedi comunque distanza EMA sufficiente
+    # Condizione base per strategia
+    if sistema == "EMA":
+        cond_base = (trend_up or recupero_buy or breakout_valido)
+        pattern_buy_override = False          # niente override da pattern qui
+    elif sistema == "DB":
+        cond_base = pattern_db_ok
+        pattern_buy_override = pattern_db_ok
+    elif sistema == "TRI":
+        cond_base = pattern_tri_ok
+        pattern_buy_override = pattern_tri_ok
+
     if not distanza_ok:
+        cond_base = False
         pattern_buy_override = False
+
 
 
     # ------------------------------------------------------------------
@@ -779,15 +806,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     # BUY logic (con RSI in crescita + override pattern)
     # ------------------------------------------------------------------
-    if (trend_up or recupero_buy or breakout_valido or pattern_buy_override) and distanza_ok:
-        durata_trend = candele_reali_up
-        rsi_in_crescita = (rsi > penultimo["RSI"] > antepenultimo["RSI"])
-
-        if pattern_buy_override:
-            # Se i pattern sono forti e soddisfano le condizioni, forziamo un BUY
+    
+    if cond_base:
+        if sistema in ("DB","TRI") and pattern_buy_override:
             segnale = "BUY"
-            note.append("✅ BUY per Pattern override (Double Bottom / Ascending Triangle)")
-        else:
+            note.append("✅ BUY per Pattern override" + (" (Double Bottom)" if sistema=="DB" else " (Ascending Triangle)"))
+        elif sistema == "EMA":
+            durata_trend = candele_reali_up
+            rsi_in_crescita = (rsi > penultimo["RSI"] > antepenultimo["RSI"])
+            
             # Regole standard (tuo codice esistente)
             if (
                 rsi >= _p("rsi_buy_forte")
@@ -816,7 +843,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     # SELL logic (con RSI in calo integrato)
     # ------------------------------------------------------------------
-    if (trend_down or recupero_sell) and distanza_ok:
+    if not SOLO_BUY and (trend_down or recupero_sell) and distanza_ok:
         durata_trend = candele_reali_down
         rsi_in_calo = (rsi < penultimo["RSI"] < antepenultimo["RSI"])
 
@@ -851,7 +878,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
 
     # Pattern V rapido
-    if segnale == "HOLD" and rileva_pattern_v(hist):
+    if sistema == "EMA" and segnale == "HOLD" and rileva_pattern_v(hist):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
         sl = round(close - atr, 4)
@@ -898,7 +925,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
     # BUY forzato su incrocio progressivo
-    if segnale == "HOLD" and rileva_incrocio_progressivo(hist):
+    if sistema == "EMA" and segnale == "HOLD" and rileva_incrocio_progressivo(hist):
         segnale = "BUY"
         note.append("📈 Incrocio Progressivo EMA(7>25>99): BUY")
 
@@ -934,10 +961,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             prob_fusa = min(1.0, prob_fusa + 0.03)
 
         # --- BOOST soft dalla struttura (non crea segnali da solo) ---
-        if p_db.get("found"):
+        if sistema == "DB" and p_db.get("found"):
             prob_fusa = min(1.0, prob_fusa + PATTERN_SOFT_BOOST_DB * p_db["confidence"])
-        if p_tri.get("found"):
+        if sistema == "TRI" and p_tri.get("found"):
             prob_fusa = min(1.0, prob_fusa + PATTERN_SOFT_BOOST_TRI * p_tri["confidence"])
+        # (niente boost pattern su EMA, per non contaminare le strategie)
+
 
 
         # --- BOOST/MALUS da pattern candlestick (opzionale) ---
