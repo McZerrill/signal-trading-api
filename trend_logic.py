@@ -1,4 +1,5 @@
 import pandas as pd
+from patterns import detect_double_bottom, detect_ascending_triangle
 from indicators import (
     calcola_rsi,
     calcola_macd,
@@ -14,6 +15,13 @@ import logging
 MODALITA_TEST = True
 SOGLIA_PUNTEGGIO = 2
 DISATTIVA_CHECK_EMA_1M = True
+
+# --- Override BUY da pattern strutturali ---
+CONF_MIN_PATTERN = 0.60        # confidenza minima del pattern per l'override
+VOL_MULT_TRIANGLE = 1.30       # volume > 1.3x media per override triangolo
+PATTERN_SOFT_BOOST_DB  = 0.03  # +3% * conf su prob_fusa se doppio minimo
+PATTERN_SOFT_BOOST_TRI = 0.02  # +2% * conf su prob_fusa se triangolo
+
 
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
@@ -651,6 +659,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     macd_sell_ok     = (macd < macd_signal)  and (gap_rel > gap_rel_forte)
     macd_sell_debole = (macd < 0)            and (gap_rel > gap_rel_debole)
 
+    # --- init per sicurezza (usati più avanti) ---
+    p_db = {"found": False, "confidence": 0.0, "note": ""}
+    p_tri = {"found": False, "confidence": 0.0, "note": ""}
+    pattern_buy_override = False
+
+
     # ------------------------------------------------------------------
     # Filtri preliminari (ATR, Volume)
     # ------------------------------------------------------------------
@@ -724,6 +738,35 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         logging.warning(f"⚠️ Errore rilevamento pump: {e}")
 
     # ------------------------------------------------------------------
+    # Pattern strutturali (solo BUY)
+    # ------------------------------------------------------------------
+    p_db  = detect_double_bottom(hist, lookback=180, neckline_confirm=True)
+    p_tri = detect_ascending_triangle(hist, lookback=200, breakout_confirm=True)
+
+    for p in (p_db, p_tri):
+        if p.get("found"):
+            note.append(f"🧩 {p['pattern']} ({int(p['confidence']*100)}%) – {p['note']}")
+
+    # Regole di override BUY:
+    # - Doppio Minimo: breakout neckline + MACD gap > 0 + RSI > 50 + conf >= soglia
+    # - Triangolo Ascendente: breakout + volume > 1.3× media + conf >= soglia
+    pattern_buy_override = False
+    macd_gap = macd - macd_signal
+
+    if p_db.get("found") and p_db["confidence"] >= CONF_MIN_PATTERN and macd_gap > 0 and rsi > 50:
+            pattern_buy_override = True
+
+    if (not pattern_buy_override and
+        p_tri.get("found") and p_tri["confidence"] >= CONF_MIN_PATTERN and
+        volume_attuale > volume_medio * VOL_MULT_TRIANGLE):
+        pattern_buy_override = True
+
+    # Richiedi comunque distanza EMA sufficiente
+    if not distanza_ok:
+        pattern_buy_override = False
+
+
+    # ------------------------------------------------------------------
     # Condizioni MACD / RSI → logica primaria BUY/SELL
     # ------------------------------------------------------------------
     segnale, tp, sl = "HOLD", 0.0, 0.0
@@ -734,34 +777,41 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append(f"📏 Dist EMA Bassa ({_frac_of_close(distanza_ema, close_s):.4f} < {_p('distanza_minima'):.4f})")
 
     # ------------------------------------------------------------------
-    # BUY logic (con RSI in crescita integrato)
+    # BUY logic (con RSI in crescita + override pattern)
     # ------------------------------------------------------------------
-    if (trend_up or recupero_buy or breakout_valido) and distanza_ok:
+    if (trend_up or recupero_buy or breakout_valido or pattern_buy_override) and distanza_ok:
         durata_trend = candele_reali_up
         rsi_in_crescita = (rsi > penultimo["RSI"] > antepenultimo["RSI"])
 
-        if (
-            rsi >= _p("rsi_buy_forte")
-            and macd_buy_ok
-            and punteggio_trend >= SOGLIA_PUNTEGGIO
-            and rsi_in_crescita
-        ):
-            if durata_trend >= 6:
-                note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
-            else:
-                segnale = "BUY"
-                note.append("✅ BUY confermato")
+        if pattern_buy_override:
+            # Se i pattern sono forti e soddisfano le condizioni, forziamo un BUY
+            segnale = "BUY"
+            note.append("✅ BUY per Pattern override (Double Bottom / Ascending Triangle)")
+        else:
+            # Regole standard (tuo codice esistente)
+            if (
+                rsi >= _p("rsi_buy_forte")
+                and macd_buy_ok
+                and punteggio_trend >= SOGLIA_PUNTEGGIO
+                and rsi_in_crescita
+            ):
+                if durata_trend >= 6:
+                    note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
+                else:
+                    segnale = "BUY"
+                    note.append("✅ BUY confermato")
 
-        elif (
-            rsi >= _p("rsi_buy_debole")
-            and macd_buy_debole
-            and rsi_in_crescita
-        ):
-            if punteggio_trend >= SOGLIA_PUNTEGGIO + 2 and durata_trend <= 10:
-                segnale = "BUY"
-                note.append("✅ BUY confermato Moderato")
-            else:
-                note.append("🤔 Segnale↑ Debole")
+            elif (
+                rsi >= _p("rsi_buy_debole")
+                and macd_buy_debole
+                and rsi_in_crescita
+            ):
+                if punteggio_trend >= SOGLIA_PUNTEGGIO + 2 and durata_trend <= 10:
+                    segnale = "BUY"
+                    note.append("✅ BUY confermato Moderato")
+                else:
+                    note.append("🤔 Segnale↑ Debole")
+
 
     # ------------------------------------------------------------------
     # SELL logic (con RSI in calo integrato)
@@ -882,6 +932,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         prob_fusa = _fuse_prob(punteggio_trend_adj, probabilita)  # 0..1
         if pump_flag:
             prob_fusa = min(1.0, prob_fusa + 0.03)
+
+        # --- BOOST soft dalla struttura (non crea segnali da solo) ---
+        if p_db.get("found"):
+            prob_fusa = min(1.0, prob_fusa + PATTERN_SOFT_BOOST_DB * p_db["confidence"])
+        if p_tri.get("found"):
+            prob_fusa = min(1.0, prob_fusa + PATTERN_SOFT_BOOST_TRI * p_tri["confidence"])
+
 
         # --- BOOST/MALUS da pattern candlestick (opzionale) ---
         if pattern:
