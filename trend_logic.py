@@ -620,7 +620,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         sistema = "EMA"
 
     note = []
-    note.append(f"🔧 Sistema: {sistema}")
+    #note.append(f"🔧 Sistema: {sistema}")
 
 
     try:
@@ -756,7 +756,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     for p in (p_db, p_tri):
         if p.get("found"):
-            note.append(f"🧩 {p['pattern']} ({int(p['confidence']*100)}%) – {p['note']}")
+            note.append(f"🧩 {p['pattern']}")
+            #note.append(f"🧩 {p['pattern']} ({int(p['confidence']*100)}%) – {p['note']}")
 
     # Regole di override BUY:
     # - Doppio Minimo: breakout neckline + MACD gap > 0 + RSI > 50 + conf >= soglia
