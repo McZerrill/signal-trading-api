@@ -896,16 +896,22 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             note.append("↗️ Recupero 7>25 (99 sopra)")
         elif segnale == "SELL" and not is_trend_down(ema7, ema25, ema99):
             note.append("↘️ Recupero 7<25 (99 sotto)")
-        
+
         if pattern:
             note.append(f"✅ Pattern: {pattern}")
     else:
-        if trend_up and candele_trend_up_strict <= 2:
-            note.append("🔼 Trend↑ Rialzista")
-        elif trend_down and candele_trend_down_strict <= 2:
-            note.append("🔽 Trend↓ Ribassista")
-        elif candele_trend_up_strict <= 1 and not trend_up:
-            note.append("🔚 Trend Finito")
+        # HOLD: nota sintetica (niente 'desc' qui, perché l'hai già aggiunto sopra)
+        note.append("🔍 Nessun segnale: trend indeciso")
+
+    #else:
+        #if trend_up and candele_trend_up_strict <= 2:
+            #note.append("🔼 Trend↑ Rialzista")
+        #elif trend_down and candele_trend_down_strict <= 2:
+            #note.append("🔽 Trend↓ Ribassista")
+        #elif candele_trend_up_strict <= 1 and not trend_up:
+            #note.append("🔚 Trend Finito")
+    
+
 
     # Invalidation per pattern contrario o neutralità MACD/RSI
     if pattern_contrario(segnale, pattern):
