@@ -751,33 +751,43 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     # Pattern strutturali (solo BUY)
     # ------------------------------------------------------------------
-    p_db  = detect_double_bottom(hist, lookback=180, neckline_confirm=True)
-    p_tri = detect_ascending_triangle(hist, lookback=200, breakout_confirm=True)
+    p_db  = detect_double_bottom(hist, lookback=180, neckline_confirm=True) or {}
+    p_tri = detect_ascending_triangle(hist, lookback=200, breakout_confirm=True) or {}
 
-    for p in (p_db, p_tri):
-        if p.get("found"):
-            note.append(f"🧩 {p['pattern']}")
-            #note.append(f"🧩 {p['pattern']} ({int(p['confidence']*100)}%) – {p['note']}")
+    def _pattern_recent(p: dict, max_age: int = 40) -> bool:
+        """Considera il pattern solo se è recente; se l'API non espone indici, passa."""
+        for k in ("breakout_index", "breakout_idx", "neckline_break_idx",
+                  "right_bottom_idx", "last_index"):
+            if isinstance(p.get(k), int):
+                return (len(hist) - 1 - p[k]) <= max_age
+        return True  # se non ci sono indici disponibili, non filtrare per età
 
-    # Regole di override BUY:
-    # - Doppio Minimo: breakout neckline + MACD gap > 0 + RSI > 50 + conf >= soglia
-    # - Triangolo Ascendente: breakout + volume > 1.3× media + conf >= soglia
-    macd_gap = macd - macd_signal
+    
 
-    # Valutazioni per singola strategia
+    # Gating robusto (usato sia per mostrare la nota sia per l'override)
     pattern_db_ok = (
         p_db.get("found")
-        and p_db["confidence"] >= CONF_MIN_PATTERN
-        and macd_gap > 0 and rsi > 50
+        and p_db.get("confidence", 0) >= CONF_MIN_PATTERN
+        and _pattern_recent(p_db, max_age=40)
+        and p_db.get("neckline_confirmed", p_db.get("neckline_breakout", False))
+        and (macd_gap > 0) and (rsi > 50)             # contesto favorevole
     )
 
     pattern_tri_ok = (
         p_tri.get("found")
-        and p_tri["confidence"] >= CONF_MIN_PATTERN
-        and volume_attuale > volume_medio * VOL_MULT_TRIANGLE
+        and p_tri.get("confidence", 0) >= CONF_MIN_PATTERN
+        and _pattern_recent(p_tri, max_age=40)
+        and p_tri.get("breakout_confirmed", False)
+        and (volume_attuale > volume_medio * VOL_MULT_TRIANGLE)
     )
 
-    # Condizione base per strategia
+    # Mostra le note SOLO se il pattern supera i criteri
+    if pattern_db_ok:
+        note.append(f"🧩 {p_db.get('pattern', 'Double Bottom')} ({int(p_db.get('confidence',0)*100)}%)")
+    if pattern_tri_ok:
+        note.append(f"🧩 {p_tri.get('pattern', 'Ascending Triangle')} ({int(p_tri.get('confidence',0)*100)}%)")
+
+    # Condizione base per strategia + override coerente
     if sistema == "EMA":
         cond_base = (trend_up or recupero_buy or breakout_valido)
         pattern_buy_override = False          # niente override da pattern qui
@@ -787,11 +797,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     elif sistema == "TRI":
         cond_base = pattern_tri_ok
         pattern_buy_override = pattern_tri_ok
-
-    if not distanza_ok:
+    else:
         cond_base = False
         pattern_buy_override = False
 
+    # Se distanza EMA insufficiente, disattiva tutto
+    if not distanza_ok:
+        cond_base = False
+        pattern_buy_override = False
 
 
     # ------------------------------------------------------------------
