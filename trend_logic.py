@@ -1014,8 +1014,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         # TP/SL proporzionale alla probabilità fusa
         ATR_MIN_FRAC = 0.004
         TP_BASE, TP_SPAN = 1.1, 1.2     # TP = 1.1x..2.3x ATR
-        SL_BASE, SL_SPAN = 1.30, 0.20     # SL = 1.0x..0.6x ATR
-        RR_MIN = 1.5
+        SL_BASE, SL_SPAN = 1.60, 0.10     # SL = 1.0x..0.6x ATR
+        RR_MIN = 1.2
         DELTA_MINIMO = 0.1
         TICK = 0.0001  # TODO: sostituire con tick_size reale del symbol
 
