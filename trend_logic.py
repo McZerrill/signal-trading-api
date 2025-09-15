@@ -887,8 +887,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     # Nessun segnale valido
     # ------------------------------------------------------------------
-    if segnale == "HOLD" and not any([trend_up, trend_down]):
-        note.append("🔎 Nessun segnale valido rilevato: condizioni insufficienti")
+    #if segnale == "HOLD" and not any([trend_up, trend_down]):
+        #note.append("🔎 Nessun segnale valido rilevato: condizioni insufficienti")
 
 
     # Pattern V rapido
@@ -913,8 +913,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         if pattern:
             note.append(f"✅ Pattern: {pattern}")
     else:
-        # HOLD: nota sintetica (niente 'desc' qui, perché l'hai già aggiunto sopra)
-        note.append("🔍 Nessun segnale: trend indeciso")
+        if not (trend_up or trend_down):
+            note.append("🔍 Nessun segnale: trend indeciso")
+        else:
+            note.append("⏸️ Nessun ingresso: criteri non soddisfatti")
+
 
     #else:
         #if trend_up and candele_trend_up_strict <= 2:
