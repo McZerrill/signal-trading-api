@@ -675,11 +675,32 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     p_tri = {"found": False, "confidence": 0.0, "note": ""}
     pattern_buy_override = False
 
+    # --- Quick pump per listing (pochi dati) ---
+    
+    quick_pump = False
+    if len(hist) <= 6:  # ~prime 1-2 ore su 15m
+        corpo = abs(ultimo["close"] - ultimo["open"])
+        range_candela = ultimo["high"] - ultimo["low"]
+        body_frac = _safe_div(corpo, max(range_candela, 1e-9))     # corpo / range
+        range_rel = _frac_of_close(range_candela, close_s)         # range in %
+        vol_ok = (volume_attuale >= _p("volume_soglia")) if not MODALITA_TEST else (volume_attuale > 0)
+
+        quick_pump = (
+            (ultimo["close"] > ultimo["open"]) and  # candela verde
+            (body_frac >= 0.85) and                 # candela "piena"
+            (range_rel >= 0.02) and                 # ≥2% di range sul prezzo
+            vol_ok
+        )
+        if quick_pump:
+            pump_flag = True
+            pump_msg = "🚀 Possibile Pump (listing)"
+
+
 
     # ------------------------------------------------------------------
     # Filtri preliminari (ATR, Volume)
     # ------------------------------------------------------------------
-    if _frac_of_close(atr, close_s) < _p("atr_minimo"):
+    if _frac_of_close(atr, close_s) < _p("atr_minimo") and not pump_flag:
         note.append("⚠️ ATR Basso: poco volatile")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
@@ -723,28 +744,51 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     # Rilevamento Pump Verticale
     # ------------------------------------------------------------------
+    # se quick_pump è già vero, promuovi anche a breakout valido
+    if pump_flag:
+        breakout_valido = True
+        punteggio_trend += 1
+
     try:
         corpo_candela = abs(ultimo["close"] - ultimo["open"])
         range_candela = ultimo["high"] - ultimo["low"]
 
-        corpo_medio = (hist["close"] - hist["open"]).iloc[-21:-1].abs().mean()
-        volume_medio_20 = hist["volume"].iloc[-21:-1].mean()
+        # Serie su 20 candele precedenti (esclude l'ultima)
+        body_series = (hist["close"] - hist["open"]).iloc[-21:-1].abs()
+        vol_series  = hist["volume"].iloc[-21:-1]
 
-        # Filtri utili: range ampio (vs ATR) e corpo "pieno" (poche shadow)
+        # Riferimenti robusti (mediana)
+        corpo_ref  = body_series.median() if len(body_series) else 0.0
+        volume_ref = vol_series.median()  if len(vol_series)  else 0.0
+
+        # Parametri (tienili qui per tuning rapido)
+        BODY_MULT = 2.5      # mediana precedente
+        RANGE_ATR = 1.8      # range 
+        VOL_MULT  = 2.0      # volume > 2× mediana
+        WICK_MAX  = 0.35     # wicks totali < 35% del range
+        BODY_FRAC = 0.65     # corpo ≥ 65% del range
+
         upper_wick = ultimo["high"] - max(ultimo["open"], ultimo["close"])
         lower_wick = min(ultimo["open"], ultimo["close"]) - ultimo["low"]
-        wick_ratio = _safe_div(upper_wick + lower_wick, max(range_candela, 1e-9))  # 0=nessuna wick, 1=solo wick
+        wick_ratio = _safe_div(upper_wick + lower_wick, max(range_candela, 1e-9))
+        body_frac  = _safe_div(corpo_candela,           max(range_candela, 1e-9))
 
-        cond_range = range_candela > 2.0 * atr                 # escursione molto ampia
-        cond_corpo  = corpo_candela > 3.0 * corpo_medio        # corpo >> media recente
-        cond_volume = volume_attuale > 2.0 * volume_medio_20   # volume >> media
-        cond_wick   = wick_ratio < 0.35                        # candela "piena"
+        cond_range    = range_candela > RANGE_ATR * atr
+        cond_corpo    = corpo_candela > BODY_MULT * max(corpo_ref, 1e-9)
+        cond_volume   = volume_attuale > VOL_MULT * max(volume_ref, 1e-9)
+        cond_wick     = wick_ratio < WICK_MAX
+        cond_bodyfrac = body_frac  >= BODY_FRAC
 
-        if (cond_corpo and cond_volume) or (cond_range and cond_volume and cond_wick):
+        # Richiedi sempre: volume alto + candela "piena"
+        # Poi: o corpo enorme, oppure range enorme (vs ATR) con wicks contenute
+        cond_pump = cond_volume and cond_bodyfrac and (cond_corpo or (cond_range and cond_wick))
+
+        if cond_pump:
             pump_flag = True
-            pump_msg = "🚀 Possibile Pump Verticale"
+            pump_msg = "🚀 Possibile Pump Verticale" if ultimo["close"] >= ultimo["open"] else "📉 Possibile Dump Verticale"
             breakout_valido = True
             punteggio_trend += 1
+
     except Exception as e:
         logging.warning(f"⚠️ Errore rilevamento pump: {e}")
 
