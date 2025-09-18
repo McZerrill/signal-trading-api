@@ -610,8 +610,27 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     logging.debug("🔍 Inizio analisi trend")
 
     if len(hist) < 22:
+        # Quick check per listing con 1-6 candele
+        try:
+            ultimo = hist.iloc[-1]
+            close_s = _safe_close(ultimo["close"])
+            volume_attuale = ultimo.get("volume", 0)
+
+            corpo = abs(ultimo["close"] - ultimo["open"])
+            range_c = ultimo["high"] - ultimo["low"]
+            body_frac = _safe_div(corpo, max(range_c, 1e-9))
+            range_rel = _frac_of_close(range_c, close_s)
+            vol_ok = (volume_attuale >= _p("volume_soglia")) if not MODALITA_TEST else (volume_attuale > 0)
+
+            if (ultimo["close"] > ultimo["open"]) and (body_frac >= 0.85) and (range_rel >= 0.02) and vol_ok:
+                note = ["🚀 Possibile Pump (listing)"]
+                return "HOLD", hist, 0.0, "\n".join(note), 0.0, 0.0, 0.0
+        except Exception as e:
+            logging.warning(f"Quick-pump listing check error: {e}")
+
         logging.warning("⚠️ Dati insufficienti per l'analisi")
         return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
+
 
     hist = enrich_indicators(hist.copy())
 
@@ -670,31 +689,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     macd_sell_ok     = (macd < macd_signal)  and (gap_rel > gap_rel_forte)
     macd_sell_debole = (macd < 0)            and (gap_rel > gap_rel_debole)
 
-    # --- init per sicurezza (usati più avanti) ---
-    p_db = {"found": False, "confidence": 0.0, "note": ""}
-    p_tri = {"found": False, "confidence": 0.0, "note": ""}
     pattern_buy_override = False
 
-    # --- Quick pump per listing (pochi dati) ---
-    
-    quick_pump = False
-    if len(hist) <= 6:  # ~prime 1-2 ore su 15m
-        corpo = abs(ultimo["close"] - ultimo["open"])
-        range_candela = ultimo["high"] - ultimo["low"]
-        body_frac = _safe_div(corpo, max(range_candela, 1e-9))     # corpo / range
-        range_rel = _frac_of_close(range_candela, close_s)         # range in %
-        vol_ok = (volume_attuale >= _p("volume_soglia")) if not MODALITA_TEST else (volume_attuale > 0)
-
-        quick_pump = (
-            (ultimo["close"] > ultimo["open"]) and  # candela verde
-            (body_frac >= 0.85) and                 # candela "piena"
-            (range_rel >= 0.02) and                 # ≥2% di range sul prezzo
-            vol_ok
-        )
-        if quick_pump:
-            pump_flag = True
-            pump_msg = "🚀 Possibile Pump (listing)"
-
+   
 
 
     # ------------------------------------------------------------------
@@ -704,7 +701,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append("⚠️ ATR Basso: poco volatile")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-    if volume_attuale < _p("volume_soglia") and not MODALITA_TEST:
+    # ⬇️ aggiungi `and not pump_flag` anche qui
+    if volume_attuale < _p("volume_soglia") and not MODALITA_TEST and not pump_flag:
         note.append(f"⚠️ Volume Basso: {volume_attuale:.0f} < soglia minima {_p('volume_soglia')}")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
@@ -744,10 +742,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     # Rilevamento Pump Verticale
     # ------------------------------------------------------------------
-    # se quick_pump è già vero, promuovi anche a breakout valido
-    if pump_flag:
-        breakout_valido = True
-        punteggio_trend += 1
+
 
     try:
         corpo_candela = abs(ultimo["close"] - ultimo["open"])
@@ -762,8 +757,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         volume_ref = vol_series.median()  if len(vol_series)  else 0.0
 
         # Parametri (tienili qui per tuning rapido)
-        BODY_MULT = 2.5      # mediana precedente
-        RANGE_ATR = 1.8      # range 
+        BODY_MULT = 2.5      # corpo > 2.5× mediana corpi precedenti
+        RANGE_ATR = 1.8      # range > 1.8× ATR
         VOL_MULT  = 2.0      # volume > 2× mediana
         WICK_MAX  = 0.35     # wicks totali < 35% del range
         BODY_FRAC = 0.65     # corpo ≥ 65% del range
@@ -799,12 +794,30 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     p_tri = detect_ascending_triangle(hist, lookback=200, breakout_confirm=True) or {}
 
     def _pattern_recent(p: dict, max_age: int = 40) -> bool:
-        """Considera il pattern solo se è recente; se l'API non espone indici, passa."""
-        for k in ("breakout_index", "breakout_idx", "neckline_break_idx",
-                  "right_bottom_idx", "last_index"):
-            if isinstance(p.get(k), int):
-                return (len(hist) - 1 - p[k]) <= max_age
-        return True  # se non ci sono indici disponibili, non filtrare per età
+        """Considera recente se il breakout (o il secondo bottom) è entro max_age barre."""
+        pts = p.get("points", {}) or {}
+        candidates = [
+            p.get("breakout_index"),
+            p.get("neckline_break_idx"),
+            p.get("right_bottom_idx"),
+            pts.get("bottom2_idx"),
+            pts.get("bottom1_idx"),
+        ]
+        for idx in candidates:
+            if idx is None:
+                continue
+            # prova come label del df; se fallisce, prova a castare a int (es. RangeIndex)
+            try:
+                pos = hist.index.get_loc(idx)
+            except Exception:
+                try:
+                    pos = int(idx)
+                except Exception:
+                    continue
+            return (len(hist) - 1 - pos) <= max_age
+        # se non riusciamo a dedurre una posizione, non filtriamo per età
+        return True
+
 
     
 
@@ -814,7 +827,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         and p_db.get("confidence", 0) >= CONF_MIN_PATTERN
         and _pattern_recent(p_db, max_age=40)
         and p_db.get("neckline_confirmed", p_db.get("neckline_breakout", False))
-        and (macd_gap > 0) and (rsi > 50)             # contesto favorevole
+        and (macd_gap > 0) and (rsi > 50)
     )
 
     pattern_tri_ok = (
@@ -824,6 +837,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         and p_tri.get("breakout_confirmed", False)
         and (volume_attuale > volume_medio * VOL_MULT_TRIANGLE)
     )
+
 
     # Mostra le note SOLO se il pattern supera i criteri
     if pattern_db_ok:
@@ -963,13 +977,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             note.append("⏸️ Nessun ingresso: criteri non soddisfatti")
 
 
-    #else:
-        #if trend_up and candele_trend_up_strict <= 2:
-            #note.append("🔼 Trend↑ Rialzista")
-        #elif trend_down and candele_trend_down_strict <= 2:
-            #note.append("🔽 Trend↓ Ribassista")
-        #elif candele_trend_up_strict <= 1 and not trend_up:
-            #note.append("🔚 Trend Finito")
+    if segnale == "HOLD":
+        if trend_up and candele_trend_up_strict <= 2:
+            note.append("🔼 Trend↑ in avvio (strict)")
+        if trend_down and candele_trend_down_strict <= 2:
+            note.append("🔽 Trend↓ in avvio (strict)")
+
     
 
 
@@ -1061,7 +1074,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         # TP/SL proporzionale alla probabilità fusa
         ATR_MIN_FRAC = 0.004
         TP_BASE, TP_SPAN = 1.1, 1.2     # TP = 1.1x..2.3x ATR
-        SL_BASE, SL_SPAN = 1.60, 0.10     # SL = 1.0x..0.6x ATR
+        SL_BASE, SL_SPAN = 1.60, 0.10  # SL = 1.0x..0.6x ATR
         RR_MIN = 1.2
         DELTA_MINIMO = 0.1
         TICK = 0.0001  # TODO: sostituire con tick_size reale del symbol
