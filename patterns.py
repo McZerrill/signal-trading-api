@@ -2,19 +2,16 @@
 import pandas as pd
 import numpy as np
 
-# ------------------------------ #
-# Helpers
-# ------------------------------ #
+
+# ---------- Utils ----------
+
 def _pct(a, b):
-    if b == 0 or b is None:
+    if b is None or b == 0:
         return 0.0
     return (a - b) / b
 
 def _rolling_argrelextrema(series: pd.Series, order: int = 3, mode: str = "min"):
-    """
-    Restituisce gli indici (labels) dei minimi/massimi locali univoci
-    usando una finestra di ampiezza 2*order+1.
-    """
+    """Trova min/max locali con finestra 2*order+1 (solo estremi univoci)."""
     if len(series) < (2 * order + 1):
         return []
     idx = []
@@ -29,197 +26,142 @@ def _rolling_argrelextrema(series: pd.Series, order: int = 3, mode: str = "min")
     return idx
 
 def _level_touch_ratio(series: pd.Series, level: float, tol_frac: float):
-    """
-    Quota di barre che "toccano" il livello (entro una tolleranza relativa).
-    """
     tol = abs(level) * tol_frac
     hits = ((series - level).abs() <= tol).sum()
     return hits / max(1, len(series))
 
-def _pos_in_df(df: pd.DataFrame, label):
-    """
-    Converte un label di index nella POSIZIONE INTERA all’interno del df completo.
-    Serve per allinearsi a _pattern_recent di analizza_trend.
-    """
-    loc = df.index.get_loc(label)
-    if isinstance(loc, slice):
-        return int(loc.start)
-    if isinstance(loc, (np.ndarray, list)):
-        return int(loc[0])
-    return int(loc)
 
-# ------------------------------ #
-# 1) Doppio Minimo (Double Bottom)
-# ------------------------------ #
-def detect_double_bottom(
-    df: pd.DataFrame,
-    lookback: int = 180,
-    min_separation: int = 5,
-    bottoms_tol: float = 0.02,
-    neckline_confirm: bool = True
-):
+# ------------------------------
+# 1) Double Bottom
+# ------------------------------
+def detect_double_bottom(df: pd.DataFrame,
+                         lookback: int = 180,
+                         min_separation: int = 5,
+                         bottoms_tol: float = 0.02,
+                         neckline_confirm: bool = True):
     """
-    Rileva un Double Bottom nell'ultima finestra di lookback barre.
-
-    Ritorna:
-      {
-        "found": bool,
-        "pattern": "Double Bottom",
-        "levels": {"neckline": float, "bottom_avg": float},
-        "points": {"bottom1_idx": <label>, "bottom2_idx": <label>},
-        # --- chiavi TOP-LEVEL per _pattern_recent ---
-        "right_bottom_idx": int,        # posizione intera nel df completo
-        "neckline_break_idx": int,      # posizione intera dell'ultima barra (se breakout ora)
-        "last_index": int,              # fallback (ultima barra)
-        # --- conferme/score ---
-        "neckline_confirmed": bool,
-        "neckline_breakout": bool,
-        "confidence": float (0..1),
-        "note": str
-      }
+    Ritorna un dict con almeno:
+      - found: bool
+      - pattern: "Double Bottom"
+      - confidence: float (0..1)
+      - points: {bottom1_idx, bottom2_idx}
+      - levels: {neckline, bottom_avg}
+      - neckline_confirmed (alias: neckline_breakout): bool
+      - breakout_index, last_index: indice dell'ultima barra considerata
     """
-    if df is None or len(df) < max(2 * min_separation + 5, 40):
-        return {"found": False, "pattern": "Double Bottom"}
-
     d = df.tail(lookback).copy()
-    lows = d["low"]
-    closes = d["close"]
+    if len(d) < 10 or not {"low", "high", "close"}.issubset(d.columns):
+        return {"found": False, "pattern": "Double Bottom", "confidence": 0.0}
 
+    lows = d["low"]; closes = d["close"]
     mins = _rolling_argrelextrema(lows, order=3, mode="min")
     if len(mins) < 2:
-        return {"found": False, "pattern": "Double Bottom"}
+        return {"found": False, "pattern": "Double Bottom", "confidence": 0.0, "last_index": d.index[-1]}
 
-    # Prova coppie di minimi adiacenti (più recenti prioritari)
-    for i in range(len(mins) - 2, -1, -1):
+    for i in range(len(mins) - 1):
         i1, i2 = mins[i], mins[i + 1]
         p1, p2 = lows.loc[i1], lows.loc[i2]
 
-        # separazione minima in barre (sulla FINESTRA d)
+        # separazione temporale minima
         if (d.index.get_loc(i2) - d.index.get_loc(i1)) < min_separation:
             continue
 
-        # minimi "simili"
+        # simmetria/altezza compatibili
         if abs(_pct(p1, p2)) > bottoms_tol:
             continue
 
-        # neckline = massimo tra i due minimi
         seg = d.loc[i1:i2]
-        neckline = seg["high"].max()
+        neckline = float(seg["high"].max())
+        breakout_now = bool(closes.iloc[-1] > neckline)
 
-        close_now = closes.iloc[-1]
-        neckline_breakout = close_now > neckline
-        neckline_confirmed = (not neckline_confirm) or neckline_breakout
-        if neckline_confirm and not neckline_breakout:
-            # se chiedi conferma, esci se non c'è breakout della neckline
+        if neckline_confirm and not breakout_now:
+            # niente conferma → continua a cercare altri doppi minimi
             continue
 
-        # Score semplice: simmetria + forza breakout
-        sym = 1 - min(1.0, abs(_pct(p1, p2)) / bottoms_tol)         # 0..1
-        brk = max(0.0, _pct(close_now, neckline))                    # %
+        # confidenza: media pesata di simmetria e breakout %
+        sym = 1 - min(1.0, abs(_pct(p1, p2)) / bottoms_tol)
+        brk = max(0.0, _pct(closes.iloc[-1], neckline))
         conf = float(np.clip(0.5 * sym + 0.5 * min(brk / 0.02, 1.0), 0, 1))
-
-        # POSIZIONI INTERE sul df completo (non sulla sola finestra d)
-        i1_pos_full = _pos_in_df(df, i1)
-        i2_pos_full = _pos_in_df(df, i2)
-        breakout_pos_full = len(df) - 1
 
         return {
             "found": True,
             "pattern": "Double Bottom",
+            "points": {
+                "bottom1_idx": i1,
+                "bottom2_idx": i2,
+            },
             "levels": {
-                "neckline": float(neckline),
+                "neckline": neckline,
                 "bottom_avg": float((p1 + p2) / 2.0),
             },
-            "points": {"bottom1_idx": i1, "bottom2_idx": i2},
-            # --- chiavi top-level per gating/recency ---
-            "right_bottom_idx": int(i2_pos_full),
-            "neckline_break_idx": int(breakout_pos_full),
-            "last_index": int(breakout_pos_full),
-            # --- flags di conferma + score ---
-            "neckline_confirmed": bool(neckline_confirmed),
-            "neckline_breakout": bool(neckline_breakout),
             "confidence": conf,
-            "note": f"neckline ~{neckline:.6f}, sym={sym:.2f}, brk={brk:.2%}",
+            "neckline_confirmed": breakout_now,
+            "neckline_breakout": breakout_now,      # alias per compatibilità
+            "breakout_index": d.index[-1] if breakout_now else None,
+            "last_index": d.index[-1],
+            "note": f"Neckline {neckline:.6f} — simmetria {sym:.2f}, breakout {brk:.2%}",
         }
 
-    return {"found": False, "pattern": "Double Bottom"}
+    # nessun DB valido trovato
+    return {
+        "found": False,
+        "pattern": "Double Bottom",
+        "confidence": 0.0,
+        "last_index": d.index[-1],
+    }
 
-# ----------------------------------------- #
-# 2) Triangolo Ascendente (rialzista)
-# ----------------------------------------- #
-def detect_ascending_triangle(
-    df: pd.DataFrame,
-    lookback: int = 200,
-    touch_tol: float = 0.015,
-    min_touches: int = 2,
-    breakout_confirm: bool = True
-):
+
+# -----------------------------------------
+# 2) Ascending Triangle (bullish)
+# -----------------------------------------
+def detect_ascending_triangle(df: pd.DataFrame,
+                              lookback: int = 200,
+                              touch_tol: float = 0.015,
+                              min_touches: int = 2,
+                              breakout_confirm: bool = True):
     """
-    Rileva un triangolo ascendente nell'ultima finestra di lookback barre.
-
-    Ritorna:
-      {
-        "found": bool,
-        "pattern": "Ascending Triangle",
-        "levels": {"resistance": float},
-        "points": {},
-        # --- chiavi TOP-LEVEL per _pattern_recent ---
-        "breakout_idx": int,     # posizione intera dell'ultima barra (se breakout ora)
-        "last_index": int,
-        # --- conferme/score ---
-        "breakout_confirmed": bool,
-        "confidence": float (0..1),
-        "note": str
-      }
+    Ritorna un dict con almeno:
+      - found: bool
+      - pattern: "Ascending Triangle"
+      - confidence: float (0..1)
+      - levels: {resistance}
+      - breakout_confirmed: bool
+      - breakout_index, last_index
     """
-    if df is None or len(df) < 40:
-        return {"found": False, "pattern": "Ascending Triangle"}
-
     d = df.tail(lookback).copy()
-    highs = d["high"]
-    lows = d["low"]
-    closes = d["close"]
+    if len(d) < 10 or not {"high", "low", "close"}.issubset(d.columns):
+        return {"found": False, "pattern": "Ascending Triangle", "confidence": 0.0}
 
-    # Resistenza "piatta" stimata (alto percentile)
-    res = highs.quantile(0.90)
+    highs = d["high"]; lows = d["low"]; closes = d["close"]
 
-    # Numero relativo di tocchi alla resistenza
-    hits_ratio = _level_touch_ratio(highs, res, touch_tol)
-    # Soglia minima: almeno 'min_touches' su max(5, len(d)) barre
-    if hits_ratio < (min_touches / max(5, len(d))):
-        return {"found": False, "pattern": "Ascending Triangle"}
+    # resistenza piatta (tipicamente top recente)
+    res = float(highs.quantile(0.90))
+    hits = _level_touch_ratio(highs, res, touch_tol)
+    if hits < (min_touches / max(5, len(d))):
+        return {"found": False, "pattern": "Ascending Triangle", "confidence": 0.0, "last_index": d.index[-1]}
 
-    # Trend dei minimi: deve essere crescente
+    # base ascendente (minimi crescenti via trendline)
     x = np.arange(len(lows))
     slope = np.polyfit(x, lows.values, 1)[0]
     if slope <= 0:
-        return {"found": False, "pattern": "Ascending Triangle"}
+        return {"found": False, "pattern": "Ascending Triangle", "confidence": 0.0, "last_index": d.index[-1]}
 
-    # Conferma breakout
-    breakout_now = closes.iloc[-1] > res
-    breakout_confirmed = (not breakout_confirm) or breakout_now
-    if not breakout_confirmed:
-        return {"found": False, "pattern": "Ascending Triangle"}
+    breakout_now = bool(closes.iloc[-1] > res)
+    if breakout_confirm and not breakout_now:
+        return {"found": False, "pattern": "Ascending Triangle", "confidence": 0.0, "last_index": d.index[-1]}
 
-    # Confidenza: mix tra breakout % e pendenza dei minimi
     brk = max(0.0, _pct(closes.iloc[-1], res))
-    conf = float(np.clip(
-        0.6 * min(brk / 0.02, 1.0) + 0.4 * min(abs(slope) / (abs(res) * 0.002), 1.0),
-        0, 1
-    ))
-
-    breakout_pos_full = len(df) - 1
+    # confidenza: breakout% (60%) + pendenza base normalizzata (40%)
+    conf = float(np.clip(min(brk / 0.02, 1.0) * 0.6 + min(slope / (res * 0.002), 1.0) * 0.4, 0, 1))
 
     return {
         "found": True,
         "pattern": "Ascending Triangle",
-        "levels": {"resistance": float(res)},
         "points": {},
-        # --- chiavi top-level per gating/recency ---
-        "breakout_confirmed": True,
-        "breakout_idx": int(breakout_pos_full),
-        "last_index": int(breakout_pos_full),
-        # --- score/nota ---
+        "levels": {"resistance": res},
         "confidence": conf,
-        "note": f"res ~{res:.6f}, brk={brk:.2%}, slope={slope:.6g}",
+        "breakout_confirmed": breakout_now,
+        "breakout_index": d.index[-1] if breakout_now else None,
+        "last_index": d.index[-1],
+        "note": f"Resistenza ~{res:.6f}, breakout {brk:.2%}, slope lows {slope:.6g}",
     }
