@@ -608,9 +608,13 @@ def calcola_probabilita_successo(
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None, sistema: str = "EMA"):
 
     logging.debug("🔍 Inizio analisi trend")
+    hist = hist.copy()  
+    if "volume" not in hist.columns:
+        hist["volume"] = 0.0
 
+    pump_flag = False
+    pump_msg  = None
     if len(hist) < 22:
-        # Quick check per listing con 1-6 candele
         try:
             ultimo = hist.iloc[-1]
             close_s = _safe_close(ultimo["close"])
@@ -622,17 +626,27 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             range_rel = _frac_of_close(range_c, close_s)
             vol_ok = (volume_attuale >= _p("volume_soglia")) if not MODALITA_TEST else (volume_attuale > 0)
 
-            if (ultimo["close"] > ultimo["open"]) and (body_frac >= 0.85) and (range_rel >= 0.02) and vol_ok:
-                note = ["🚀 Possibile Pump (listing)"]
-                return "HOLD", hist, 0.0, "\n".join(note), 0.0, 0.0, 0.0
+            cond_quick_pump = (
+                (ultimo["close"] > ultimo["open"])
+                and (body_frac >= 0.85)
+                and (range_rel >= 0.02)
+                and vol_ok
+            )
+
+            if cond_quick_pump:
+                pump_flag = True
+                pump_msg  = "🚀 Possibile Pump (listing)"
+               
+            else:
+                logging.warning("⚠️ Dati insufficienti per l'analisi")
+                return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
         except Exception as e:
             logging.warning(f"Quick-pump listing check error: {e}")
+            logging.warning("⚠️ Dati insufficienti per l'analisi")
+            return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
 
-        logging.warning("⚠️ Dati insufficienti per l'analisi")
-        return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
 
-
-    hist = enrich_indicators(hist.copy())
+    hist = enrich_indicators(hist)
 
     sistema = (sistema or "EMA").upper()
     if sistema not in {"EMA", "DB", "TRI"}:
@@ -652,13 +666,31 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         logging.error(f"❌ Errore nell'accesso ai dati finali: {e}")
         return "HOLD", hist, 0.0, "Errore su iloc finali", 0.0, 0.0, 0.0
 
-    
-    pump_flag = False
-    pump_msg = None
 
     volume_attuale = hist["volume"].iloc[-1]
     volume_medio = hist["volume"].iloc[-21:-1].mean()
+    if pd.isna(volume_medio) or volume_medio <= 0:
+        k = min(5, max(1, len(hist)-1))
+        finestra = hist["volume"].iloc[-k:-1]
+        volume_medio = finestra.mean() if len(finestra) else volume_attuale
+
+
+    n = min(21, max(1, len(hist)-1))
+    prev_highs = hist["high"].iloc[-n:-1]
+    prev_lows  = hist["low"].iloc[-n:-1]
+    massimo_20 = prev_highs.max() if len(prev_highs) else ultimo["high"]
+    minimo_20  = prev_lows.min()  if len(prev_lows)  else ultimo["low"]
+    atr = float(atr) if pd.notna(atr) else 0.0
+
+    
     escursione_media = (hist["high"] - hist["low"]).iloc[-10:].mean()
+    if pd.isna(escursione_media) or escursione_media <= 0:
+        escursione_media = max(
+            (hist["high"] - hist["low"]).tail(3).mean(),
+            atr,          # <-- era float(atr) if pd.notna(atr) else 0.0
+            1e-9,
+        )
+
     distanza_ema = abs(ema7 - ema25)
     distanza_ok = _frac_of_close(distanza_ema, close_s) > _p("distanza_minima")
     curvatura_ema25 = ema25 - penultimo["EMA_25"]
@@ -722,8 +754,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # Breakout
     # ------------------------------------------------------------------
     breakout_valido = False
-    massimo_20 = hist["high"].iloc[-21:-1].max()
-    minimo_20 = hist["low"].iloc[-21:-1].min()
     corpo_candela = abs(ultimo["close"] - ultimo["open"])
 
     if close > massimo_20 and volume_attuale > volume_medio * 1.5:
@@ -739,10 +769,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout? Vol↓")
 
+    # ✅ Promuovi il quick pump a breakout
+    if pump_flag and not breakout_valido:
+        breakout_valido = True
+        punteggio_trend += 1
+
     # ------------------------------------------------------------------
     # Rilevamento Pump Verticale
     # ------------------------------------------------------------------
-
 
     try:
         corpo_candela = abs(ultimo["close"] - ultimo["open"])
@@ -768,7 +802,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         wick_ratio = _safe_div(upper_wick + lower_wick, max(range_candela, 1e-9))
         body_frac  = _safe_div(corpo_candela,           max(range_candela, 1e-9))
 
-        cond_range    = range_candela > RANGE_ATR * atr
+        atr_eff = atr if atr > 0 else max(escursione_media, close_s * 0.003) #ultima aggiunta
+        cond_range = range_candela > RANGE_ATR * atr_eff #ultima aggiunta
+      
         cond_corpo    = corpo_candela > BODY_MULT * max(corpo_ref, 1e-9)
         cond_volume   = volume_attuale > VOL_MULT * max(volume_ref, 1e-9)
         cond_wick     = wick_ratio < WICK_MAX
@@ -847,8 +883,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     # Condizione base per strategia + override coerente
     if sistema == "EMA":
-        cond_base = (trend_up or recupero_buy or breakout_valido)
-        pattern_buy_override = False          # niente override da pattern qui
+        cond_base = (trend_up or recupero_buy or breakout_valido or pump_flag)
+        pattern_buy_override = False
     elif sistema == "DB":
         cond_base = pattern_db_ok
         pattern_buy_override = pattern_db_ok
@@ -860,7 +896,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         pattern_buy_override = False
 
     # Se distanza EMA insufficiente, disattiva tutto
-    if not distanza_ok:
+    if not distanza_ok and not pump_flag:
         cond_base = False
         pattern_buy_override = False
 
