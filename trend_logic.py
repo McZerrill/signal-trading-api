@@ -1,5 +1,9 @@
 import pandas as pd
-from patterns import detect_double_bottom, detect_ascending_triangle
+from patterns import (
+    detect_double_bottom,
+    detect_ascending_triangle,
+    detect_price_channel,   
+)
 from indicators import (
     calcola_rsi,
     calcola_macd,
@@ -824,13 +828,40 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         logging.warning(f"⚠️ Errore rilevamento pump: {e}")
 
     # ------------------------------------------------------------------
+    # --- Canale di prezzo ---
+    # ------------------------------------------------------------------
+    
+    try:
+        chan = detect_price_channel(
+            hist, lookback=200, min_touches_side=2,
+            parallel_tolerance=0.20, touch_tol_mult_atr=0.55,
+            min_confidence=0.55, require_volume_for_breakout=True,
+            breakout_vol_mult=1.30
+        )
+    except Exception as e:
+        logging.warning(f"⚠️ Errore channel detection: {e}")
+        chan = {}
+
+    if chan.get("found"):
+        note.append(
+            f"🛤️ Channel {chan['type']} ({int(chan['confidence']*100)}%) "
+            f"touches U/L: {chan['touches_upper']}/{chan['touches_lower']}"
+        )
+        if chan.get("breakout_confirmed"):
+            side = "↑" if chan.get("breakout_side") == "up" else "↓"
+            note.append(f"💥 Breakout canale {side}")
+            breakout_valido = True
+            punteggio_trend += 1
+
+
+
+    # ------------------------------------------------------------------
     # Pattern strutturali (solo BUY)
     # ------------------------------------------------------------------
     p_db  = detect_double_bottom(hist, lookback=180, neckline_confirm=True) or {}
     p_tri = detect_ascending_triangle(hist, lookback=200, breakout_confirm=True) or {}
 
     def _pattern_recent(p: dict, max_age: int = 40) -> bool:
-        """Considera recente se il breakout (o il secondo bottom) è entro max_age barre."""
         pts = p.get("points", {}) or {}
         candidates = [
             p.get("breakout_index"),
@@ -842,7 +873,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         for idx in candidates:
             if idx is None:
                 continue
-            # prova come label del df; se fallisce, prova a castare a int (es. RangeIndex)
             try:
                 pos = hist.index.get_loc(idx)
             except Exception:
@@ -850,8 +880,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                     pos = int(idx)
                 except Exception:
                     continue
-            return (len(hist) - 1 - pos) <= max_age
-        # se non riusciamo a dedurre una posizione, non filtriamo per età
+            if (len(hist) - 1 - pos) <= max_age:
+                return True
+        # se non databile, mantieni permissivo come ora
         return True
 
 
@@ -1031,7 +1062,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     soglia_macd = _p("macd_signal_threshold")
     if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < soglia_macd:
         note.append(f"⚠️ RSI ({rsi:.1f}) e MACD neutri (gap={macd_gap:.5f}): probabilità ridotta")
-        probabilita = max(probabilita - 10, 5)
+        
 
     # Controllo facoltativo EMA 1m
     if not DISATTIVA_CHECK_EMA_1M:
@@ -1098,7 +1129,19 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             elif pattern in ("Bullish Harami", "🤰 Bullish Harami"):
                 prob_fusa = min(1.0, prob_fusa + 0.02)   # +2% affidabilità
 
-        #note.append("⚡ Boost Probabilità Pump")
+        # Soft boost su prob_fusa per canale trend
+
+        CHANNEL_SOFT_BOOST = 0.01      # base
+        CHANNEL_SOFT_BOOST_BO = 0.015  # extra se breakout del canale
+
+        if chan.get('found'):
+            # Coerente con SOLO_BUY: canale ascendente o laterale
+            if segnale == "BUY" and chan.get("type") in ("ascending", "sideways"):
+                prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST * chan["confidence"])
+                if chan.get("breakout_confirmed") and chan.get("breakout_side") == "up":
+                    prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST_BO * chan["confidence"])
+
+        # ... boost pattern, boost canale, eventuale boost pump ...
         note.append(f"🧪 Attendibilità: {round(prob_fusa*100)}%")
 
         # Gate di entrata coerente con prob_fusa
