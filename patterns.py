@@ -182,19 +182,25 @@ def detect_price_channel(
     hist: pd.DataFrame,
     lookback: int = 200,
     min_touches_side: int = 2,
-    parallel_tolerance: float = 0.20,    # max 20% di differenza tra pendenze
-    touch_tol_mult_atr: float = 0.55,    # tolleranza = 0.55 * ATR (fallback su ampiezza/200)
+    parallel_tolerance: float = 0.20,    # max 20% di differenza relativa tra pendenze
+    touch_tol_mult_atr: float = 0.55,    # tolleranza tocchi = 0.55 * ATR (fallback su ampiezza/200)
     min_confidence: float = 0.55,
     require_volume_for_breakout: bool = True,
     breakout_vol_mult: float = 1.30,
 ):
     """
-    Rileva canale di prezzo (ascending/descending/sideways).
-    Ritorna dict con chiavi:
-      - found (bool), type ('ascending'|'descending'|'sideways'|''), confidence (0..1)
-      - slope_upper, slope_lower, intercept_upper, intercept_lower
-      - width_now, touches_upper, touches_lower, points (indici di tocchi)
-      - breakout_confirmed (bool), breakout_side ('up'|'down'|'')
+    Rileva un canale di prezzo (ascending/descending/sideways) su 'lookback' barre.
+
+    Ritorna un dict:
+      - found: bool
+      - type: 'ascending' | 'descending' | 'sideways' | ''
+      - confidence: float 0..1
+      - slope_upper, slope_lower, intercept_upper, intercept_lower: float
+      - width_now: ampiezza canale sull'ultima barra
+      - touches_upper, touches_lower: num tocchi entro tolleranza
+      - points: {'upper_idx': [Index|int], 'lower_idx': [Index|int]}
+      - breakout_confirmed: bool
+      - breakout_side: 'up' | 'down' | ''
     """
     out = {
         "found": False, "type": "", "confidence": 0.0,
@@ -205,48 +211,65 @@ def detect_price_channel(
         "breakout_confirmed": False, "breakout_side": ""
     }
 
-    if hist is None or len(hist) < max(lookback, 30):
+    # Dati minimi
+    if hist is None or len(hist) < 30:
+        return out
+    req_cols = {"high", "low", "close"}
+    if not req_cols.issubset(hist.columns):
         return out
 
+    # Usa anche se len(df) < lookback
     df = hist.tail(lookback).copy()
     n = len(df)
     x = np.arange(n).astype(float)
 
-    # Serie per fit
     highs = df["high"].values.astype(float)
     lows  = df["low"].values.astype(float)
 
+    # Fit lineare upper/lower + R^2
     m_u, q_u, r2_u = _fit_line(x, highs)
     m_l, q_l, r2_l = _fit_line(x, lows)
+
+    # Linee e valori correnti
+    upper_line = m_u * x + q_u
+    lower_line = m_l * x + q_l
+    upper_now  = float(upper_line[-1])
+    lower_now  = float(lower_line[-1])
+
+    # Se per numerica capita lower > upper, normalizza i lati
+    if lower_now > upper_now:
+        m_u, m_l = m_l, m_u
+        q_u, q_l = q_l, q_u
+        upper_line, lower_line = lower_line, upper_line
+        upper_now, lower_now = lower_now, upper_now
+        r2_u, r2_l = r2_l, r2_u
+
+    width_now = max(upper_now - lower_now, 1e-12)
 
     # Parallelismo (relativo)
     denom = max(abs(m_u), abs(m_l), 1e-12)
     par_err = abs(m_u - m_l) / denom
     parallel_ok = par_err <= parallel_tolerance
 
-    # Ampiezza canale "istantanea"
-    upper_now = m_u * (n - 1) + q_u
-    lower_now = m_l * (n - 1) + q_l
-    width_now = max(upper_now - lower_now, 1e-12)
-
     # Tolleranza tocchi: ATR o fallback su ampiezza canale
-    atr_now = float(df["ATR"].iloc[-1]) if "ATR" in df.columns and pd.notna(df["ATR"].iloc[-1]) else 0.0
-    touch_tol = touch_tol_mult_atr * atr_now if atr_now > 0 else width_now / 200.0
+    if "ATR" in df.columns and pd.notna(df["ATR"].iloc[-1]):
+        atr_now = float(df["ATR"].iloc[-1])
+    else:
+        atr_now = 0.0
+    touch_tol = (touch_tol_mult_atr * atr_now) if atr_now > 0 else (width_now / 200.0)
 
-    # Conta tocchi (distanza verticale entro tolleranza)
-    upper_line = m_u * x + q_u
-    lower_line = m_l * x + q_l
+    # Conta tocchi su entrambi i lati (distanza verticale entro tolleranza)
     dist_up = np.abs(highs - upper_line)
     dist_lo = np.abs(lows  - lower_line)
+    up_mask = dist_up <= touch_tol
+    lo_mask = dist_lo <= touch_tol
 
-    up_idx = np.where(dist_up <= touch_tol)[0].tolist()
-    lo_idx = np.where(dist_lo <= touch_tol)[0].tolist()
-
+    up_idx = df.index.to_numpy()[up_mask].tolist()
+    lo_idx = df.index.to_numpy()[lo_mask].tolist()
     touches_up = len(up_idx)
     touches_lo = len(lo_idx)
 
-    # Direzione canale
-    ch_type = ""
+    # Tipo canale
     if m_u > 0 and m_l > 0:
         ch_type = "ascending"
     elif m_u < 0 and m_l < 0:
@@ -254,54 +277,49 @@ def detect_price_channel(
     else:
         ch_type = "sideways"
 
-    # Qualità del fit
+    # Qualità del fit / copertura tocchi
     r2_score = max(0.0, (r2_u + r2_l) / 2.0)
+    touches_score = min((touches_up + touches_lo) / (2.0 * max(1, min_touches_side)), 1.0)
+    coverage_score = 1.0 if (touches_up >= min_touches_side and touches_lo >= min_touches_side) else 0.0
+    par_score = max(0.0, 1.0 - min(par_err / max(parallel_tolerance, 1e-12), 1.0))
 
-    # Copertura tocchi su entrambi i lati
-    touches_ok = (touches_up >= min_touches_side) and (touches_lo >= min_touches_side)
-
-    # Confidence (pesi semplici: parallellismo, r2, tocchi, copertura)
-    # clamp in [0..1]
-    par_score = max(0.0, 1.0 - min(par_err / parallel_tolerance, 1.0))
-    touches_score = min((touches_up + touches_lo) / (2.0 * min_touches_side), 1.0)
-    coverage_score = 1.0 if touches_ok else 0.0
     confidence = 0.35 * par_score + 0.35 * r2_score + 0.20 * touches_score + 0.10 * coverage_score
     confidence = max(0.0, min(confidence, 1.0))
 
-    # Se non è parallelo o non abbastanza toccato, abort
+    # Filtro qualità minima
     if not parallel_ok or confidence < min_confidence:
         return out
 
-    # Breakout su ultima candela
+    # Breakout sull'ultima candela (con filtro volume opzionale)
     close_last = float(df["close"].iloc[-1])
     high_last  = float(df["high"].iloc[-1])
     low_last   = float(df["low"].iloc[-1])
-    vol_last   = float(df["volume"].iloc[-1]) if "volume" in df.columns else 0.0
-    vol_mean   = float(df["volume"].iloc[:-1].mean()) if "volume" in df.columns and len(df) > 1 else 0.0
+    if "volume" in df.columns and len(df) > 1:
+        vol_last = float(df["volume"].iloc[-1])
+        vol_mean = float(df["volume"].iloc[:-1].mean())
+    else:
+        vol_last, vol_mean = 0.0, 0.0
 
-    upper_last = upper_now
-    lower_last = lower_now
+    bo_tol = (0.3 * atr_now) if atr_now > 0 else (width_now * 0.08)
+    upper_edge = upper_now + bo_tol
+    lower_edge = lower_now - bo_tol
 
-    # tolleranza breakout: 0.3*ATR o 8% ampiezza canale (fallback)
-    bo_tol = 0.3 * atr_now if atr_now > 0 else width_now * 0.08
-
-    breakout_up   = (close_last > upper_last + bo_tol) or (high_last > upper_last + bo_tol)
-    breakout_down = (close_last < lower_last - bo_tol) or (low_last  < lower_last - bo_tol)
+    breakout_up   = (close_last > upper_edge) or (high_last > upper_edge)
+    breakout_down = (close_last < lower_edge) or (low_last  < lower_edge)
 
     if require_volume_for_breakout and vol_mean > 0:
         breakout_up   = breakout_up   and (vol_last > vol_mean * breakout_vol_mult)
         breakout_down = breakout_down and (vol_last > vol_mean * breakout_vol_mult)
 
-    out.update({
+    return {
         "found": True,
         "type": ch_type,
         "confidence": confidence,
-        "slope_upper": m_u, "slope_lower": m_l,
-        "intercept_upper": q_u, "intercept_lower": q_l,
-        "width_now": width_now,
-        "touches_upper": touches_up, "touches_lower": touches_lo,
+        "slope_upper": float(m_u), "slope_lower": float(m_l),
+        "intercept_upper": float(q_u), "intercept_lower": float(q_l),
+        "width_now": float(width_now),
+        "touches_upper": int(touches_up), "touches_lower": int(touches_lo),
         "points": {"upper_idx": up_idx, "lower_idx": lo_idx},
         "breakout_confirmed": bool(breakout_up or breakout_down),
         "breakout_side": "up" if breakout_up else ("down" if breakout_down else "")
-    })
-    return out
+    }
