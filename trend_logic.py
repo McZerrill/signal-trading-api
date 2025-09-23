@@ -195,6 +195,36 @@ def pattern_contrario(segnale: str, pattern: str) -> bool:
         segnale == "SELL" and pattern and "Hammer" in pattern
     )
 
+def sintetizza_canale(chan: dict, solo_buy: bool = True) -> str:
+    """
+    Restituisce una riga corta per la notifica Android, es.: 
+    '🛤️ Canale ↑ 74% • Compra'
+    Operatività: 1 parola (Compra / Vendi / Attendi / Evita).
+    """
+    if not chan or not chan.get("found"):
+        return ""
+
+    tipo = chan.get("type", "")
+    freccia = {"ascending": "↑", "descending": "↓", "sideways": "↔︎"}.get(tipo, "•")
+    conf = int(round(float(chan.get("confidence", 0) * 100)))
+
+    # Operatività (1 parola)
+    op = "Attendi"
+    bo = bool(chan.get("breakout_confirmed"))
+    side = chan.get("breakout_side", "")
+
+    if tipo == "ascending":
+        op = "Compra" if (bo and side != "down") or conf >= 70 else "Attendi"
+    elif tipo == "sideways":
+        if bo:
+            op = "Compra" if side == "up" else ("Evita" if solo_buy else "Vendi")
+        else:
+            op = "Attendi"
+    elif tipo == "descending":
+        op = "Evita" if solo_buy else ("Vendi" if (bo and side == "down") else "Attendi")
+
+    return f"🛤️ Canale {freccia} {conf}% • {op}"
+
 
 # -----------------------------------------------------------------------------
 # Funzioni originali, ripulite dalle ripetizioni
@@ -643,11 +673,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                
             else:
                 logging.warning("⚠️ Dati insufficienti per l'analisi")
-                return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
+                return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, None
         except Exception as e:
             logging.warning(f"Quick-pump listing check error: {e}")
             logging.warning("⚠️ Dati insufficienti per l'analisi")
-            return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, 0.0
+            return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, None
+
 
 
     hist = enrich_indicators(hist)
@@ -828,9 +859,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         logging.warning(f"⚠️ Errore rilevamento pump: {e}")
 
     # ------------------------------------------------------------------
-    # --- Canale di prezzo ---
+    # --- Canale di prezzo (notifica compatta) ---
     # ------------------------------------------------------------------
-    
     try:
         chan = detect_price_channel(
             hist, lookback=200, min_touches_side=2,
@@ -843,16 +873,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         chan = {}
 
     if chan.get("found"):
-        note.append(
-            f"🛤️ Channel {chan['type']} ({int(chan['confidence']*100)}%) "
-            f"touches U/L: {chan['touches_upper']}/{chan['touches_lower']}"
-        )
+        # Se breakout confermato, allinea la logica esistente
         if chan.get("breakout_confirmed"):
-            side = "↑" if chan.get("breakout_side") == "up" else "↓"
-            note.append(f"💥 Breakout canale {side}")
             breakout_valido = True
             punteggio_trend += 1
 
+        # Una sola riga stile notifica Android (con parola operativa)
+        riga_canale = sintetizza_canale(chan, solo_buy=SOLO_BUY)
+        if riga_canale:
+            note.append(riga_canale)
 
 
     # ------------------------------------------------------------------
