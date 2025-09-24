@@ -245,7 +245,7 @@ def analyze(symbol: str):
                 if ok_daily:
                     note.append("📅 1d✓")
                 else:
-                    note.append(f"⚠️ 1d in conflitto (daily={daily_state})")
+                    note.append(f"⚠️ Daily in conflitto ({daily_state})")
 
             logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
             posizioni_attive[symbol] = {
