@@ -1124,7 +1124,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         if not (trend_up or trend_down):
             note.append("🔍 Nessun segnale: trend indeciso")
         else:
-            note.append("⏸️ Nessun ingresso: criteri non soddisfatti")
+            note.append("⏸️ Criteri incompleti su 15m")
 
 
     if segnale == "HOLD":
