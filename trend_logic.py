@@ -97,6 +97,19 @@ _PARAMS_PROD = {
 }
 
 
+# --- Helper per resample OHLCV (15m -> 1h) ---
+def _resample_ohlcv(df: pd.DataFrame, rule: str = "1H") -> pd.DataFrame:
+    if not {"open","high","low","close","volume"}.issubset(df.columns):
+        return pd.DataFrame()
+    out = (
+        df[["open","high","low","close","volume"]]
+        .resample(rule, label="right", closed="right")
+        .agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum"})
+        .dropna()
+    )
+    return out
+
+
 def _p(key):
     """Restituisce il parametro attivo (test o produzione)."""
     params = _PARAMS_TEST if MODALITA_TEST else _PARAMS_PROD
@@ -859,27 +872,68 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         logging.warning(f"⚠️ Errore rilevamento pump: {e}")
 
     # ------------------------------------------------------------------
-    # --- Canale di prezzo (notifica compatta) ---
+    # --- Canale di prezzo (15m + validazione 1h) ---
     # ------------------------------------------------------------------
+    channel_prob_adj = 0.0   # verrà applicato più avanti, dopo il calcolo di prob_fusa
+    gate_buy_canale  = False  # opzionale: blocca BUY contro canale 1h discendente forte
+
     try:
-        chan = detect_price_channel(
+        chan_15 = detect_price_channel(
             hist, lookback=200, min_touches_side=2,
             parallel_tolerance=0.20, touch_tol_mult_atr=0.55,
             min_confidence=0.55, require_volume_for_breakout=True,
             breakout_vol_mult=1.30
         )
     except Exception as e:
-        logging.warning(f"⚠️ Errore channel detection: {e}")
-        chan = {}
+        logging.warning(f"⚠️ Errore channel detection 15m: {e}")
+        chan_15 = {}
 
-    if chan.get("found"):
-        # Se breakout confermato, allinea la logica esistente
-        if chan.get("breakout_confirmed"):
+    # Prova a costruire un 1h dal 15m (se non disponi già di hist_1h)
+    try:
+        df_1h = _resample_ohlcv(hist, "1H")
+        if len(df_1h) >= 30:
+            chan_1h = detect_price_channel(
+                df_1h, lookback=200, min_touches_side=3,
+                parallel_tolerance=0.15, touch_tol_mult_atr=0.50,
+                min_confidence=0.65, require_volume_for_breakout=True,
+                breakout_vol_mult=1.30
+            )
+        else:
+            chan_1h = {}
+    except Exception as e:
+        logging.warning(f"⚠️ Errore channel detection 1h: {e}")
+        chan_1h = {}
+
+    if chan_15.get("found"):
+        # allinea la tua logica esistente per il breakout 15m
+        if chan_15.get("breakout_confirmed"):
             breakout_valido = True
             punteggio_trend += 1
 
-        # Una sola riga stile notifica Android (con parola operativa)
-        riga_canale = sintetizza_canale(chan, solo_buy=SOLO_BUY)
+        # boost/malus e gate in base al canale 1h
+        if chan_1h.get("found"):
+            t1h   = chan_1h.get("type", "")
+            c1h   = float(chan_1h.get("confidence", 0.0))
+            strong_1h = c1h >= 0.65
+
+            if t1h == "ascending" and strong_1h:
+                channel_prob_adj = +0.02 * c1h  # piccolo boost per BUY coerenti
+            elif t1h == "descending" and strong_1h:
+                channel_prob_adj = -0.02 * c1h  # malus su BUY
+                if SOLO_BUY and not (chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "up") and not pump_flag:
+                    gate_buy_canale = True      # opzionale: blocca BUY contro-trend 1h
+
+        # Notifica compatta su un rigo (icona, freccia, %, 1 parola operativa)
+        # di default usiamo la sintesi 15m
+        riga_canale = sintetizza_canale(chan_15, solo_buy=SOLO_BUY)
+
+        # se 1h è discendente forte, forziamo l’operatività a una parola più prudente
+        if chan_1h.get("found") and chan_1h.get("type") == "descending" and float(chan_1h.get("confidence",0)) >= 0.65:
+            freccia = {"ascending":"↑","descending":"↓","sideways":"↔︎"}.get(chan_15.get("type",""), "•")
+            conf15  = int(round(float(chan_15.get("confidence",0)*100)))
+            op_word = "Evita" if SOLO_BUY else "Vendi"
+            riga_canale = f"🛤️ Canale {freccia} {conf15}% • {op_word}"
+
         if riga_canale:
             note.append(riga_canale)
 
@@ -1172,6 +1226,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
         # ... boost pattern, boost canale, eventuale boost pump ...
         note.append(f"🧪 Attendibilità: {round(prob_fusa*100)}%")
+
+        # applica piccolo boost/malus dal multi-TF del canale
+        prob_fusa = max(0.0, min(1.0, prob_fusa + channel_prob_adj))
+        if gate_buy_canale and segnale == "BUY" and not pump_flag:
+            note.append("⛔ Gate multi-TF: canale 1h discendente forte")
+            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
+
 
         # Gate di entrata coerente con prob_fusa
         P_ENTER = 0.62
