@@ -1217,15 +1217,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         CHANNEL_SOFT_BOOST = 0.01      # base
         CHANNEL_SOFT_BOOST_BO = 0.015  # extra se breakout del canale
 
-        if chan.get('found'):
-            # Coerente con SOLO_BUY: canale ascendente o laterale
-            if segnale == "BUY" and chan.get("type") in ("ascending", "sideways"):
-                prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST * chan["confidence"])
-                if chan.get("breakout_confirmed") and chan.get("breakout_side") == "up":
-                    prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST_BO * chan["confidence"])
+        if chan_15.get('found'):
+            if segnale == "BUY" and chan_15.get("type") in ("ascending", "sideways"):
+                prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST * chan_15["confidence"])
+                if chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "up":
+                    prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST_BO * chan_15["confidence"])
 
-        # ... boost pattern, boost canale, eventuale boost pump ...
-        note.append(f"🧪 Attendibilità: {round(prob_fusa*100)}%")
+        
 
         # applica piccolo boost/malus dal multi-TF del canale
         prob_fusa = max(0.0, min(1.0, prob_fusa + channel_prob_adj))
@@ -1233,6 +1231,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             note.append("⛔ Gate multi-TF: canale 1h discendente forte")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
+        # ... boost pattern, boost canale, eventuale boost pump ...
+        note.append(f"🧪 Attendibilità: {round(prob_fusa*100)}%")
 
 
         # Gate di entrata coerente con prob_fusa
