@@ -11,6 +11,8 @@ from trend_logic import analizza_trend, conta_candele_trend, riconosci_pattern_c
 from indicators import calcola_rsi, calcola_macd, calcola_atr
 from models import SignalResponse
 
+from top_mover_scanner import start_top_mover_scanner
+
 logging.basicConfig(
     filename="log.txt",
     level=logging.DEBUG,
@@ -355,6 +357,31 @@ def analyze(symbol: str):
         )
 
         # <-- PAUSA -->
+
+# ===== Avvio scanner Top Movers (evita doppio avvio) =====
+_SCANNER_STARTED = False
+
+def _ensure_scanner():
+    global _SCANNER_STARTED
+    if _SCANNER_STARTED:
+        return
+    try:
+        # puoi cambiare gli intervalli/soglie come preferisci
+        start_top_mover_scanner(
+            analyze_fn=analyze,          # <— gli passo la tua analyze
+            interval_sec=30,             # scansione ogni 30s
+            gain_threshold_normale=0.10, # +10% in 1m
+            gain_threshold_listing=1.00  # +100% (coin nuova / 1 candela)
+        )
+        _SCANNER_STARTED = True
+        logging.info("✅ Top Mover Scanner avviato da routes.py")
+    except Exception as e:
+        logging.error(f"❌ Impossibile avviare lo scanner: {e}")
+
+_ensure_scanner()
+# =========================================================
+
+
 @router.get("/price")
 def get_price(symbol: str):
     import time
