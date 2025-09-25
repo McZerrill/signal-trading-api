@@ -2,73 +2,75 @@ import time
 import requests
 import logging
 from threading import Thread
-
-# Importa la tua funzione di analisi
-from routes import analyze
+from typing import Callable, Optional
 
 
 def scan_top_movers(
+    analyze_fn: Callable[[str], any],
     interval_sec: int = 60,
-    gain_threshold_normale: float = 0.10,  # +10% per coin già attive
+    gain_threshold_normale: float = 0.10,  # +10% in 1m rispetto alla candela precedente
     gain_threshold_listing: float = 1.00   # +100% per coin appena listate (1 sola candela)
 ):
     """
     Scanner top mover Binance (1m).
-    - Se coin normale (>=2 barre 1m): allerta se ultima candela > gain_threshold_normale rispetto alla precedente.
-    - Se nuovo listing (1 candela): allerta se candela > gain_threshold_listing rispetto all'open e candela piena.
+
+    - Caso A (>=2 barre): allerta se l'ultima close è > +gain_threshold_normale rispetto alla precedente.
+    - Caso B (1 sola barra = nuovo listing): allerta se (close/open) - 1 >= gain_threshold_listing
+      e la candela è 'piena' (body >= 70% del range).
     """
     url_tickers = "https://api.binance.com/api/v3/ticker/24hr"
     url_klines = "https://api.binance.com/api/v3/klines"
 
+    sess = requests.Session()
+
     while True:
         try:
-            # 1) Prendi tutti i ticker
-            tickers = requests.get(url_tickers, timeout=5).json()
-            movers = [d for d in tickers if d["symbol"].endswith("USDT")]
+            tickers = sess.get(url_tickers, timeout=5).json()
+            # Se vuoi includere anche USDC, usa:  if d["symbol"].endswith(("USDT","USDC"))
+            movers = [d for d in tickers if d.get("symbol","").endswith("USDT")]
 
             for d in movers:
                 symbol = d["symbol"]
 
                 try:
-                    # 2) Prendi fino a 3 candele da 1m
-                    kl = requests.get(
+                    kl = sess.get(
                         url_klines,
                         params={"symbol": symbol, "interval": "1m", "limit": 3},
                         timeout=3
                     ).json()
-
                     if not kl:
                         continue
 
-                    # Caso A: almeno 2 barre disponibili
+                    # ---- Caso A: almeno 2 barre disponibili
                     if len(kl) >= 2:
                         prev_close = float(kl[-2][4])
                         last_close = float(kl[-1][4])
                         if prev_close > 0:
-                            gain = (last_close / prev_close) - 1
+                            gain = (last_close / prev_close) - 1.0
                             if gain >= gain_threshold_normale:
                                 logging.info(f"🔥 Top mover rilevato: {symbol} {gain:.2%}")
                                 try:
-                                    result = analyze(symbol)
+                                    result = analyze_fn(symbol)
                                     logging.info(f"[TopMover] {symbol} → {result.segnale} | {result.commento}")
                                 except Exception as e:
-                                    logging.warning(f"[TopMover] errore analyze {symbol}: {e}")
+                                    logging.warning(f"[TopMover] analyze error {symbol}: {e}")
 
-                    # Caso B: nuovo listing (1 sola candela)
+                    # ---- Caso B: nuovo listing (1 sola candela)
                     if len(kl) == 1:
-                        o, h, l, c, v = float(kl[0][1]), float(kl[0][2]), float(kl[0][3]), float(kl[0][4]), float(kl[0][5])
+                        o, h, l, c, v = map(float, (kl[0][1], kl[0][2], kl[0][3], kl[0][4], kl[0][5]))
                         if o > 0:
-                            gain = (c / o) - 1
+                            gain = (c / o) - 1.0
                             body_frac = abs(c - o) / max(h - l, 1e-9)
-                            if gain >= gain_threshold_listing and body_frac >= 0.7:
+                            if gain >= gain_threshold_listing and body_frac >= 0.70:
                                 logging.info(f"🚀 NUOVO LISTING sospetto pump: {symbol} {gain:.2%}")
                                 try:
-                                    result = analyze(symbol)
+                                    result = analyze_fn(symbol)
                                     logging.info(f"[ListingPump] {symbol} → {result.segnale} | {result.commento}")
                                 except Exception as e:
-                                    logging.warning(f"[ListingPump] errore analyze {symbol}: {e}")
+                                    logging.warning(f"[ListingPump] analyze error {symbol}: {e}")
 
-                except Exception:
+                except Exception as e:
+                    logging.debug(f"[scan_loop] skip {symbol}: {e}")
                     continue
 
         except Exception as e:
@@ -78,6 +80,7 @@ def scan_top_movers(
 
 
 def start_top_mover_scanner(
+    analyze_fn: Callable[[str], any],
     interval_sec: int = 60,
     gain_threshold_normale: float = 0.10,
     gain_threshold_listing: float = 1.00
@@ -88,6 +91,7 @@ def start_top_mover_scanner(
     t = Thread(
         target=scan_top_movers,
         kwargs={
+            "analyze_fn": analyze_fn,  # <— passiamo la callback
             "interval_sec": interval_sec,
             "gain_threshold_normale": gain_threshold_normale,
             "gain_threshold_listing": gain_threshold_listing,
@@ -105,6 +109,11 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S"
     )
-    start_top_mover_scanner()
+
+    # Esempio di callback fittizia per test manuale:
+    def _fake_analyze(sym: str):
+        class R: segnale="HOLD"; commento="test"
+        return R()
+    start_top_mover_scanner(_fake_analyze)
     while True:
-        time.sleep(3600)  # mantiene vivo il main thread
+        time.sleep(3600)
