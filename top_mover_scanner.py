@@ -27,7 +27,7 @@ def scan_top_movers(
         try:
             tickers = sess.get(url_tickers, timeout=5).json()
             # Se vuoi includere anche USDC, usa:  if d["symbol"].endswith(("USDT","USDC"))
-            movers = [d for d in tickers if d.get("symbol","").endswith("USDT")]
+            movers = [d for d in tickers if d.get("symbol","").endswith("USDC")]
 
             for d in movers:
                 symbol = d["symbol"]
