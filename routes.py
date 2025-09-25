@@ -368,11 +368,15 @@ def _ensure_scanner():
     try:
         # puoi cambiare gli intervalli/soglie come preferisci
         start_top_mover_scanner(
-            analyze_fn=analyze,          # <— gli passo la tua analyze
-            interval_sec=30,             # scansione ogni 30s
-            gain_threshold_normale=0.10, # +10% in 1m
-            gain_threshold_listing=1.00  # +100% (coin nuova / 1 candela)
+            analyze_fn=analyze,
+            interval_sec=30,
+            gain_threshold_normale=0.10,
+            gain_threshold_listing=1.00,
+            quote_suffix=("USDC","USDT"),
+            top_n_24h=80,
+            cooldown_sec=180,
         )
+
         _SCANNER_STARTED = True
         logging.info("✅ Top Mover Scanner avviato da routes.py")
     except Exception as e:
