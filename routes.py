@@ -46,6 +46,46 @@ def analyze(symbol: str):
         if spread > 5.0:
             try:
                 df_15m_tmp = get_binance_df(symbol, "15m", 50)
+
+                # calcolo prudente del close per eventuale notifica
+                close_tmp = 0.0
+                if not df_15m_tmp.empty:
+                    close_tmp = round(float(df_15m_tmp.iloc[-1]["close"]), 6)
+
+                # --- eccezione: listing pump rilevato -> notifica comunque con warning ---
+                try:
+                    if len(df_15m_tmp) >= 2:
+                        u = df_15m_tmp.iloc[-1]; p = df_15m_tmp.iloc[-2]
+                        corpo   = abs(u["close"] - u["open"])
+                        range_c = u["high"] - u["low"]
+                        body_frac = corpo / max(range_c, 1e-9)
+                        corpo_ref  = (df_15m_tmp["close"] - df_15m_tmp["open"]).iloc[:-1].abs().median() if len(df_15m_tmp) > 3 else abs(p["close"] - p["open"])
+                        volume_ref = df_15m_tmp["volume"].iloc[:-1].median() if ("volume" in df_15m_tmp.columns and len(df_15m_tmp) > 3) else float(p["volume"]) if "volume" in df_15m_tmp.columns else 0.0
+
+
+                        COND_GAIN   = (u["close"] / max(u["open"], 1e-9)) >= 2.0
+                        COND_BODY   = body_frac >= 0.70
+                        COND_CORPO  = corpo >= 3.0 * max(corpo_ref, 1e-9)
+                        COND_VOLUME = ("volume" in df_15m_tmp.columns) and (u["volume"] >= 2.5 * max(volume_ref, 1e-9))
+
+                        if (COND_GAIN and COND_BODY and (COND_CORPO or COND_VOLUME)):
+                            return SignalResponse(
+                                symbol=symbol,
+                                segnale="BUY",
+                                commento="🚀 Listing pump rilevato • ⚠️ Spread elevato: operazione ad altissimo rischio",
+                                prezzo=close_tmp if close_tmp > 0 else round(float(u["close"]), 6),
+                                take_profit=0.0,
+                                stop_loss=0.0,
+                                rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
+                                ema7=0.0, ema25=0.0, ema99=0.0,
+                                timeframe="15m",
+                                spread=spread,
+                                motivo="Listing pump (override spread)",
+                                chiusa_da_backend=False
+                            )
+                except Exception:
+                    pass
+
                 if df_15m_tmp.empty:
                     raise ValueError("DataFrame vuoto")
                 ultimo_tmp = df_15m_tmp.iloc[-1]
@@ -391,6 +431,40 @@ def hot_assets():
     for symbol in symbols:
         try:
             df = get_binance_df(symbol, "15m", 100)
+            # --- Fast-path per LISTING PUMP anche con storico corto (<60 barre) ---
+            if len(df) >= 2 and len(df) < 60:
+                ultimo = df.iloc[-1]
+                prev   = df.iloc[-2]
+
+                # spike verticale su 1 candela
+                corpo     = abs(ultimo["close"] - ultimo["open"])
+                range_c   = ultimo["high"] - ultimo["low"]
+                body_frac = corpo / max(range_c, 1e-9)
+
+                # riferimenti minimi robusti
+                corpo_ref  = (df["close"] - df["open"]).iloc[:-1].abs().median() if len(df) > 3 else abs(prev["close"] - prev["open"])
+                volume_ref = df["volume"].iloc[:-1].median() if len(df) > 3 else max(prev["volume"], 1e-9)
+
+                # criteri listing pump (tolleranti, niente ATR/EMA richiesti)
+                COND_GAIN   = (ultimo["close"] / max(ultimo["open"], 1e-9)) >= 2.0    # +100% in barra
+                COND_BODY   = body_frac >= 0.70                                      # candela "piena"
+                COND_CORPO  = corpo >= 3.0 * max(corpo_ref, 1e-9)                    # corpo enorme
+                COND_VOLUME = ultimo["volume"] >= 2.5 * max(volume_ref, 1e-9)        # volume esploso
+
+                if (COND_GAIN and COND_BODY and (COND_CORPO or COND_VOLUME)):
+                    trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
+                    risultati.append({
+                        "symbol": symbol,
+                        "segnali": 1,
+                        "trend": trend_pump,
+                        "rsi": None,
+                        "ema7": 0.0, "ema25": 0.0, "ema99": 0.0,
+                        "prezzo": round(float(ultimo["close"]), 4),
+                        "candele_trend": 1,
+                        "note": "🚀 Listing pump (storico corto)"
+                    })
+                    continue  # salta i filtri classici e marca come hot
+
             if df.empty or len(df) < 60:
                 continue
 
