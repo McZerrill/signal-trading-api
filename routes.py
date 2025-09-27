@@ -54,28 +54,43 @@ def analyze(symbol: str):
                 if not df_15m_tmp.empty:
                     close_tmp = round(float(df_15m_tmp.iloc[-1]["close"]), 6)
 
+                
                 # --- eccezione: listing pump rilevato -> notifica comunque con warning ---
                 try:
-                    if len(df_15m_tmp) >= 2:
-                        u = df_15m_tmp.iloc[-1]; p = df_15m_tmp.iloc[-2]
-                        corpo   = abs(u["close"] - u["open"])
-                        range_c = u["high"] - u["low"]
+                    n = len(df_15m_tmp)
+                    if n >= 1:
+                        u = df_15m_tmp.iloc[-1]
+                        corpo   = abs(float(u["close"]) - float(u["open"]))
+                        range_c = float(u["high"]) - float(u["low"])
                         body_frac = corpo / max(range_c, 1e-9)
-                        corpo_ref  = (df_15m_tmp["close"] - df_15m_tmp["open"]).iloc[:-1].abs().median() if len(df_15m_tmp) > 3 else abs(p["close"] - p["open"])
-                        volume_ref = df_15m_tmp["volume"].iloc[:-1].median() if ("volume" in df_15m_tmp.columns and len(df_15m_tmp) > 3) else float(p["volume"]) if "volume" in df_15m_tmp.columns else 0.0
 
+                        # riferimenti robusti se abbiamo almeno 3 barre, altrimenti fallback
+                        if n >= 3:
+                            corpo_ref  = (df_15m_tmp["close"] - df_15m_tmp["open"]).iloc[:-1].abs().median()
+                            volume_ref = df_15m_tmp["volume"].iloc[:-1].median() if "volume" in df_15m_tmp.columns else 0.0
+                        elif n == 2:
+                            p = df_15m_tmp.iloc[-2]
+                            corpo_ref  = abs(float(p["close"]) - float(p["open"]))
+                            volume_ref = float(p["volume"]) if "volume" in df_15m_tmp.columns else 0.0
+                        else:  # n == 1 → listing appena partito
+                            corpo_ref  = max(corpo, 1e-9)
+                            volume_ref = float(u["volume"]) if "volume" in df_15m_tmp.columns else 0.0
 
-                        COND_GAIN   = (u["close"] / max(u["open"], 1e-9)) >= 2.0
-                        COND_BODY   = body_frac >= 0.70
-                        COND_CORPO  = corpo >= 3.0 * max(corpo_ref, 1e-9)
-                        COND_VOLUME = ("volume" in df_15m_tmp.columns) and (u["volume"] >= 2.5 * max(volume_ref, 1e-9))
+                        # condizioni
+                        COND_LISTING = (float(u["close"]) / max(float(u["open"]), 1e-9)) >= 2.0 and body_frac >= 0.70
+                        COND_CORPO   = corpo >= 3.0 * max(corpo_ref, 1e-9)
+                        COND_VOLUME  = ("volume" in df_15m_tmp.columns) and (float(u["volume"]) >= 2.5 * max(volume_ref, 1e-9))
 
-                        if (COND_GAIN and COND_BODY and (COND_CORPO or COND_VOLUME)):
+                        # se 1 candela → usa COND_LISTING; se >=2 candele → accetta anche corpo/volume esplosi
+                        trigger = (n == 1 and COND_LISTING) or (n >= 2 and (COND_LISTING or (body_frac >= 0.70 and (COND_CORPO or COND_VOLUME))))
+
+                        if trigger:
+                            prezzo_notifica = close_tmp if close_tmp > 0 else round(float(u["close"]), 6)
                             return SignalResponse(
                                 symbol=symbol,
                                 segnale="BUY",
-                                commento="🚀 Listing pump rilevato • ⚠️ Spread elevato: operazione ad altissimo rischio",
-                                prezzo=close_tmp if close_tmp > 0 else round(float(u["close"]), 6),
+                                commento="🚀 Listing/Vertical pump rilevato • ⚠️ Spread elevato: operazione ad altissimo rischio",
+                                prezzo=prezzo_notifica,
                                 take_profit=0.0,
                                 stop_loss=0.0,
                                 rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
@@ -87,6 +102,7 @@ def analyze(symbol: str):
                             )
                 except Exception:
                     pass
+
 
                 if df_15m_tmp.empty:
                     raise ValueError("DataFrame vuoto")
@@ -372,7 +388,7 @@ def _ensure_scanner():
             interval_sec=30,
             gain_threshold_normale=0.10,
             gain_threshold_listing=1.00,
-            quote_suffix=("USDC","USDT"),
+            quote_suffix=("USDC",),
             top_n_24h=80,
             cooldown_sec=180,
         )
