@@ -25,6 +25,7 @@ def get_best_symbols(limit=80):
     try:
         url = "https://api.binance.com/api/v3/ticker/24hr"
         response = requests.get(url, timeout=10)
+        response.raise_for_status()
         data = response.json()
 
         # Filtro su simboli USDC, no token a leva, volume > 1M
@@ -47,8 +48,8 @@ def get_best_symbols(limit=80):
     except Exception as e:
         print("❌ Errore nel recupero simboli Binance:", e)
         return [
-            "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT",
-            "SOLUSDT", "AVAXUSDT", "DOTUSDT", "DOGEUSDT", "MATICUSDT"
+            "BTCUSDC", "ETHUSDC", "BNBUSDC", "XRPUSDC", "ADAUSDC",
+            "SOLUSDC", "AVAXUSDC", "DOTUSDC", "DOGEUSDC", "MATICUSDC"
         ]
 
 
@@ -67,9 +68,12 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
         print(f"❌ Errore nel caricamento candela {symbol}-{interval}: {e}")
         return pd.DataFrame()
 
-    if not klines or len(klines) < 50:
-        print(f"⚠️ Dati insufficienti per {symbol} ({interval}): solo {len(klines)} candele")
+    if not klines:
+        print(f"⚠️ Nessuna candela per {symbol} ({interval})")
         return pd.DataFrame()
+    if len(klines) < 50:
+        print(f"ℹ️ Dati parziali per {symbol} ({interval}): {len(klines)} candele (ok)")
+
 
     df = pd.DataFrame(klines, columns=[
         "timestamp", "open", "high", "low", "close", "volume",
