@@ -101,13 +101,23 @@ _PARAMS_PROD = {
 def _resample_ohlcv(df: pd.DataFrame, rule: str = "1H") -> pd.DataFrame:
     if not {"open","high","low","close","volume"}.issubset(df.columns):
         return pd.DataFrame()
+    _df = df[["open","high","low","close","volume"]].copy()
+
+    # Garantisce DatetimeIndex (se serve prova a convertire l'indice)
+    if not isinstance(_df.index, pd.DatetimeIndex):
+        try:
+            _df.index = pd.to_datetime(_df.index, utc=True, errors="coerce")
+        except Exception:
+            return pd.DataFrame()
+    _df = _df.dropna(subset=["open","high","low","close"])
+
     out = (
-        df[["open","high","low","close","volume"]]
-        .resample(rule, label="right", closed="right")
-        .agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum"})
-        .dropna()
+        _df.resample(rule, label="right", closed="right")
+           .agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum"})
+           .dropna()
     )
     return out
+
 
 
 def _p(key):
@@ -164,7 +174,7 @@ def enrich_indicators(hist: pd.DataFrame) -> pd.DataFrame:
     if "RSI" not in hist.columns:
         hist["RSI"] = calcola_rsi(hist["close"])
 
-    if {"MACD", "MACD_SIGNAL"}.issubset(hist.columns) is False:
+    if not {"MACD", "MACD_SIGNAL"}.issubset(hist.columns):
         hist["MACD"], hist["MACD_SIGNAL"] = calcola_macd(hist["close"])
 
     if "ATR" not in hist.columns:
@@ -1232,7 +1242,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
         # ... boost pattern, boost canale, eventuale boost pump ...
-        note.append(f"🧪 Attendibilità: {round(prob_fusa*100)}%")
+        note.append(f"🧪 Affidabilità: {round(prob_fusa*100)}%")
 
 
         # Gate di entrata coerente con prob_fusa
@@ -1244,10 +1254,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         # TP/SL proporzionale alla probabilità fusa
         ATR_MIN_FRAC = 0.004
         TP_BASE, TP_SPAN = 1.1, 1.2     # TP = 1.1x..2.3x ATR
-        SL_BASE, SL_SPAN = 1.60, 0.10  # SL = 1.0x..0.6x ATR
+        SL_BASE, SL_SPAN = 1.00, 0.40  # SL = 1.0x..0.6x ATR
         RR_MIN = 1.2
         DELTA_MINIMO = 0.1
-        TICK = 0.0001  # TODO: sostituire con tick_size reale del symbol
+        TICK = 0.0001  # TODO: sostituire con tick_size reale del symbol (passalo da fuori se puoi)
 
         atr_eff = atr if atr and atr > 0 else close_s * ATR_MIN_FRAC
 
@@ -1277,7 +1287,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         EPS = 1e-9
         risk = abs(close - sl_raw)
         if risk < EPS:
-            step = 0.2 * (atr_eff if atr_eff > 0 else close_s * 0.003)
+            step = max(TICK, 0.2 * (atr_eff if atr_eff > 0 else close_s * 0.003))
             sl_raw = sl_raw - step if segnale == "BUY" else sl_raw + step
             risk = abs(close - sl_raw)
 
