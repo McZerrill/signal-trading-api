@@ -1,13 +1,13 @@
 from fastapi import APIRouter
-from pytz import timezone
 from datetime import datetime, timezone as dt_timezone
 import time
 import requests
 import logging
 import pandas as pd
-
+# Thread di monitoraggio attivo ogni 5 secondi
+import threading
 from binance_api import get_binance_df, get_best_symbols, get_bid_ask
-from trend_logic import analizza_trend, conta_candele_trend, riconosci_pattern_candela
+from trend_logic import analizza_trend, conta_candele_trend
 from indicators import calcola_rsi, calcola_macd, calcola_atr
 from models import SignalResponse
 
@@ -28,6 +28,7 @@ utc = dt_timezone.utc
 
 # Stato simulazioni attive
 posizioni_attive = {}
+_pos_lock = threading.Lock()
 
 @router.get("/")
 def read_root():
@@ -39,7 +40,9 @@ def analyze(symbol: str):
 
     try:
         symbol = symbol.upper()
-        motivo_attuale = posizioni_attive.get(symbol, {}).get("motivo", "")
+        with _pos_lock:
+            posizione = posizioni_attive.get(symbol)
+            motivo_attuale = (posizione or {}).get("motivo", "")
 
         # 1) Spread PRIMA (early return se eccessivo)
         book = get_bid_ask(symbol)
@@ -164,19 +167,19 @@ def analyze(symbol: str):
         note = note15.split("\n") if note15 else []
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
-        if symbol in posizioni_attive:
+        if posizione:
             logging.info(
                 f"⏳ Simulazione già attiva su {symbol} – tipo: "
-                f"{posizioni_attive[symbol]['tipo']} @ {posizioni_attive[symbol]['entry']}$"
+                f"{posizione['tipo']} @ {posizione['entry']}$"
             )
-            posizione = posizioni_attive[symbol]
 
             # se l’analisi ha “annullato” il segnale → marca la simulazione e restituisci HOLD annotato
             if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
-                posizione["tipo"] = "HOLD"
-                posizione["esito"] = "Annullata"
-                posizione["chiusa_da_backend"] = True
-                posizione["motivo"] = note15
+                with _pos_lock:
+                    posizione["tipo"] = "HOLD"
+                    posizione["esito"] = "Annullata"
+                    posizione["chiusa_da_backend"] = True
+                    posizione["motivo"] = note15
                 return SignalResponse(
                     symbol=symbol,
                     segnale="HOLD",
@@ -306,15 +309,16 @@ def analyze(symbol: str):
                     note.append(f"⚠️ Daily in conflitto ({daily_state})")
 
             logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
-            posizioni_attive[symbol] = {
-                "tipo": segnale,
-                "entry": close,
-                "tp": tp,
-                "sl": sl,
-                "spread": spread,
-                "chiusa_da_backend": False,
-                "motivo": " | ".join(note)
-            }
+            with _pos_lock:
+                posizioni_attive[symbol] = {
+                    "tipo": segnale,
+                    "entry": close,
+                    "tp": tp,
+                    "sl": sl,
+                    "spread": spread,
+                    "chiusa_da_backend": False,
+                    "motivo": " | ".join(note)
+                }
 
 
         commento = "\n".join(note) if note else "Nessuna nota"
@@ -388,9 +392,9 @@ def _ensure_scanner():
             interval_sec=30,
             gain_threshold_normale=0.10,
             gain_threshold_listing=1.00,
-            quote_suffix=("USDC",),
+            quote_suffix=("USDC","USDT"),
             top_n_24h=80,
-            cooldown_sec=180,
+            cooldown_sec=90,
         )
 
         _SCANNER_STARTED = True
@@ -404,7 +408,7 @@ _ensure_scanner()
 
 @router.get("/price")
 def get_price(symbol: str):
-    import time
+    
     start = time.time()
     symbol = symbol.upper()
 
@@ -422,8 +426,8 @@ def get_price(symbol: str):
         prezzo = round((bid + ask) / 2, 4)
 
         elapsed = round(time.time() - start, 3)
-
-        pos = posizioni_attive.get(symbol, {})       # <-- lookup una sola volta
+        with _pos_lock:
+            pos = posizioni_attive.get(symbol, {})       # <-- lookup una sola volta
 
         return {
             "symbol": symbol,
@@ -449,7 +453,7 @@ def get_price(symbol: str):
         }
 
 # Cache e log filtri
-_hot_cache = {"time": 0, "data": [], "valid_until": 0}
+_hot_cache = {"time": 0, "data": []}
 _filtro_log = {
     "totali": 0,
     "atr": 0,
@@ -463,23 +467,23 @@ MODALITA_TEST = True
 @router.get("/hotassets")
 def hot_assets():
     now = time.time()
-    if now < _hot_cache["valid_until"] and now - _hot_cache["time"] < 180:
+    if (now - _hot_cache["time"]) < 180:
         return _hot_cache["data"]
 
-    symbols = get_best_symbols(limit=50)
+    symbols = get_best_symbols(limit=120)
     risultati = []
 
     volume_soglia = 50 if MODALITA_TEST else 300
     atr_minimo = 0.0005 if MODALITA_TEST else 0.0009
     distanza_minima = 0.0006 if MODALITA_TEST else 0.0012
-    macd_rsi_range = (43, 57) if MODALITA_TEST else (47.5, 52.5)
-    macd_signal_threshold = 0.0003 if MODALITA_TEST else 0.0005
+    macd_rsi_range = (42, 58) if MODALITA_TEST else (47.5, 52.5)
+    macd_signal_threshold = 0.0008 if MODALITA_TEST else 0.0005
 
     for symbol in symbols:
         try:
             df = get_binance_df(symbol, "15m", 100)
-            # --- Fast-path per LISTING PUMP anche con storico corto (<60 barre) ---
-            if len(df) >= 2 and len(df) < 60:
+            # --- Fast-path per LISTING PUMP anche con storico corto (<40 barre) ---
+            if len(df) >= 2 and len(df) < 40:
                 ultimo = df.iloc[-1]
                 prev   = df.iloc[-2]
 
@@ -512,15 +516,19 @@ def hot_assets():
                     })
                     continue  # salta i filtri classici e marca come hot
 
-            if df.empty or len(df) < 60:
+            if df.empty or len(df) < 40:
                 continue
 
             _filtro_log["totali"] += 1
 
-            volume_medio = df["volume"].tail(20).mean()
-            if pd.isna(volume_medio) or volume_medio < volume_soglia:
+            prezzo = float(df["close"].iloc[-1])
+            volume_quote_medio = float((df["volume"].tail(20) * df["close"].tail(20)).mean())
+            soglia_quote = 50_000 if MODALITA_TEST else 250_000  # es.: 50k$/candela su 15m
+
+            if pd.isna(volume_quote_medio) or volume_quote_medio < soglia_quote:
                 _filtro_log["volume_basso"] += 1
                 continue
+
 
             df["EMA_7"] = df["close"].ewm(span=7).mean()
             df["EMA_25"] = df["close"].ewm(span=25).mean()
@@ -638,12 +646,10 @@ def hot_assets():
             continue
 
     _hot_cache["time"] = now
-    _hot_cache["valid_until"] = now + 3600
     _hot_cache["data"] = risultati
     return risultati
 
-# Thread di monitoraggio attivo ogni 5 secondi
-import threading
+
 
 # ------------------------------------------------------------------
 # Flag globale: mettilo a True quando vorrai riattivare la gestione
@@ -662,8 +668,12 @@ def verifica_posizioni_attive():
     while True:
         time.sleep(CHECK_INTERVAL_SEC)
 
-        for symbol in list(posizioni_attive.keys()):
-            sim = posizioni_attive.get(symbol)
+        with _pos_lock:
+            _keys_snapshot = list(posizioni_attive.keys())
+
+        for symbol in _keys_snapshot:
+            with _pos_lock:
+                sim = posizioni_attive.get(symbol)
             if sim is None or sim.get("esito") in ("Profitto", "Perdita"):
                 continue
 
@@ -728,24 +738,25 @@ def verifica_posizioni_attive():
                         exit_reason = "TP"
 
                 if fill_price is not None:
-                    sim["prezzo_chiusura"]  = round(float(fill_price), 10)
-                    sim["chiusa_da_backend"] = True
-                    sim["ora_chiusura"]     = datetime.now(tz=utc).isoformat(timespec="seconds")
-                    # variazione % rispetto a entry
-                    if tipo == "BUY":
-                        var_pct = (fill_price - entry) / entry * 100.0
-                    else:
-                        var_pct = (entry - fill_price) / entry * 100.0
-                    sim["variazione_pct"] = round(float(var_pct), 4)
-                    sim["esito"] = "Profitto" if exit_reason == "TP" else "Perdita"
-                    sim["motivo"] = ("🎯 TP colpito" if exit_reason == "TP" else "🛡️ SL colpito")
+                    with _pos_lock:
+                        sim["prezzo_chiusura"]  = round(float(fill_price), 10)
+                        sim["chiusa_da_backend"] = True
+                        sim["ora_chiusura"]     = datetime.now(tz=utc).isoformat(timespec="seconds")
+                        # variazione % rispetto a entry
+                        if tipo == "BUY":
+                            var_pct = (fill_price - entry) / entry * 100.0
+                        else:
+                            var_pct = (entry - fill_price) / entry * 100.0
+                        sim["variazione_pct"] = round(float(var_pct), 4)
+                        sim["esito"] = "Profitto" if exit_reason == "TP" else "Perdita"
+                        sim["motivo"] = ("🎯 TP colpito" if exit_reason == "TP" else "🛡️ SL colpito")
 
-                    logging.info(
-                        f"🔚 CLOSE {symbol} {tipo}: entry={entry:.6f} fill={fill_price:.6f} "
-                        f"tp={tp:.6f} sl={sl:.6f} esito={sim['esito']} var={sim['variazione_pct']:.3f}%"
-                    )
-                    # passa al prossimo symbol (questa è chiusa)
-                    continue
+                        logging.info(
+                            f"🔚 CLOSE {symbol} {tipo}: entry={entry:.6f} fill={fill_price:.6f} "
+                            f"tp={tp:.6f} sl={sl:.6f} esito={sim['esito']} var={sim['variazione_pct']:.3f}%"
+                        )
+                        # passa al prossimo symbol (questa è chiusa)
+                        continue
 
                 # ===== retracement verso SL? =====
                 if sl != 0:
@@ -758,46 +769,51 @@ def verifica_posizioni_attive():
 
                 # ===== trailing TP dinamico (solo se trend OK e non verso SL) =====
                 if GESTIONE_ATTIVA and trend_ok and not verso_sl:
-                    sim.setdefault("tp_esteso", 1)
+                    with _pos_lock:
+                        sim.setdefault("tp_esteso", 1)
                     if tipo == "BUY":
                         nuovo_tp = round(entry + distanza_entry * TP_TRAIL_FACTOR, 6)
-                        if nuovo_tp > tp:       # sposta solo più in là
-                            sim["tp"] = nuovo_tp
-                            sim["motivo"] = "📈 TP aggiornato (trend 15m)"
-                    else:  # SELL
+                        if nuovo_tp > tp:
+                            with _pos_lock:
+                                sim["tp"] = nuovo_tp
+                                sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                    else:
                         nuovo_tp = round(entry - distanza_entry * TP_TRAIL_FACTOR, 6)
                         if nuovo_tp < tp:
-                            sim["tp"] = nuovo_tp
-                            sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                            with _pos_lock:
+                                sim["tp"] = nuovo_tp
+                                sim["motivo"] = "📈 TP aggiornato (trend 15m)"
 
                 # ===== messaggio di stato =====
                 if not trend_ok:
-                    sim["motivo"] = "⚠️ Trend 15m incerto"
+                    with _pos_lock:
+                        sim["motivo"] = "⚠️ Trend 15m incerto"
                 elif verso_sl:
-                    sim["motivo"] = "⏸️ Ritracciamento, TP stabile"
+                    with _pos_lock:
+                        sim["motivo"] = "⏸️ Ritracciamento, TP stabile"
                 elif "TP aggiornato" not in sim.get("motivo", ""):
-                    sim["motivo"] = "✅ Trend 15m in linea"
-
+                    with _pos_lock:
+                        sim["motivo"] = "✅ Trend 15m in linea"
                 logging.info(
                     f"[15m] {symbol} {tipo} Entry={entry:.6f} Price={c:.6f} "
                     f"TP={sim['tp']:.6f} SL={sl:.6f} Prog={progresso:.2f} Motivo={sim['motivo']}"
                 )
 
             except Exception as e:
-                sim["motivo"] = f"❌ Errore monitor 15m: {e}"
+                with _pos_lock:
+                    sim["motivo"] = f"❌ Errore monitor 15m: {e}"
                 logging.error(f"[ERRORE] {symbol}: {e}")
+
 
 
 # Thread monitor
 monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
 monitor_thread.start()
 
-@router.get("/debuglog")
-def get_debug_log():
-    return _filtro_log
     
 @router.get("/simulazioni_attive")
 def simulazioni_attive():
-    return posizioni_attive
+    with _pos_lock:
+        return dict(posizioni_attive)
 
 __all__ = ["router"]
