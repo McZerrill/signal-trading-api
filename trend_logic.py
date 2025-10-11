@@ -52,15 +52,15 @@ _PARAMS_TEST = {
     "macd_signal_threshold": 0.00015,  # assoluta
     "macd_gap_forte": 0.0005,
     "macd_gap_debole": 0.0002,
-    "macd_gap_rel_forte": 0.0008,  
-    "macd_gap_rel_debole": 0.0003,
+    "macd_gap_rel_forte": 0.0006,  
+    "macd_gap_rel_debole": 0.00025,
 
     "rsi_buy_forte": 52,
     "rsi_buy_debole": 50,
     "rsi_sell_forte": 42,
     "rsi_sell_debole": 46,
 
-    "accelerazione_minima": 0.00004,
+    "accelerazione_minima": 0.00003,
 }
 
 _PARAMS_PROD = {
@@ -1054,7 +1054,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 and punteggio_trend >= SOGLIA_PUNTEGGIO
                 and rsi_in_crescita
             ):
-                if durata_trend >= 6:
+                # consenti anche trend lunghi se breakout/pump
+                LIM_MATURITA = 10
+                if durata_trend >= LIM_MATURITA and not (breakout_valido or pump_flag):
                     note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
                 else:
                     segnale = "BUY"
@@ -1065,7 +1067,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 and macd_buy_debole
                 and rsi_in_crescita
             ):
-                if punteggio_trend >= SOGLIA_PUNTEGGIO + 2 and durata_trend <= 10:
+                if punteggio_trend >= SOGLIA_PUNTEGGIO + 1 and durata_trend <= 12:
                     segnale = "BUY"
                     note.append("✅ BUY confermato Moderato")
                 else:
@@ -1193,12 +1195,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if segnale in ["BUY", "SELL"]:
         # Fusione probabilità con punteggio_trend + penalità maturità
         durata = candele_reali_up if segnale == "BUY" else candele_reali_down
-        pen_maturita = max(0, durata - 8) * 0.5        # -0.5 per candela oltre 8
+        MAT_START = 10
+        MAT_SLOPE = 0.25  # dimezza la penalità
+        pen_maturita = max(0, durata - MAT_START) * MAT_SLOPE
         punteggio_trend_adj = punteggio_trend - pen_maturita
 
         prob_fusa = _fuse_prob(punteggio_trend_adj, probabilita)  # 0..1
         if pump_flag:
-            prob_fusa = min(1.0, prob_fusa + 0.03)
+            prob_fusa = min(1.0, prob_fusa + 0.06)
 
         # --- BOOST soft dalla struttura (non crea segnali da solo) ---
         if sistema == "DB" and p_db.get("found"):
@@ -1246,7 +1250,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
 
         # Gate di entrata coerente con prob_fusa
-        P_ENTER = 0.62
+        P_ENTER = 0.55 if (breakout_valido or pump_flag) else 0.62
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
