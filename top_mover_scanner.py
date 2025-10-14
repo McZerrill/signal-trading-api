@@ -55,11 +55,11 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
 def scan_top_movers(
     analyze_fn: Callable[[str], Any],
     interval_sec: int = 60,
-    gain_threshold_normale: float = 0.07,   
-    gain_threshold_listing: float = 0.80,   
+    gain_threshold_normale: float = 0.10,   
+    gain_threshold_listing: float = 1.00,   
     quote_suffix: Tuple[str, ...] = ("USDC", "USDT"),  # coppie più comuni
     top_n_24h: int = 80,                    # prefiltra: analizza solo i top n per %change 24h
-    cooldown_sec: int = 120                 # evita spam: non ri-triggerare la stessa coin entro X secondi
+    cooldown_sec: int = 180                 # evita spam: non ri-triggerare la stessa coin entro X secondi
 ):
     """
     Scanner top mover Binance (1m).
