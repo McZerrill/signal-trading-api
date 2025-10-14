@@ -17,14 +17,14 @@ import logging
 # Costanti di configurazione
 # -----------------------------------------------------------------------------
 MODALITA_TEST = True
-SOGLIA_PUNTEGGIO = 2
+SOGLIA_PUNTEGGIO = 1
 DISATTIVA_CHECK_EMA_1M = True
 SOLO_BUY = True
 
 
 # --- Override BUY da pattern strutturali ---
-CONF_MIN_PATTERN = 0.60        # confidenza minima del pattern per l'override
-VOL_MULT_TRIANGLE = 1.30       # volume > 1.3x media per override triangolo
+CONF_MIN_PATTERN = 0.55        # confidenza minima del pattern per l'override
+VOL_MULT_TRIANGLE = 1.20       # volume > 1.3x media per override triangolo
 PATTERN_SOFT_BOOST_DB  = 0.03  # +3% * conf su prob_fusa se doppio minimo
 PATTERN_SOFT_BOOST_TRI = 0.02  # +2% * conf su prob_fusa se triangolo
 
@@ -37,26 +37,26 @@ _PARAMS_TEST = {
     "volume_basso": 0.7,
     "volume_molto_basso": 0.4,
 
-    "atr_minimo": 0.0003,
+    "atr_minimo": 0.00025,
     "atr_buono": 0.001,
     "atr_basso": 0.0005,
     "atr_troppo_basso": 0.0001,
     "atr_troppo_alto": 0.01,
 
-    "distanza_minima": 0.0008,
-    "distanza_bassa": 0.0003,
-    "distanza_media": 0.0008,
+    "distanza_minima": 0.0006,
+    "distanza_bassa": 0.00025,
+    "distanza_media": 0.0007,
     "distanza_alta": 0.0015,
 
-    "macd_rsi_range": (45, 55),
-    "macd_signal_threshold": 0.00015,  # assoluta
+    "macd_rsi_range": (44, 56),
+    "macd_signal_threshold": 0.00012,  # assoluta
     "macd_gap_forte": 0.0005,
     "macd_gap_debole": 0.0002,
-    "macd_gap_rel_forte": 0.0006,  
+    "macd_gap_rel_forte": 0.0007,  
     "macd_gap_rel_debole": 0.00025,
 
-    "rsi_buy_forte": 52,
-    "rsi_buy_debole": 50,
+    "rsi_buy_forte": 51,
+    "rsi_buy_debole": 49,
     "rsi_sell_forte": 42,
     "rsi_sell_debole": 46,
 
@@ -1250,7 +1250,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
 
         # Gate di entrata coerente con prob_fusa
-        P_ENTER = 0.55 if (breakout_valido or pump_flag) else 0.62
+        P_ENTER = 0.55 if (breakout_valido or pump_flag) else 0.58
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
