@@ -19,7 +19,7 @@ import logging
 MODALITA_TEST = True
 SOGLIA_PUNTEGGIO = 1
 DISATTIVA_CHECK_EMA_1M = True
-SOLO_BUY = True
+SOLO_BUY = False
 
 
 # --- Override BUY da pattern strutturali ---
@@ -37,7 +37,7 @@ _PARAMS_TEST = {
     "volume_basso": 0.7,
     "volume_molto_basso": 0.4,
 
-    "atr_minimo": 0.00025,
+    "atr_minimo": 0.0002,
     "atr_buono": 0.001,
     "atr_basso": 0.0005,
     "atr_troppo_basso": 0.0001,
@@ -49,14 +49,14 @@ _PARAMS_TEST = {
     "distanza_alta": 0.0015,
 
     "macd_rsi_range": (44, 56),
-    "macd_signal_threshold": 0.00012,  # assoluta
+    "macd_signal_threshold": 0.0001,  # assoluta
     "macd_gap_forte": 0.0005,
     "macd_gap_debole": 0.0002,
     "macd_gap_rel_forte": 0.0007,  
     "macd_gap_rel_debole": 0.00025,
 
-    "rsi_buy_forte": 51,
-    "rsi_buy_debole": 49,
+    "rsi_buy_forte": 50,
+    "rsi_buy_debole": 48,
     "rsi_sell_forte": 42,
     "rsi_sell_debole": 46,
 
@@ -1393,4 +1393,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     note = list(dict.fromkeys(note))  # Elimina duplicati
     note.sort(key=priorita)
 
+    if segnale in ["BUY", "SELL"] and not any("✅" in n for n in note):
+        note.append("✅ Segnale operativo rilevato (condizioni minime)")
+        
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
