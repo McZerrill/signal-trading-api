@@ -26,6 +26,9 @@ from trend_patches_all import (
 # Costanti di configurazione
 # -----------------------------------------------------------------------------
 MODALITA_TEST = True
+# Mostrare note tecniche [STRUCT]/[FLAT] nell'output? (di default NO)
+SHOW_TECH_NOTES = False
+
 SOGLIA_PUNTEGGIO = 1
 DISATTIVA_CHECK_EMA_1M = True
 SOLO_BUY = False
@@ -1340,14 +1343,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
             prob_fusa = max(0.0, min(1.0, prob_fusa + adj))
 
-        # --- PATCH opzionale: rifinitura post-fusione, senza alterare la tua logica base ---
+        # --- PATCH opzionale: rifinitura post-fusione, separando i log tecnici ---
         try:
-            # Costruisci pesi e contesto per la pipeline (tutto già calcolato da te)
             ema_slopes = compute_ema_slopes(hist, lookback=6)
             atr_pct    = _safe_div(atr, _safe_close(close))
             vol_ratio  = _safe_div(volume_attuale, volume_medio) if volume_medio else 1.0
 
-            # Pattern 15m “adattatore” (solo se stai usando DB/TRI; altrimenti None)
+            # Pattern strutturali 15m per la pipeline
             patt_15m = None
             if sistema == "DB" and p_db.get("found"):
                 patt_15m = {
@@ -1364,10 +1366,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                     "breakout_confirmed": bool(p_tri.get("breakout_confirmed"))
                 }
 
-            # Nessun pattern 1h dedicato al momento
             patt_1h = None
 
-            # Applica la pipeline di rifinitura: struttura→1h micro-adjust→flat-penalty
+            # 🔧 usa un contenitore separato per i log tecnici
+            tech_log: list[str] = []
+
             prob_fusa = post_fusion_pipeline(
                 prob_fusa=prob_fusa,
                 segnale=segnale,
@@ -1378,8 +1381,17 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 atr_pct=atr_pct,
                 vol_ratio=vol_ratio,
                 ema_slopes=ema_slopes,
-                log=note,   # riusa il tuo vettore note per traccia sintetica
+                log=tech_log,       # 👈 ora usa tech_log, non note
             )
+
+            # scrive i dettagli tecnici solo nel file di log
+            if tech_log:
+                logging.debug("[TECH] " + " | ".join(tech_log))
+
+            # se vuoi riattivarli in output, metti SHOW_TECH_NOTES = True in cima al file
+            if SHOW_TECH_NOTES:
+                note.extend(tech_log)
+
         except Exception as _e_patch:
             logging.debug(f"[PATCH] post_fusion_pipeline skipped: {_e_patch}")
 
@@ -1551,5 +1563,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     if segnale in ["BUY", "SELL"] and not any("✅" in n for n in note):
         note.append("✅ Segnale operativo rilevato (condizioni minime)")
+
+    # --- Filtro di sicurezza: rimuove le note tecniche dall'output se disattivate ---
+    if not SHOW_TECH_NOTES:
+        note = [n for n in note if not (n.startswith("[STRUCT]") or n.startswith("[FLAT]"))]
+
         
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
