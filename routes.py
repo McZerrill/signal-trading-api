@@ -10,6 +10,10 @@ from binance_api import get_binance_df, get_best_symbols, get_bid_ask
 from trend_logic import analizza_trend, conta_candele_trend
 from indicators import calcola_rsi, calcola_macd, calcola_atr
 from models import SignalResponse
+# Patch canale: difesa trailing al bordo con momentum debole
+from trend_patches_all import channel_defense_adjust
+# Rilevamento canale 15m per la patch
+from patterns import detect_price_channel
 
 from top_mover_scanner import start_top_mover_scanner
 
@@ -708,6 +712,45 @@ def verifica_posizioni_attive():
                 ema25 = float(df["EMA_25"].iloc[-1])
                 dist_ema = abs(ema7 - ema25)
 
+                # --- Indicatori minimi per la patch (RSI/MACD hist) ---
+                try:
+                    # calcolo veloce solo sulle ultime barre necessarie
+                    df["RSI"] = calcola_rsi(df["close"])
+                    _macd, _macd_sig = calcola_macd(df["close"])
+                    macd_hist_15m = float(_macd.iloc[-1] - _macd_sig.iloc[-1])
+                    rsi_15m = float(df["RSI"].iloc[-1])
+                except Exception:
+                    macd_hist_15m, rsi_15m = None, None
+
+                # --- Canale 15m per patch (parametri allineati a trend_logic) ---
+                try:
+                    chan_15 = detect_price_channel(
+                        df, lookback=200, min_touches_side=2,
+                        parallel_tolerance=0.20, touch_tol_mult_atr=0.55,
+                        min_confidence=0.55, require_volume_for_breakout=True,
+                        breakout_vol_mult=1.30
+                    )
+                except Exception:
+                    chan_15 = {}
+
+                # --- Applica difesa canale: inietta eventuale 'trailing_tp_step' e nota ---
+                try:
+                    indicators = {
+                        "last_price": float(df["close"].iloc[-1]),
+                        "rsi_15m": rsi_15m,
+                        "macd_hist_15m": macd_hist_15m,
+                    }
+                    with _pos_lock:
+                        sim.setdefault("note_log", [])
+                        new_sim = channel_defense_adjust(sim, indicators=indicators, ch15=chan_15, log=sim["note_log"])
+                        if new_sim is not sim:
+                            posizioni_attive[symbol] = new_sim
+                            sim = new_sim
+                except Exception:
+                    pass
+
+
+
                 in_range = (EMA_DIST_MIN_PERC * c) <= dist_ema <= (EMA_DIST_MAX_PERC * c)
                 trend_ok = (
                     (tipo == "BUY"  and c >= ema7 and ema7 > ema25 and in_range) or
@@ -775,16 +818,29 @@ def verifica_posizioni_attive():
                         sim.setdefault("tp_esteso", 1)
                     if tipo == "BUY":
                         nuovo_tp = round(entry + distanza_entry * TP_TRAIL_FACTOR, 6)
+                        # extra stretta se la patch ha impostato trailing_tp_step (es. 0.003 = 0.3% prezzo)
+                        extra = float(sim.get("trailing_tp_step", 0.0) or 0.0)
+                        cause = ""
+                        if extra > 0:
+                            nuovo_tp = max(nuovo_tp, round(tp + float(df["close"].iloc[-1]) * extra, 6))
+                            cause = " (channel defense)"
                         if nuovo_tp > tp:
                             with _pos_lock:
                                 sim["tp"] = nuovo_tp
-                                sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                                sim["motivo"] = f"📈 TP aggiornato (trend 15m){cause}"
+
                     else:
                         nuovo_tp = round(entry - distanza_entry * TP_TRAIL_FACTOR, 6)
+                        extra = float(sim.get("trailing_tp_step", 0.0) or 0.0)
+                        cause = ""
+                        if extra > 0:
+                            nuovo_tp = min(nuovo_tp, round(tp - float(df["close"].iloc[-1]) * extra, 6))
+                            cause = " (channel defense)"
                         if nuovo_tp < tp:
                             with _pos_lock:
                                 sim["tp"] = nuovo_tp
-                                sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                                sim["motivo"] = f"📈 TP aggiornato (trend 15m){cause}"
+
 
                 # ===== messaggio di stato =====
                 if not trend_ok:
