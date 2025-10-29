@@ -89,9 +89,11 @@ def analyze(symbol: str):
 
                         if trigger:
                             prezzo_notifica = close_tmp if close_tmp > 0 else round(float(u["close"]), 6)
+                            # direzione coerente: candela verde -> BUY, candela rossa -> SELL
+                            segnale_pump = "BUY" if float(u["close"]) >= float(u["open"]) else "SELL"
                             return SignalResponse(
                                 symbol=symbol,
-                                segnale="BUY",
+                                segnale=segnale_pump,
                                 commento="🚀 Listing/Vertical pump rilevato • ⚠️ Spread elevato: operazione ad altissimo rischio",
                                 prezzo=prezzo_notifica,
                                 take_profit=0.0,
