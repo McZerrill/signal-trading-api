@@ -11,7 +11,16 @@ from indicators import (
     calcola_supporto,
     calcola_ema,
 )
+
 import logging
+
+from trend_patches_all import (
+    compute_ema_slopes,
+    post_fusion_pipeline,
+    hysteresis_adjust,
+    channel_defense_adjust,
+)
+
 
 # -----------------------------------------------------------------------------
 # Costanti di configurazione
@@ -1331,6 +1340,48 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
             prob_fusa = max(0.0, min(1.0, prob_fusa + adj))
 
+        # --- PATCH opzionale: rifinitura post-fusione, senza alterare la tua logica base ---
+        try:
+            # Costruisci pesi e contesto per la pipeline (tutto già calcolato da te)
+            ema_slopes = compute_ema_slopes(hist, lookback=6)
+            atr_pct    = _safe_div(atr, _safe_close(close))
+            vol_ratio  = _safe_div(volume_attuale, volume_medio) if volume_medio else 1.0
+
+            # Pattern 15m “adattatore” (solo se stai usando DB/TRI; altrimenti None)
+            patt_15m = None
+            if sistema == "DB" and p_db.get("found"):
+                patt_15m = {
+                    "found": True,
+                    "name": "double_bottom",
+                    "confidence": float(p_db.get("confidence", 0.0)),
+                    "neckline_confirmed": bool(p_db.get("neckline_confirmed") or p_db.get("neckline_breakout"))
+                }
+            elif sistema == "TRI" and p_tri.get("found"):
+                patt_15m = {
+                    "found": True,
+                    "name": "ascending_triangle",
+                    "confidence": float(p_tri.get("confidence", 0.0)),
+                    "breakout_confirmed": bool(p_tri.get("breakout_confirmed"))
+                }
+
+            # Nessun pattern 1h dedicato al momento
+            patt_1h = None
+
+            # Applica la pipeline di rifinitura: struttura→1h micro-adjust→flat-penalty
+            prob_fusa = post_fusion_pipeline(
+                prob_fusa=prob_fusa,
+                segnale=segnale,
+                chan_15=chan_15,
+                chan_1h=chan_1h,
+                patt_15m=patt_15m,
+                patt_1h=patt_1h,
+                atr_pct=atr_pct,
+                vol_ratio=vol_ratio,
+                ema_slopes=ema_slopes,
+                log=note,   # riusa il tuo vettore note per traccia sintetica
+            )
+        except Exception as _e_patch:
+            logging.debug(f"[PATCH] post_fusion_pipeline skipped: {_e_patch}")
 
         # ✅ Gate 1h DOPO aver deciso il segnale (ora segnale è BUY/SELL reale)
         if chan_1h.get("found") and not pump_flag:
