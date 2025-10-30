@@ -20,6 +20,7 @@ from trend_patches_all import (
     hysteresis_adjust,
     channel_defense_adjust,
 )
+from binance_api import get_symbol_tick_step
 
 
 # -----------------------------------------------------------------------------
@@ -684,6 +685,17 @@ def calcola_probabilita_successo(
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None, sistema: str = "EMA"):
 
     logging.debug("🔍 Inizio analisi trend")
+
+    tick_size, step_size = (0.0001, 0.0001)
+    try:
+        if symbol:
+            tick_size, step_size = get_symbol_tick_step(symbol)
+    except Exception as e:
+        logging.warning(f"[TICK] Fallback 0.0001 per {symbol}: {e}")
+    logging.debug(f"[TICK] {symbol} tick_size={tick_size} step_size={step_size}")
+
+
+    
     hist = hist.copy()  
     if "volume" not in hist.columns:
         hist["volume"] = 0.0
@@ -1429,7 +1441,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         SL_BASE, SL_SPAN = 1.00, 0.40  # SL = 1.0x..0.6x ATR
         RR_MIN = 1.2
         DELTA_MINIMO = 0.1
-        TICK = 0.0001  # TODO: sostituire con tick_size reale del symbol (passalo da fuori se puoi)
+        TICK = tick_size or 0.0001
+
 
         atr_eff = atr if atr and atr > 0 else close_s * ATR_MIN_FRAC
 
