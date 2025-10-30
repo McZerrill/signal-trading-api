@@ -19,26 +19,27 @@ MODALITA_TEST = True
 # -----------------------------------------------------------------------------
 # Caching (cachetools)
 # -----------------------------------------------------------------------------
-# Cache unica per la lista simboli (TTL 60s). Salviamo la lista completa
+# Simboli (TTL 60s)
 _symbols_cache = TTLCache(maxsize=1, ttl=60)
 
-# Cache per tick_size / step_size per simbolo (TTL 30 minuti)
+# Tick/step per simbolo (TTL 30 min)
 _tick_cache = TTLCache(maxsize=256, ttl=1800)
 
+# OHLCV per (symbol, interval, limit, end_time) (TTL 5s)
+_df_cache = TTLCache(maxsize=512, ttl=5)
 
+
+# =========================
+#   SYMBOLS BEST (24hr)
+# =========================
 @cached(cache=_symbols_cache)
 def _fetch_best_symbols_full() -> list[str]:
-    """
-    Scarica e filtra i simboli migliori (lista completa); usata da get_best_symbols.
-    Viene cachata per 60s.
-    """
     try:
         url = "https://api.binance.com/api/v3/ticker/24hr"
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
 
-        # Filtro su simboli USDC, no token a leva, soglia volume
         filtered = [
             d for d in data
             if d.get("symbol", "").endswith("USDC")
@@ -46,16 +47,13 @@ def _fetch_best_symbols_full() -> list[str]:
             and float(d.get("quoteVolume", 0.0)) > (1_000_000 if MODALITA_TEST else 5_000_000)
         ]
 
-        # Ordina per volume 24h decrescente
         sorted_pairs = sorted(filtered, key=lambda x: float(x["quoteVolume"]), reverse=True)
-        top_symbols = [d["symbol"] for d in sorted_pairs]  # lista completa, niente slice qui
-
+        top_symbols = [d["symbol"] for d in sorted_pairs]
         print(f"✅ {len(top_symbols)} simboli trovati con volume > 1M USDC")
         return top_symbols
 
     except Exception as e:
         print("❌ Errore nel recupero simboli Binance:", e)
-        # Fallback stabile
         return [
             "BTCUSDC", "ETHUSDC", "BNBUSDC", "XRPUSDC", "ADAUSDC",
             "SOLUSDC", "AVAXUSDC", "DOTUSDC", "DOGEUSDC", "MATICUSDC"
@@ -63,23 +61,20 @@ def _fetch_best_symbols_full() -> list[str]:
 
 
 def get_best_symbols(limit: int = 80) -> list[str]:
-    """
-    Restituisce i migliori simboli (slice della lista completa cachata per 60s).
-    """
     full_list = _fetch_best_symbols_full()
-    # taglia qui per rispettare il parametro 'limit', senza invalidare la cache
     return full_list[:max(0, int(limit))]
 
 
-def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None) -> pd.DataFrame:
-    """
-    Ritorna un DataFrame OHLCV per symbol/interval/limit (senza cache).
-    """
-    params = {
-        "symbol": symbol,
-        "interval": interval,
-        "limit": limit
-    }
+# =========================
+#   OHLCV (15m/1h/1d/…)
+# =========================
+def _df_cache_key(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None):
+    return keys.hashkey(symbol.upper(), interval, int(limit), int(end_time) if end_time is not None else None)
+
+
+@cached(cache=_df_cache, key=_df_cache_key)
+def _get_binance_df_cached(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None) -> pd.DataFrame:
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
     if end_time is not None:
         params["endTime"] = end_time
 
@@ -107,10 +102,19 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
     return df
 
 
+def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None) -> pd.DataFrame:
+    """
+    Wrapper pubblico: usa la cache a TTL 5s e restituisce SEMPRE una copia profonda,
+    così ogni chiamata può modificare il DataFrame senza intaccare la cache.
+    """
+    df = _get_binance_df_cached(symbol, interval, limit, end_time)
+    return df.copy(deep=True)
+
+
+# =========================
+#   BID/ASK & SPREAD
+# =========================
 def get_bid_ask(symbol: str) -> dict:
-    """
-    Recupera bid/ask reali dal book Binance e calcola lo spread percentuale.
-    """
     try:
         url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
         data = requests.get(url, timeout=5).json()
@@ -123,11 +127,13 @@ def get_bid_ask(symbol: str) -> dict:
         return {"bid": 0.0, "ask": 0.0, "spread": 0.0}
 
 
+# =========================
+#   TICK & STEP SIZE
+# =========================
 @cached(cache=_tick_cache, key=lambda symbol: keys.hashkey(symbol.upper()))
 def get_symbol_tick_step(symbol: str) -> tuple[float, float]:
     """
-    Ritorna (tick_size, step_size) reali da Binance (API exchangeInfo).
-    Cache TTL: 30 minuti. Fallback: (0.0001, 0.0001)
+    (tick_size, step_size) da /exchangeInfo, TTL 30 minuti. Fallback (0.0001, 0.0001).
     """
     try:
         s = symbol.upper()
