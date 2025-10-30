@@ -1,79 +1,115 @@
-import os
 import time
+import os
+from typing import Optional
+
 import requests
 import pandas as pd
-from typing import Optional
 from binance.client import Client
-from cachetools import TTLCache, cached, keys
+
 
 # -----------------------------------------------------------------------------
-# Inizializza il client Binance con chiavi da variabili d'ambiente
+# Config
 # -----------------------------------------------------------------------------
+# Quote supportate (USDT + USDC per compatibilità con il resto del backend)
+QUOTE_SUFFIXES = ("USDT", "USDC")
+
+# Modalità test
+MODALITA_TEST = True
+
+# Inizializza client Binance con chiavi da env
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
 client = Client(api_key=BINANCE_API_KEY, api_secret=BINANCE_API_SECRET)
 
-# ✅ Modalità test attiva
-MODALITA_TEST = True
+# Cache simboli 60s
+_symbol_cache = {"time": 0.0, "data": []}
+
+# Cache tick/step 30 min
+_tick_cache: dict[str, dict] = {}
+TICK_TTL_SEC = 1800  # 30 minuti
+
 
 # -----------------------------------------------------------------------------
-# Caching (cachetools)
+# Helpers
 # -----------------------------------------------------------------------------
-# Simboli (TTL 60s)
-_symbols_cache = TTLCache(maxsize=1, ttl=60)
-
-# Tick/step per simbolo (TTL 30 min)
-_tick_cache = TTLCache(maxsize=256, ttl=1800)
-
-# OHLCV per (symbol, interval, limit, end_time) (TTL 5s)
-_df_cache = TTLCache(maxsize=512, ttl=5)
+def _now() -> float:
+    return time.time()
 
 
-# =========================
-#   SYMBOLS BEST (24hr)
-# =========================
-@cached(cache=_symbols_cache)
-def _fetch_best_symbols_full() -> list[str]:
+def _ok_symbol(sym: str) -> bool:
+    """Filtra spot symbol:
+       - quote in QUOTE_SUFFIXES
+       - esclude token a leva (UP/DOWN/BULL/BEAR)
+    """
+    if not any(sym.endswith(q) for q in QUOTE_SUFFIXES):
+        return False
+    lev = ("UP", "DOWN", "BULL", "BEAR")
+    return not any(x in sym for x in lev)
+
+
+# -----------------------------------------------------------------------------
+# API
+# -----------------------------------------------------------------------------
+def get_best_symbols(limit: int = 80):
+    """
+    Restituisce i migliori simboli per volume 24h (quote USDT/USDC),
+    con cache di 60 secondi.
+    """
+    now = _now()
+    if now - _symbol_cache["time"] < 60 and _symbol_cache["data"]:
+        return _symbol_cache["data"][:limit]
+
     try:
         url = "https://api.binance.com/api/v3/ticker/24hr"
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
 
-        filtered = [
-            d for d in data
-            if d.get("symbol", "").endswith("USDC")
-            and not any(x in d.get("symbol", "") for x in ["UP", "DOWN", "BULL", "BEAR"])
-            and float(d.get("quoteVolume", 0.0)) > (1_000_000 if MODALITA_TEST else 5_000_000)
-        ]
+        # Filtro robusto
+        filtered = []
+        for d in data:
+            sym = d.get("symbol", "")
+            if not sym or not _ok_symbol(sym):
+                continue
+            try:
+                qv = float(d.get("quoteVolume", 0.0))
+            except Exception:
+                qv = 0.0
+            # soglia diversa tra test/prod
+            min_vol = 1_000_000 if MODALITA_TEST else 5_000_000
+            if qv >= min_vol:
+                filtered.append((sym, qv))
 
-        sorted_pairs = sorted(filtered, key=lambda x: float(x["quoteVolume"]), reverse=True)
-        top_symbols = [d["symbol"] for d in sorted_pairs]
-        print(f"✅ {len(top_symbols)} simboli trovati con volume > 1M USDC")
-        return top_symbols
+        # Ordina per volume 24h decrescente
+        filtered.sort(key=lambda x: x[1], reverse=True)
+        symbols = [s for s, _ in filtered[:limit]]
+
+        # Fallback se vuoto (evita app “senza dati”)
+        if not symbols:
+            symbols = [
+                "BTCUSDT", "ETHUSDT", "BNBUSDT",
+                "BTCUSDC", "ETHUSDC", "BNBUSDC"
+            ]
+
+        _symbol_cache["time"] = now
+        _symbol_cache["data"] = symbols
+        print(f"✅ get_best_symbols: {len(symbols)} simboli candidati (quote {QUOTE_SUFFIXES})")
+        return symbols
 
     except Exception as e:
-        print("❌ Errore nel recupero simboli Binance:", e)
+        print("❌ Errore get_best_symbols:", e)
+        # fallback statico
         return [
-            "BTCUSDC", "ETHUSDC", "BNBUSDC", "XRPUSDC", "ADAUSDC",
-            "SOLUSDC", "AVAXUSDC", "DOTUSDC", "DOGEUSDC", "MATICUSDC"
-        ]
+            "BTCUSDT", "ETHUSDT", "BNBUSDT",
+            "BTCUSDC", "ETHUSDC", "BNBUSDC",
+            "SOLUSDT", "XRPUSDT", "ADAUSDT"
+        ][:limit]
 
 
-def get_best_symbols(limit: int = 80) -> list[str]:
-    full_list = _fetch_best_symbols_full()
-    return full_list[:max(0, int(limit))]
-
-
-# =========================
-#   OHLCV (15m/1h/1d/…)
-# =========================
-def _df_cache_key(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None):
-    return keys.hashkey(symbol.upper(), interval, int(limit), int(end_time) if end_time is not None else None)
-
-
-@cached(cache=_df_cache, key=_df_cache_key)
-def _get_binance_df_cached(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None) -> pd.DataFrame:
+def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None) -> pd.DataFrame:
+    """
+    Scarica klines e restituisce OHLCV come DataFrame float con DatetimeIndex.
+    """
     params = {"symbol": symbol, "interval": interval, "limit": limit}
     if end_time is not None:
         params["endTime"] = end_time
@@ -81,14 +117,14 @@ def _get_binance_df_cached(symbol: str, interval: str, limit: int = 500, end_tim
     try:
         klines = client.get_klines(**params)
     except Exception as e:
-        print(f"❌ Errore nel caricamento candela {symbol}-{interval}: {e}")
+        print(f"❌ Errore get_klines {symbol}-{interval}: {e}")
         return pd.DataFrame()
 
     if not klines:
         print(f"⚠️ Nessuna candela per {symbol} ({interval})")
         return pd.DataFrame()
     if len(klines) < 50:
-        print(f"ℹ️ Dati parziali per {symbol} ({interval}): {len(klines)} candele (ok)")
+        print(f"ℹ️ Dati parziali per {symbol} ({interval}): {len(klines)} candele")
 
     df = pd.DataFrame(klines, columns=[
         "timestamp", "open", "high", "low", "close", "volume",
@@ -102,56 +138,55 @@ def _get_binance_df_cached(symbol: str, interval: str, limit: int = 500, end_tim
     return df
 
 
-def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None) -> pd.DataFrame:
-    """
-    Wrapper pubblico: usa la cache a TTL 5s e restituisce SEMPRE una copia profonda,
-    così ogni chiamata può modificare il DataFrame senza intaccare la cache.
-    """
-    df = _get_binance_df_cached(symbol, interval, limit, end_time)
-    return df.copy(deep=True)
-
-
-# =========================
-#   BID/ASK & SPREAD
-# =========================
 def get_bid_ask(symbol: str) -> dict:
+    """
+    Recupera bid/ask reali dal book Binance e calcola lo spread percentuale.
+    """
     try:
         url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
         data = requests.get(url, timeout=5).json()
         bid = float(data["bidPrice"])
         ask = float(data["askPrice"])
-        spread = (ask - bid) / ((ask + bid) / 2) * 100.0
+        spread = (ask - bid) / ((ask + bid) / 2.0) * 100.0
         return {"bid": bid, "ask": ask, "spread": round(spread, 4)}
     except Exception as e:
-        print(f"❌ Errore get_bid_ask per {symbol}:", e)
+        print(f"❌ Errore get_bid_ask({symbol}):", e)
         return {"bid": 0.0, "ask": 0.0, "spread": 0.0}
 
 
-# =========================
-#   TICK & STEP SIZE
-# =========================
-@cached(cache=_tick_cache, key=lambda symbol: keys.hashkey(symbol.upper()))
 def get_symbol_tick_step(symbol: str) -> tuple[float, float]:
     """
-    (tick_size, step_size) da /exchangeInfo, TTL 30 minuti. Fallback (0.0001, 0.0001).
+    Ritorna (tick_size, step_size) reali da Binance (exchangeInfo) con cache 30 minuti.
+    Fallback: (0.0001, 0.0001).
     """
-    try:
-        s = symbol.upper()
-        url = f"https://api.binance.com/api/v3/exchangeInfo?symbol={s}"
-        data = requests.get(url, timeout=5).json()
-        info_list = data.get("symbols") or []
-        if not info_list:
-            raise ValueError("symbols vuoto in exchangeInfo")
+    s = (symbol or "").upper()
+    if not s:
+        return 0.0001, 0.0001
 
-        info = info_list[0]
+    now = _now()
+    cache = _tick_cache.get(s)
+    if cache and (now - cache.get("ts", 0.0) < TICK_TTL_SEC):
+        return cache["tick"], cache["step"]
+
+    try:
+        url = f"https://api.binance.com/api/v3/exchangeInfo?symbol={s}"
+        data = requests.get(url, timeout=6).json()
+
+        symbols = data.get("symbols") or []
+        if not symbols:
+            raise ValueError(f"exchangeInfo vuoto per {s}")
+
+        info = symbols[0]
         tick = 0.0001
         step = 0.0001
         for f in info.get("filters", []):
-            ftype = f.get("filterType")
-            if ftype == "PRICE_FILTER":
+            ft = f.get("filterType")
+            if ft == "PRICE_FILTER":
                 tick = float(f.get("tickSize", tick))
-            elif ftype == "LOT_SIZE":
+            elif ft == "LOT_SIZE":
                 step = float(f.get("stepSize", step))
+
+        _tick_cache[s] = {"tick": tick, "step": step, "ts": now}
         return tick, step
 
     except Exception as e:
