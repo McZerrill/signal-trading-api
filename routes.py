@@ -6,7 +6,7 @@ import logging
 import pandas as pd
 # Thread di monitoraggio attivo ogni 5 secondi
 import threading
-from binance_api import get_binance_df, get_best_symbols, get_bid_ask
+from binance_api import get_binance_df, get_best_symbols, get_bid_ask, get_symbol_tick_step
 from trend_logic import analizza_trend, conta_candele_trend
 from indicators import calcola_rsi, calcola_macd, calcola_atr
 from models import SignalResponse
@@ -244,7 +244,8 @@ def analyze(symbol: str):
         logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
 
         # 1h: ok usare ancora analizza_trend come conferma "soft"
-        segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread)
+        segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread, symbol=symbol)
+
         logging.debug(f"[1h] {symbol} – Segnale: {segnale_1h}")
 
         # 1d: controllo RIGOROSO solo su EMA (niente recupero/RSI/MACD)
@@ -318,6 +319,9 @@ def analyze(symbol: str):
                     note.append(f"⚠️ Daily in conflitto ({daily_state})")
 
             logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
+            
+            tick_size, step_size = get_symbol_tick_step(symbol)
+
             with _pos_lock:
                 posizioni_attive[symbol] = {
                     "tipo": segnale,
@@ -325,6 +329,8 @@ def analyze(symbol: str):
                     "tp": tp,
                     "sl": sl,
                     "spread": spread,
+                    "tick_size": float(tick_size),
+                    "step_size": float(step_size),
                     "chiusa_da_backend": False,
                     "motivo": " | ".join(note)
                 }
