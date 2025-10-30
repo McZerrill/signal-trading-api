@@ -113,3 +113,33 @@ def get_bid_ask(symbol: str) -> dict:
             "ask": 0.0,
             "spread": 0.0
         }
+# Cache tick e step size (30 minuti)
+_tick_cache = {}
+
+def get_symbol_tick_step(symbol: str) -> tuple[float, float]:
+    """
+    Ritorna (tick_size, step_size) reali da Binance (API exchangeInfo),
+    con cache 30 min. Fallback: (0.0001, 0.0001).
+    """
+    import time
+    try:
+        s = symbol.upper()
+        now = time.time()
+        if s in _tick_cache and now - _tick_cache[s]["ts"] < 1800:
+            return _tick_cache[s]["tick"], _tick_cache[s]["step"]
+
+        url = f"https://api.binance.com/api/v3/exchangeInfo?symbol={s}"
+        data = requests.get(url, timeout=5).json()
+        info = (data.get("symbols") or [])[0]
+        tick = 0.0001
+        step = 0.0001
+        for f in info.get("filters", []):
+            if f.get("filterType") == "PRICE_FILTER":
+                tick = float(f.get("tickSize", tick))
+            elif f.get("filterType") == "LOT_SIZE":
+                step = float(f.get("stepSize", step))
+        _tick_cache[s] = {"tick": tick, "step": step, "ts": now}
+        return tick, step
+    except Exception as e:
+        print(f"⚠️ Errore get_symbol_tick_step({symbol}): {e}")
+        return 0.0001, 0.0001
