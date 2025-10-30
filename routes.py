@@ -241,7 +241,10 @@ def analyze(symbol: str):
         # 5) Logging timeframe e analisi di conferma
         logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
         logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
-        logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
+        logging.debug(
+            f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, "
+            f"supporto={(0.0 if supporto is None else float(supporto)):.6f}"
+        )
 
         # 1h: ok usare ancora analizza_trend come conferma "soft"
         segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread, symbol=symbol)
