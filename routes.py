@@ -169,7 +169,10 @@ def analyze(symbol: str):
         df_1d  = get_binance_df(symbol, "1d", 300)
         df_1m  = get_binance_df(symbol, "1m", 100)
 
-        segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread, df_1m)
+        segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
+            df_15m, spread, df_1m, symbol=symbol
+        )
+
         note = note15.split("\n") if note15 else []
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
