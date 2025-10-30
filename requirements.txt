@@ -1,12 +1,13 @@
-fastapi
-uvicorn
-yfinance
-pandas
-requests
-python-dotenv
-numpy
-matplotlib
-python-binance
+fastapi>=0.111
+uvicorn>=0.30
+yfinance>=0.2
+pandas>=2.2
+requests>=2.32
+python-dotenv>=1.0
+numpy>=1.26
+matplotlib>=3.8
+python-binance>=1.0
+cachetools>=5.3.3
 
 
 
