@@ -17,6 +17,11 @@ from patterns import detect_price_channel
 
 from top_mover_scanner import start_top_mover_scanner
 
+from metrics import (
+    inc_request, inc_error, timer_start, timer_observe, set_sim_count
+)
+
+
 logging.basicConfig(
     filename="log.txt",
     level=logging.DEBUG,
@@ -34,12 +39,20 @@ utc = dt_timezone.utc
 posizioni_attive = {}
 _pos_lock = threading.Lock()
 
+def _active_sim_count() -> int:
+    with _pos_lock:
+        return sum(1 for s in posizioni_attive.values()
+                   if s is not None and s.get("esito") not in ("Profitto", "Perdita"))
+
+
 @router.get("/")
 def read_root():
     return {"status": "API Segnali di Borsa attiva"}
 
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
+    inc_request()
+    t0 = timer_start()
     logging.debug(f"📩 Richiesta /analyze per {symbol.upper()}")
 
     try:
@@ -323,7 +336,9 @@ def analyze(symbol: str):
 
             logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
             
-            tick_size, step_size = get_symbol_tick_step(symbol)
+            info = get_symbol_tick_step(symbol)
+            tick_size = float(info.get("tickSize", 0.0))
+            step_size = float(info.get("stepSize", 0.0))
 
             with _pos_lock:
                 posizioni_attive[symbol] = {
@@ -337,6 +352,7 @@ def analyze(symbol: str):
                     "chiusa_da_backend": False,
                     "motivo": " | ".join(note)
                 }
+            set_sim_count(_active_sim_count())
 
 
         commento = "\n".join(note) if note else "Nessuna nota"
@@ -362,6 +378,7 @@ def analyze(symbol: str):
         )
 
     except Exception as e:
+        inc_error()
         logging.error(f"❌ Errore durante /analyze per {symbol}: {e}")
         try:
             df_15m = get_binance_df(symbol, "15m", 50)
@@ -393,7 +410,8 @@ def analyze(symbol: str):
             motivo="Errore interno",
             chiusa_da_backend=False
         )
-
+    finally:
+        timer_observe(t0)
         # <-- PAUSA -->
 
 # ===== Avvio scanner Top Movers (evita doppio avvio) =====
@@ -812,6 +830,7 @@ def verifica_posizioni_attive():
                             f"🔚 CLOSE {symbol} {tipo}: entry={entry:.6f} fill={fill_price:.6f} "
                             f"tp={tp:.6f} sl={sl:.6f} esito={sim['esito']} var={sim['variazione_pct']:.3f}%"
                         )
+                        set_sim_count(_active_sim_count())
                         # passa al prossimo symbol (questa è chiusa)
                         continue
 
@@ -873,7 +892,7 @@ def verifica_posizioni_attive():
                 with _pos_lock:
                     sim["motivo"] = f"❌ Errore monitor 15m: {e}"
                 logging.error(f"[ERRORE] {symbol}: {e}")
-
+        set_sim_count(_active_sim_count())
 
 
 # Thread monitor
@@ -884,6 +903,7 @@ monitor_thread.start()
 @router.get("/simulazioni_attive")
 def simulazioni_attive():
     with _pos_lock:
+        set_sim_count(_active_sim_count())
         return dict(posizioni_attive)
 
 __all__ = ["router"]
