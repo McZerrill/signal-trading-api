@@ -1,4 +1,5 @@
 import pandas as pd
+from risk_adaptive import compute_adaptive_tp_sl
 from patterns import (
     detect_double_bottom,
     detect_ascending_triangle,
@@ -74,6 +75,16 @@ _PARAMS_TEST = {
     "rsi_sell_debole": 46,
 
     "accelerazione_minima": 0.00003,
+
+        # --- Adaptive TP/SL ---
+    "atr_mult": 2.2,
+    "swing_lookback": 30,
+    "risk_min_pct": 0.005,   # 0.5%
+    "risk_max_pct": 0.03,    # 3.0%
+    "rr_min": 1.25,
+    "be_trigger_R": 0.8,
+    "be_buffer_pct": 0.0005,
+
 }
 
 _PARAMS_PROD = {
@@ -107,6 +118,16 @@ _PARAMS_PROD = {
     "rsi_sell_debole": 50,
 
     "accelerazione_minima": 0.00001,
+
+        # --- Adaptive TP/SL ---
+    "atr_mult": 2.2,
+    "swing_lookback": 30,
+    "risk_min_pct": 0.005,
+    "risk_max_pct": 0.03,
+    "rr_min": 1.25,
+    "be_trigger_R": 0.8,
+    "be_buffer_pct": 0.0005,
+
 }
 
 
@@ -1435,31 +1456,43 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
-        # TP/SL proporzionale alla probabilità fusa
-        ATR_MIN_FRAC = 0.004
-        TP_BASE, TP_SPAN = 1.1, 1.2     # TP = 1.1x..2.3x ATR
-        SL_BASE, SL_SPAN = 1.00, 0.40  # SL = 1.0x..0.6x ATR
-        RR_MIN = 1.2
-        DELTA_MINIMO = 0.1
+        
+        # === TP/SL ADATTIVO (ATR + swing + vincoli rischio + RR minimo) ===
+        
+
+        # Parametri per rounding tick
         TICK = tick_size or 0.0001
 
+        res_tp_sl = compute_adaptive_tp_sl(
+            df=hist,
+            entry=float(close),
+            direction=segnale,                  # "BUY" / "SELL"
+            atr_mult=_p("atr_mult"),
+            swing_lookback=_p("swing_lookback"),
+            risk_min=_p("risk_min_pct"),
+            risk_max=_p("risk_max_pct"),
+            rr_min=_p("rr_min"),
+            be_trigger_R=_p("be_trigger_R"),
+            be_buffer_pct=_p("be_buffer_pct"),
+        )
+        res_tp_sl = res_tp_sl or {}
+        res_notes = res_tp_sl.get("notes", [])
+        res_valid = bool(res_tp_sl.get("valid", False))
 
-        atr_eff = atr if atr and atr > 0 else close_s * ATR_MIN_FRAC
 
-        tp_mult = TP_BASE + TP_SPAN * prob_fusa
-        sl_mult = SL_BASE - SL_SPAN * prob_fusa
-        if tp_mult <= sl_mult:
-            tp_mult = sl_mult + DELTA_MINIMO
+        # Se RR < minimo richiesto, annulla il segnale MA conserva le note diagnostiche
+        if not res_valid:
+            note.extend(res_notes)
+            note.append(f"⛔ RR < minimo {_p('rr_min')}: segnale annullato")
+            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-        if segnale == "BUY":
-            tp_raw = close + atr_eff * tp_mult
-            sl_raw = close - atr_eff * sl_mult
-        else:  # SELL
-            tp_raw = close - atr_eff * tp_mult
-            sl_raw = close + atr_eff * sl_mult
+        tp_raw = float(res_tp_sl["tp"])
+        sl_raw = float(res_tp_sl["sl"])
 
-        # Correzione spread realistica (ask/bid)
+
+        # Applica correzione spread realistica (ask/bid)
         half_spread = close_s * (max(spread, 0.0) / 100.0) / 2.0
+        
         if segnale == "BUY":
             tp_raw += half_spread
             sl_raw -= half_spread
@@ -1467,78 +1500,25 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             tp_raw -= half_spread
             sl_raw += half_spread
 
-        # Enforce RR minimo (prima allargo TP)
-        rr_note_added = False
-        EPS = 1e-9
-        risk = abs(close - sl_raw)
-        if risk < EPS:
-            step = max(TICK, 0.2 * (atr_eff if atr_eff > 0 else close_s * 0.003))
-            sl_raw = sl_raw - step if segnale == "BUY" else sl_raw + step
-            risk = abs(close - sl_raw)
-
-        reward = abs(tp_raw - close)
-        if risk < EPS or _safe_div(reward, risk) < RR_MIN:
-            needed_tp = (close + (RR_MIN * risk)) if segnale == "BUY" else (close - (RR_MIN * risk))
-            tp_raw = needed_tp
-            if not rr_note_added:
-                note.append(f"ℹ️ TP riallineato per RR ≥ {RR_MIN}: reward/risk={_safe_div(abs(tp_raw - close), risk):.2f}")
-                rr_note_added = True
-
-        # Stima tempi TP
-        # (timeframe 15m => 0.25h per candela)
-        T_TARGET_MIN_H = 0.7          # evita target troppo vicino
-        T_TARGET_MAX_H = 6.0          # oltre è poco efficiente
-        T_HARD_CAP_H   = 12.0         # veto se troppo lungo
-        MAX_TP_SPAN_ATR = 3.0         # non allargare TP oltre 3x ATR
-
+        # --- Stima tempi TP (manteniamo le tue note ⏱️) ---
         distanza_tp = abs(tp_raw - close)
+        # range medio 10 barre (fallback robusto)
         range_medio = (hist["high"] - hist["low"]).iloc[-10:].mean()
-        if range_medio <= 0:
-            range_medio = atr_eff if atr_eff > 0 else close_s * 0.003
+        if not pd.notna(range_medio) or range_medio <= 0:
+            # fallback: usa ATR già presente nel df o piccola frazione del prezzo
+            atr_eff = float(ultimo["ATR"]) if pd.notna(ultimo["ATR"]) and ultimo["ATR"] > 0 else (close_s * 0.003)
+            range_medio = atr_eff
 
-        # efficienza dinamica in base a prob_fusa (0..1) → 0.2..0.7
+        # efficienza dinamica in base a prob_fusa (0..1) → 0.2..0.7 (come tuo calcolo)
         eff_min = 0.2 + 0.3 * prob_fusa
         eff_max = eff_min + 0.2
-        ore_min = round((distanza_tp / (range_medio * eff_max)) * 0.25, 2)
-        ore_max = round((distanza_tp / (range_medio * eff_min)) * 0.25, 2)
+        ore_min = round((distanza_tp / max(range_medio, 1e-9)) * 0.25 / max(eff_max, 1e-6), 2)
+        ore_max = round((distanza_tp / max(range_medio, 1e-9)) * 0.25 / max(eff_min, 1e-6), 2)
 
-        # Se troppo lento, prova a stringere TP mantenendo RR minimo
-        if ore_max > T_TARGET_MAX_H:
-            scala = T_TARGET_MAX_H / ore_max
-            nuova_dist = distanza_tp * max(0.4, min(1.0, scala))  # non oltre -60% in un colpo
-            tp_candidato = (close + nuova_dist) if segnale == "BUY" else (close - nuova_dist)
-            reward_cand = abs(tp_candidato - close)
-            if risk > 0 and _safe_div(reward_cand, risk) >= RR_MIN:
-                tp_raw = tp_candidato
-                distanza_tp = reward_cand
-                ore_min = round((distanza_tp / (range_medio * eff_max)) * 0.25, 2)
-                ore_max = round((distanza_tp / (range_medio * eff_min)) * 0.25, 2)
-            else:
-                note.append("⚠️ TP non ridotto: RR sarebbe < minimo")
-
-        # Se ancora troppo lento, veto hard
-        if ore_max > T_HARD_CAP_H:
-            note.append(f"⛔ Tempo TP lungo: {ore_min}–{ore_max}h (cap {T_HARD_CAP_H}h)")
-            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
-
-        # Se troppo veloce, allarga TP (entro un limite) preservando RR
-        if ore_min < T_TARGET_MIN_H:
-            dist_attuale_atr = _safe_div(distanza_tp, atr_eff if atr_eff > 0 else 1)
-            if dist_attuale_atr < MAX_TP_SPAN_ATR:
-                scala_up = T_TARGET_MIN_H / max(ore_min, 0.05)
-                nuova_dist = min(distanza_tp * scala_up, MAX_TP_SPAN_ATR * atr_eff)
-                tp_candidato = (close + nuova_dist) if segnale == "BUY" else (close - nuova_dist)
-                reward_cand = abs(tp_candidato - close)
-                if risk > 0 and _safe_div(reward_cand, risk) >= RR_MIN:
-                    tp_raw = tp_candidato
-                    distanza_tp = reward_cand
-                    ore_min = round((distanza_tp / (range_medio * eff_max)) * 0.25, 2)
-                    ore_max = round((distanza_tp / (range_medio * eff_min)) * 0.25, 2)
-
-        # Nota tempi finali
+        # Nota tempi finale (confermata)
         note.append(f"⏱️ Target TP: ~{ore_min}–{ore_max}h")
 
-        # Se c’è pump, mostra la nota immediatamente dopo la stima tempi
+        # Se c’è pump/dump, mantieni la nota (come prima)
         if pump_flag and pump_msg:
             note.append(pump_msg)
 
@@ -1551,6 +1531,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         tp = _round_tick(tp_raw)
         sl = _round_tick(sl_raw)
 
+        # Allego le note diagnostiche della funzione adattiva senza perdere le tue
+        for n in res_tp_sl.get("notes", []):
+            if n not in note:
+                note.append(n)
+
+        # Coerenza geometrica base (mantieni le tue note di warning)
         if segnale == "BUY" and not (sl < close < tp):
             note.append("⚠️ TP/SL BUY incoerenti")
         if segnale == "SELL" and not (tp < close < sl):
