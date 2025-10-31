@@ -336,9 +336,7 @@ def analyze(symbol: str):
 
             logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
             
-            info = get_symbol_tick_step(symbol)
-            tick_size = float(info.get("tickSize", 0.0))
-            step_size = float(info.get("stepSize", 0.0))
+            tick_size, step_size = get_symbol_tick_step(symbol)
 
             with _pos_lock:
                 posizioni_attive[symbol] = {
