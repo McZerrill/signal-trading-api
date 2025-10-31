@@ -27,7 +27,7 @@ def compute_adaptive_tp_sl(
     # ATR (usa colonna 'ATR' se presente, altrimenti calcolo veloce ATR14)
     if 'ATR' in df.columns and pd.notna(df['ATR'].iloc[-1]):
         atr_val = float(df['ATR'].iloc[-1])
-        notes.append(f'ATR from df: {atr_val:.6f}')
+        #notes.append(f'ATR from df: {atr_val:.6f}')
     else:
         high = df['high']; low = df['low']; close = df['close']
         tr1 = (high - low).abs()
@@ -35,13 +35,13 @@ def compute_adaptive_tp_sl(
         tr3 = (low - close.shift(1)).abs()
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         atr_val = float(tr.rolling(14, min_periods=1).mean().iloc[-1])
-        notes.append(f'ATR fallback calc: {atr_val:.6f}')
+        #notes.append(f'ATR fallback calc: {atr_val:.6f}')
 
     # Swing strutturali (ultime N barre)
     swing_slice = df.iloc[-swing_lookback:]
     swing_min = float(swing_slice['low'].min())
     swing_max = float(swing_slice['high'].max())
-    notes.append(f'swing_min[{swing_lookback}]: {swing_min:.6f}, swing_max: {swing_max:.6f}')
+    #notes.append(f'swing_min[{swing_lookback}]: {swing_min:.6f}, swing_max: {swing_max:.6f}')
 
     tiny_buf = entry * be_buffer_pct  # micro-buffer
     if direction == 'BUY':
@@ -53,7 +53,7 @@ def compute_adaptive_tp_sl(
         sl_swing = max(swing_max, entry) + tiny_buf
         sl_raw   = max(sl_atr, sl_swing)
 
-    notes.append(f'sl_atr: {sl_atr:.6f}, sl_swing: {sl_swing:.6f}, sl_raw: {sl_raw:.6f}')
+    #notes.append(f'sl_atr: {sl_atr:.6f}, sl_swing: {sl_swing:.6f}, sl_raw: {sl_raw:.6f}')
 
     # Vincoli rischio min/max in % su entry
     if direction == 'BUY':
@@ -65,7 +65,7 @@ def compute_adaptive_tp_sl(
         sl_max_risk = entry * (1 + risk_max)
         sl_clamped = min(sl_max_risk, max(sl_raw, sl_min_risk))
 
-    notes.append(f'sl_clamped: {sl_clamped:.6f} (risk_min={risk_min:.3%}, risk_max={risk_max:.3%})')
+    #notes.append(f'sl_clamped: {sl_clamped:.6f} (risk_min={risk_min:.3%}, risk_max={risk_max:.3%})')
 
     # Distanza rischio e TP coerente con RR minimo + swing opposto
     if direction == 'BUY':
@@ -91,7 +91,7 @@ def compute_adaptive_tp_sl(
         be_trigger_price = entry - be_trigger_R * risk_abs
         be_stop_price    = entry - tiny_buf
 
-    notes.append(f'tp_rr: {tp_rr:.6f}, tp_struct: {tp_swg:.6f}, tp_final: {tp:.6f}, rr: {rr:.2f}, risk_pct: {risk_pct:.3%}')
+    #notes.append(f'tp_rr: {tp_rr:.6f}, tp_struct: {tp_swg:.6f}, tp_final: {tp:.6f}, rr: {rr:.2f}, risk_pct: {risk_pct:.3%}')
     valid = rr >= rr_min
     if not valid:
         notes.append(f'RR {rr:.2f} < rr_min {rr_min:.2f} → invalida segnale')
