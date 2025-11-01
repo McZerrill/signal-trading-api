@@ -1,33 +1,43 @@
-import time
+# binance_api.py
+# -----------------------------------------------------------------------------
+# Backend Binance helpers con cache corta per prezzi e timeout ridotti.
+# Pensato per evitare timeouts lato app (3s) in giornate con latenza alta.
+# -----------------------------------------------------------------------------
+
+from __future__ import annotations
+
 import os
-from typing import Optional
+import time
+from typing import Optional, Tuple, Dict, Any
 
 import requests
 import pandas as pd
 from binance.client import Client
 
-
 # -----------------------------------------------------------------------------
 # Config
 # -----------------------------------------------------------------------------
-# Quote supportate (USDT + USDC per compatibilità con il resto del backend)
-QUOTE_SUFFIXES = ("USDT", "USDC")
+# Quote supportate (compatibili col resto del backend)
+QUOTE_SUFFIXES: Tuple[str, str] = ("USDT", "USDC")
 
-# Modalità test
-MODALITA_TEST = True
+# Modalità test (volumi minimi più bassi su get_best_symbols)
+MODALITA_TEST: bool = True
 
 # Inizializza client Binance con chiavi da env
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
 client = Client(api_key=BINANCE_API_KEY, api_secret=BINANCE_API_SECRET)
 
-# Cache simboli 60s
-_symbol_cache = {"time": 0.0, "data": []}
+# Cache simboli (60s)
+_symbol_cache: Dict[str, Any] = {"time": 0.0, "data": []}
 
-# Cache tick/step 30 min
-_tick_cache: dict[str, dict] = {}
-TICK_TTL_SEC = 1800  # 30 minuti
+# Cache tick/step (30 minuti)
+_tick_cache: Dict[str, Dict[str, float]] = {}
+TICK_TTL_SEC: float = 1800.0  # 30 min
 
+# Mini-cache per prezzo/bid-ask (8s)
+_price_cache: Dict[str, Dict[str, float]] = {}
+PRICE_TTL: float = 8.0
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -47,23 +57,32 @@ def _ok_symbol(sym: str) -> bool:
     return not any(x in sym for x in lev)
 
 
+def _get_json(url: str, params: Optional[dict] = None, timeout: float = 2.5, retries: int = 1) -> dict:
+    """GET con timeout corto e 1 retry veloce (exponential-ish backoff)."""
+    last_exc = None
+    for i in range(retries + 1):
+        try:
+            r = requests.get(url, params=params, timeout=timeout)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_exc = e
+            if i < retries:
+                time.sleep(0.15 * (i + 1))
+    # se arrivo qui, rilancio l'ultima eccezione
+    raise last_exc  # type: ignore[misc]
+
 # -----------------------------------------------------------------------------
 # API
 # -----------------------------------------------------------------------------
 def get_best_symbols(limit: int = 80):
-    """
-    Restituisce i migliori simboli per volume 24h (quote USDT/USDC),
-    con cache di 60 secondi.
-    """
+    """Restituisce i migliori simboli per volume 24h (quote USDT/USDC), cache 60s."""
     now = _now()
     if now - _symbol_cache["time"] < 60 and _symbol_cache["data"]:
         return _symbol_cache["data"][:limit]
 
     try:
-        url = "https://api.binance.com/api/v3/ticker/24hr"
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
+        data = _get_json("https://api.binance.com/api/v3/ticker/24hr", timeout=2.5, retries=1)
 
         # Filtro robusto
         filtered = []
@@ -75,16 +94,14 @@ def get_best_symbols(limit: int = 80):
                 qv = float(d.get("quoteVolume", 0.0))
             except Exception:
                 qv = 0.0
-            # soglia diversa tra test/prod
             min_vol = 1_000_000 if MODALITA_TEST else 5_000_000
             if qv >= min_vol:
                 filtered.append((sym, qv))
 
-        # Ordina per volume 24h decrescente
         filtered.sort(key=lambda x: x[1], reverse=True)
         symbols = [s for s, _ in filtered[:limit]]
 
-        # Fallback se vuoto (evita app “senza dati”)
+        # Fallback se vuoto
         if not symbols:
             symbols = [
                 "BTCUSDT", "ETHUSDT", "BNBUSDT",
@@ -107,9 +124,7 @@ def get_best_symbols(limit: int = 80):
 
 
 def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optional[int] = None) -> pd.DataFrame:
-    """
-    Scarica klines e restituisce OHLCV come DataFrame float con DatetimeIndex.
-    """
+    """Scarica klines e restituisce OHLCV come DataFrame float con DatetimeIndex UTC."""
     params = {"symbol": symbol, "interval": interval, "limit": limit}
     if end_time is not None:
         params["endTime"] = end_time
@@ -139,25 +154,68 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
 
 
 def get_bid_ask(symbol: str) -> dict:
-    """
-    Recupera bid/ask reali dal book Binance e calcola lo spread percentuale.
-    """
+    """Recupera bid/ask reali con cache 8s e timeout corto; calcola spread %."""
     try:
-        url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
-        data = requests.get(url, timeout=5).json()
-        bid = float(data["bidPrice"])
-        ask = float(data["askPrice"])
+        c = _price_cache.get(symbol)
+        if c and _now() - c.get("ts", 0.0) < PRICE_TTL and "bid" in c and "ask" in c:
+            bid = float(c["bid"]); ask = float(c["ask"])
+        else:
+            data = _get_json(
+                "https://api.binance.com/api/v3/ticker/bookTicker",
+                {"symbol": symbol}, timeout=2.2, retries=1
+            )
+            bid = float(data["bidPrice"])
+            ask = float(data["askPrice"])
+            _price_cache[symbol] = {
+                "ts": _now(), "bid": bid, "ask": ask, "price": (bid + ask) / 2.0
+            }
         spread = (ask - bid) / ((ask + bid) / 2.0) * 100.0
         return {"bid": bid, "ask": ask, "spread": round(spread, 4)}
     except Exception as e:
         print(f"❌ Errore get_bid_ask({symbol}):", e)
+        # Fallback su cache precedente se esiste
+        c = _price_cache.get(symbol)
+        if c and "bid" in c and "ask" in c:
+            bid = float(c["bid"]); ask = float(c["ask"])
+            spread = (ask - bid) / ((ask + bid) / 2.0) * 100.0 if (bid and ask) else 0.0
+            return {"bid": bid, "ask": ask, "spread": round(spread, 4)}
         return {"bid": 0.0, "ask": 0.0, "spread": 0.0}
 
 
-def get_symbol_tick_step(symbol: str) -> tuple[float, float]:
-    """
-    Ritorna (tick_size, step_size) reali da Binance (exchangeInfo) con cache 30 minuti.
-    Fallback: (0.0001, 0.0001).
+def get_price(symbol: str) -> float:
+    """Prezzo medio (cache 8s). Preferisce (bid+ask)/2 se disponibile."""
+    c = _price_cache.get(symbol)
+    if c and _now() - c.get("ts", 0.0) < PRICE_TTL and "price" in c:
+        return float(c["price"])
+    try:
+        # Tenta prima il bookTicker (coerente con get_bid_ask)
+        data = _get_json(
+            "https://api.binance.com/api/v3/ticker/bookTicker",
+            {"symbol": symbol}, timeout=2.2, retries=1
+        )
+        bid = float(data["bidPrice"])
+        ask = float(data["askPrice"])
+        p = (bid + ask) / 2.0
+        _price_cache[symbol] = {"ts": _now(), "price": p, "bid": bid, "ask": ask}
+        return p
+    except Exception:
+        # Fallback su ticker/price
+        try:
+            data = _get_json(
+                "https://api.binance.com/api/v3/ticker/price",
+                {"symbol": symbol}, timeout=2.2, retries=1
+            )
+            p = float(data["price"])
+            _price_cache[symbol] = {"ts": _now(), "price": p, **_price_cache.get(symbol, {})}
+            return p
+        except Exception as e:
+            print(f"❌ Errore get_price({symbol}):", e)
+            return float(_price_cache.get(symbol, {}).get("price", 0.0))
+
+
+def get_symbol_tick_step(symbol: str) -> Tuple[float, float]:
+    """Ritorna (tick_size, step_size) da exchangeInfo con cache 30 minuti.
+       Fallback: (0.0001, 0.0001).
     """
     s = (symbol or "").upper()
     if not s:
@@ -166,11 +224,13 @@ def get_symbol_tick_step(symbol: str) -> tuple[float, float]:
     now = _now()
     cache = _tick_cache.get(s)
     if cache and (now - cache.get("ts", 0.0) < TICK_TTL_SEC):
-        return cache["tick"], cache["step"]
+        return float(cache["tick"]), float(cache["step"])
 
     try:
-        url = f"https://api.binance.com/api/v3/exchangeInfo?symbol={s}"
-        data = requests.get(url, timeout=6).json()
+        data = _get_json(
+            "https://api.binance.com/api/v3/exchangeInfo",
+            {"symbol": s}, timeout=2.5, retries=1
+        )
 
         symbols = data.get("symbols") or []
         if not symbols:
