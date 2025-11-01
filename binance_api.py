@@ -154,32 +154,60 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
 
 
 def get_bid_ask(symbol: str) -> dict:
-    """Recupera bid/ask reali con cache 8s e timeout corto; calcola spread %."""
-    try:
-        c = _price_cache.get(symbol)
-        if c and _now() - c.get("ts", 0.0) < PRICE_TTL and "bid" in c and "ask" in c:
-            bid = float(c["bid"]); ask = float(c["ask"])
-        else:
-            data = _get_json(
-                "https://api.binance.com/api/v3/ticker/bookTicker",
-                {"symbol": symbol}, timeout=2.2, retries=1
-            )
-            bid = float(data["bidPrice"])
-            ask = float(data["askPrice"])
-            _price_cache[symbol] = {
-                "ts": _now(), "bid": bid, "ask": ask, "price": (bid + ask) / 2.0
-            }
-        spread = (ask - bid) / ((ask + bid) / 2.0) * 100.0
-        return {"bid": bid, "ask": ask, "spread": round(spread, 4)}
-    except Exception as e:
-        print(f"❌ Errore get_bid_ask({symbol}):", e)
-        # Fallback su cache precedente se esiste
-        c = _price_cache.get(symbol)
-        if c and "bid" in c and "ask" in c:
-            bid = float(c["bid"]); ask = float(c["ask"])
-            spread = (ask - bid) / ((ask + bid) / 2.0) * 100.0 if (bid and ask) else 0.0
-            return {"bid": bid, "ask": ask, "spread": round(spread, 4)}
+    """Recupera bid/ask reali con cache breve e timeout corto; calcola spread %."""
+    s = (symbol or "").upper()
+    if not s:
         return {"bid": 0.0, "ask": 0.0, "spread": 0.0}
+
+    now = _now()
+
+    # 1) Cache breve (PRICE_TTL secondi)
+    c = _price_cache.get(s)
+    if c and (now - float(c.get("ts", 0.0)) < float(PRICE_TTL)) and "bid" in c and "ask" in c:
+        bid = float(c["bid"])
+        ask = float(c["ask"])
+        denom = (ask + bid) / 2.0 if (ask > 0.0 and bid > 0.0) else 0.0
+        spread = ((ask - bid) / denom * 100.0) if denom > 0.0 else 0.0
+        return {"bid": bid, "ask": ask, "spread": round(spread, 4)}
+
+    # 2) Chiamata rete con timeout corto + 1 retry
+    try:
+        data = _get_json(
+            "https://api.binance.com/api/v3/ticker/bookTicker",
+            {"symbol": s},
+            timeout=1.8,   # corto per non far scadere il client mobile (3s)
+            retries=1
+        )
+        bid = float(data["bidPrice"])
+        ask = float(data["askPrice"])
+
+        # aggiorna cache
+        _price_cache[s] = {
+            "ts": now,
+            "bid": bid,
+            "ask": ask,
+            "price": (bid + ask) / 2.0
+        }
+
+        denom = (ask + bid) / 2.0 if (ask > 0.0 and bid > 0.0) else 0.0
+        spread = ((ask - bid) / denom * 100.0) if denom > 0.0 else 0.0
+        return {"bid": bid, "ask": ask, "spread": round(spread, 4)}
+
+    except Exception as e:
+        print(f"❌ Errore get_bid_ask({s}): {e}")
+
+        # 3) Fallback su cache (anche se un po' stantia è meglio di zero)
+        c = _price_cache.get(s)
+        if c and ("bid" in c and "ask" in c):
+            bid = float(c["bid"])
+            ask = float(c["ask"])
+            denom = (ask + bid) / 2.0 if (ask > 0.0 and bid > 0.0) else 0.0
+            spread = ((ask - bid) / denom * 100.0) if denom > 0.0 else 0.0
+            return {"bid": bid, "ask": ask, "spread": round(spread, 4)}
+
+        # 4) Fallback finale neutro
+        return {"bid": 0.0, "ask": 0.0, "spread": 0.0}
+
 
 
 def get_price(symbol: str) -> float:
