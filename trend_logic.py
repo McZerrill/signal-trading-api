@@ -3,7 +3,8 @@ from risk_adaptive import compute_adaptive_tp_sl
 from patterns import (
     detect_double_bottom,
     detect_ascending_triangle,
-    detect_price_channel,   
+    detect_price_channel,
+    detect_candlestick_patterns,
 )
 from indicators import (
     calcola_rsi,
@@ -18,8 +19,7 @@ import logging
 from trend_patches_all import (
     compute_ema_slopes,
     post_fusion_pipeline,
-    hysteresis_adjust,
-    channel_defense_adjust,
+    
 )
 from binance_api import get_symbol_tick_step
 
@@ -38,10 +38,12 @@ SOLO_BUY = False
 
 # --- Override BUY da pattern strutturali ---
 CONF_MIN_PATTERN = 0.55        # confidenza minima del pattern per l'override
-VOL_MULT_TRIANGLE = 1.20       # volume > 1.3x media per override triangolo
+VOL_MULT_TRIANGLE = 1.20       # volume > 1.2x media per override triangolo
 PATTERN_SOFT_BOOST_DB  = 0.03  # +3% * conf su prob_fusa se doppio minimo
 PATTERN_SOFT_BOOST_TRI = 0.02  # +2% * conf su prob_fusa se triangolo
 
+# --- Candlestick avanzati (tuning impatto cumulato su prob_fusa) ---
+PATTERN_MAX_ADJ = 0.08
 
 # Parametri separati per test / produzione
 _PARAMS_TEST = {
@@ -66,7 +68,7 @@ _PARAMS_TEST = {
     "macd_signal_threshold": 0.0001,  # assoluta
     "macd_gap_forte": 0.0005,
     "macd_gap_debole": 0.0002,
-    "macd_gap_rel_forte": 0.0007,  
+    "macd_gap_rel_forte": 0.0006,  
     "macd_gap_rel_debole": 0.00025,
 
     "rsi_buy_forte": 50,
@@ -77,11 +79,11 @@ _PARAMS_TEST = {
     "accelerazione_minima": 0.00003,
 
         # --- Adaptive TP/SL ---
-    "atr_mult": 2.2,
+    "atr_mult": 2.8,
     "swing_lookback": 30,
-    "risk_min_pct": 0.005,   # 0.5%
-    "risk_max_pct": 0.03,    # 3.0%
-    "rr_min": 1.25,
+    "risk_min_pct": 0.006,   # 0.5%
+    "risk_max_pct": 0.035,    # 3.0%
+    "rr_min": 1.2,
     "be_trigger_R": 0.8,
     "be_buffer_pct": 0.0005,
 
@@ -120,11 +122,11 @@ _PARAMS_PROD = {
     "accelerazione_minima": 0.00001,
 
         # --- Adaptive TP/SL ---
-    "atr_mult": 2.2,
+    "atr_mult": 2.8,
     "swing_lookback": 30,
-    "risk_min_pct": 0.005,
-    "risk_max_pct": 0.03,
-    "rr_min": 1.25,
+    "risk_min_pct": 0.006,
+    "risk_max_pct": 0.035,
+    "rr_min": 1.2,
     "be_trigger_R": 0.8,
     "be_buffer_pct": 0.0005,
 
@@ -161,7 +163,7 @@ def _p(key):
 
 
 # --- Bridge punteggio_trend -> probabilità fusa (0..1) ---
-TREND_MIN, TREND_MAX = -6, 8   # adatta ai tuoi range osservati
+TREND_MIN, TREND_MAX = -5, 7   # adatta ai tuoi range osservati
 W_TREND, W_CONTEXT = 0.6, 0.4  # quanto pesa il trend vs la stima contestuale
 
 def _clamp(x, a=0.0, b=1.0):
@@ -244,13 +246,11 @@ def trend_score_description(score: int) -> str:
 
 
 def pattern_contrario(segnale: str, pattern: str) -> bool:
-    return (
-        segnale == "BUY"
-        and pattern
-        and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"])
-    ) or (
-        segnale == "SELL" and pattern and "Hammer" in pattern
-    )
+    bearish = ["Shooting Star", "Bearish Engulfing", "Three Black Crows"]
+    bullish = ["Hammer", "Bullish Engulfing", "Three White Soldiers"]
+    return (segnale == "BUY" and pattern and any(p in pattern for p in bearish)) or \
+           (segnale == "SELL" and pattern and any(p in pattern for p in bullish))
+
 
 def sintetizza_canale(chan: dict, solo_buy: bool = True) -> str:
     """
@@ -433,6 +433,23 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
 
         if prev_red and (c1c > o1) and big_prev and small_now and dentro:
             return "🤰 Bullish Harami"
+
+    # 3) Bearish Harami (grossa verde + piccola rossa interamente contenuta)
+    if len(df) >= 2:
+        prev = df.iloc[-2]
+        recent = (df["close"] - df["open"]).abs().iloc[-10:-2]
+        avg_body = recent.mean() if len(recent) else (abs(prev["close"] - prev["open"]) or 1e-9)
+
+        prev_green = prev["close"] > prev["open"]
+        big_prev   = abs(prev["close"] - prev["open"]) > 1.1 * avg_body
+        small_now  = body1_abs < 0.6 * abs(prev["close"] - prev["open"])
+        dentro     = (min(o1, c1c) >= min(prev["open"], prev["close"]) and
+                      max(o1, c1c) <= max(prev["open"], prev["close"]))
+        now_red    = c1c < o1
+
+        if prev_green and now_red and big_prev and small_now and dentro:
+            return "Bearish Harami"
+
 
     return ""
 
@@ -647,7 +664,7 @@ def calcola_probabilita_successo(
     # 10. Penalità se ATR assoluto troppo basso/alto
     if atr < _p("atr_troppo_basso") or atr > _p("atr_troppo_alto"):
         punteggio -= 10
-
+        
     # ------------------------------------------
     # 🔍 Estensioni avanzate (filtri ex-bloccanti)
     # ------------------------------------------
@@ -707,14 +724,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     logging.debug("🔍 Inizio analisi trend")
 
-    tick_size, step_size = (0.0001, 0.0001)
+    tick_size, step_size = 0.0001, 0.0001
     try:
         if symbol:
             tick_size, step_size = get_symbol_tick_step(symbol)
     except Exception as e:
         logging.warning(f"[TICK] Fallback 0.0001 per {symbol}: {e}")
     logging.debug(f"[TICK] {symbol} tick_size={tick_size} step_size={step_size}")
-
 
     
     hist = hist.copy()  
@@ -742,6 +758,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 and (body_frac >= 0.85)
                 and (range_rel >= 0.02)
                 and vol_ok
+                and range_rel > 0.018
             )
 
             if cond_quick_pump:
@@ -760,12 +777,59 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     hist = enrich_indicators(hist)
 
+    note = []
+    #note.append(f"🔧 Sistema: {sistema}")
+
+    # --- Candlestick avanzati sulle ultime barre (15m) ---
+    candles = []
+    pattern_notes = []
+    pattern_adj = 0.0
+
+    try:
+        candles = detect_candlestick_patterns(
+            hist,
+            atr=hist.get("ATR"),
+            vol=hist.get("volume"),
+        ) or []
+    except Exception as _e_cand:
+        logging.debug(f"[PATTERN] detect_candlestick_patterns skipped: {_e_cand}")
+        candles = []
+
+    _pattern_boost_map = {
+        "Morning Star":         +0.06,
+        "Evening Star":         -0.06,
+        "Three White Soldiers": +0.05,
+        "Three Black Crows":    -0.05,
+        "Piercing Line":        +0.035,
+        "Dark Cloud Cover":     -0.035,
+        "Tweezer Bottom":       +0.03,
+        "Tweezer Top":          -0.03,
+        "Dragonfly Doji":       +0.02,
+        "Gravestone Doji":      -0.02,
+        "Long-legged Doji":      0.00,
+    }
+
+    for p in candles:
+        base = _pattern_boost_map.get(p.get("name",""), 0.0)
+        conf = float(p.get("confidence", 0.0))
+        weight = min(1.0, 0.5 + conf)
+        pattern_adj += base * weight
+        pattern_notes.append(f'{p.get("name","?")}({p.get("direction","?")}, {conf:.2f})')
+
+    if pattern_adj > 0:
+        pattern_adj = min(pattern_adj, PATTERN_MAX_ADJ)
+    else:
+        pattern_adj = max(pattern_adj, -PATTERN_MAX_ADJ)
+
+    if pattern_notes:
+        note.append("🕯️ Candlestick: " + ", ".join(pattern_notes))
+
+
     sistema = (sistema or "EMA").upper()
     if sistema not in {"EMA", "DB", "TRI"}:
         sistema = "EMA"
 
-    note = []
-    #note.append(f"🔧 Sistema: {sistema}")
+
 
 
     try:
@@ -950,8 +1014,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # --- Canale di prezzo (15m + validazione 1h) ---
     # ------------------------------------------------------------------
     channel_prob_adj = 0.0   # verrà applicato più avanti, dopo il calcolo di prob_fusa
-    gate_buy_canale  = False  # blocca BUY contro canale 1h discendente forte
-    gate_sell_canale = False  # blocca SELL contro canale 1h ascendente forte
+
 
 
     try:
@@ -996,19 +1059,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             if t1h == "ascending" and strong_1h:
                 # 1h forte rialzista → piccolo boost neutro; per SELL valuteremo un gate
                 channel_prob_adj = channel_prob_adj + 0.02 * c1h
-                # Se stai cercando una SELL contro un 1h↑ forte (e non è breakout down né pump) → gate
-                if (segnale == "SELL"
-                    and not (chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "down")
-                    and not pump_flag):
-                    gate_sell_canale = True
 
+            
             elif t1h == "descending" and strong_1h:
                 # 1h forte ribassista → piccolo malus neutro; per BUY valuti già il gate
                 channel_prob_adj = channel_prob_adj - 0.02 * c1h
-                if (segnale == "BUY"
-                    and not (chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "up")
-                    and not pump_flag):
-                    gate_buy_canale = True
 
 
         # Notifica compatta su un rigo (icona, freccia, %, 1 parola operativa)
@@ -1036,6 +1091,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     p_tri = detect_ascending_triangle(hist, lookback=200, breakout_confirm=True) or {}
 
     def _pattern_recent(p: dict, max_age: int = 40) -> bool:
+        """
+        Ritorna True se almeno UNO dei punti del pattern cade entro max_age barre dall'ultima.
+        Se nessun indice è risolvibile → False (non promuovere pattern obsoleti/ambigui).
+        """
+        if not p:
+            return False
+
         pts = p.get("points", {}) or {}
         candidates = [
             p.get("breakout_index"),
@@ -1044,23 +1106,50 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             pts.get("bottom2_idx"),
             pts.get("bottom1_idx"),
         ]
+
+        def _resolve_pos(idx) -> int | None:
+            # int diretto (anche negativo stile iloc)
+            if isinstance(idx, int):
+                return idx if idx >= 0 else len(hist) + idx
+            # prova come label dell'indice (timestamp o simili)
+            try:
+                pos = hist.index.get_loc(idx)
+                if isinstance(pos, slice):
+                    return pos.stop - 1
+                # gestisci array/iterabile (es. boolean mask o array di posizioni)
+                if hasattr(pos, "__iter__"):
+                    try:
+                        # boolean mask
+                        indices = [i for i, flag in enumerate(pos) if bool(flag)]
+                        return indices[-1] if indices else None
+                    except Exception:
+                        return None
+                # int
+                return int(pos)
+            except Exception:
+                # ultimo tentativo: cast a int se è una stringa numerica
+                try:
+                    return int(idx)
+                except Exception:
+                    return None
+
+        last_pos = len(hist) - 1
+        found_any = False
+
         for idx in candidates:
             if idx is None:
                 continue
-            try:
-                pos = hist.index.get_loc(idx)
-            except Exception:
-                try:
-                    pos = int(idx)
-                except Exception:
-                    continue
-            if (len(hist) - 1 - pos) <= max_age:
+            pos = _resolve_pos(idx)
+            if pos is None or pos < 0 or pos > last_pos:
+                continue
+            found_any = True
+            age = last_pos - pos
+            if age <= max_age:
                 return True
-        # se non databile, mantieni permissivo come ora
-        return True
 
+        # se NON ho risolto alcun punto → pattern NON recente
+        return False 
 
-    
 
     # Gating robusto (usato sia per mostrare la nota sia per l'override)
     pattern_db_ok = (
@@ -1220,6 +1309,17 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     # Se segnale BUY/SELL aggiungi meta info
     pattern = riconosci_pattern_candela(hist)
+    
+    # 🆕 Se la funzione base non ha trovato nulla,
+    # ma il motore "detect_candlestick_patterns" sì, usa i nomi più forti (conf >= 0.55)
+    if not pattern and candles:
+        pattern = ", ".join([
+            p.get("name")
+            for p in candles
+            if float(p.get("confidence", 0)) >= 0.55
+        ])
+
+    
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_reali_up if segnale == "BUY" else candele_reali_down
         dist_level = valuta_distanza(distanza_ema, close)
@@ -1446,10 +1546,25 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
 
 
+
+
+        # --- Impatto candlestick avanzati su prob_fusa ---
+        if candles:
+            prob_fusa = max(0.0, min(1.0, prob_fusa + pattern_adj))
+
+            # Soft override: frena inversioni deboli contro pattern forti
+            strong_bull = any(p.get("direction")=="bull" and float(p.get("confidence",0))>=0.65 for p in candles)
+            strong_bear = any(p.get("direction")=="bear" and float(p.get("confidence",0))>=0.65 for p in candles)
+            if strong_bull and segnale == "SELL" and prob_fusa >= 0.45:
+                segnale = "HOLD"
+                note.append("⏸️ Override: HOLD per forte pattern bull contro SELL")
+            if strong_bear and segnale == "BUY" and prob_fusa <= 0.55:
+                segnale = "HOLD"
+                note.append("⏸️ Override: HOLD per forte pattern bear contro BUY")
+
         # ... boost pattern, boost canale, eventuale boost pump ...
         note.append(f"🧪 Affidabilità: {round(prob_fusa*100)}%")
-
-
+        
         # Gate di entrata coerente con prob_fusa
         P_ENTER = 0.55 if (breakout_valido or pump_flag) else 0.58
         if prob_fusa < P_ENTER:
@@ -1522,14 +1637,23 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         if pump_flag and pump_msg:
             note.append(pump_msg)
 
-        # Rounding a tick e safety finale
-        def _round_tick(x, tick=TICK):
-            if tick and tick > 0:
-                return round(round(x / tick) * tick, 10)
-            return round(x, 10)
+        from decimal import Decimal, ROUND_HALF_UP
 
-        tp = _round_tick(tp_raw)
-        sl = _round_tick(sl_raw)
+        def _round_tick(x: float, tick: float) -> float:
+            """Arrotonda x al multiplo di tick più vicino in modo robusto (no artefatti float)."""
+            try:
+                d_tick = Decimal(str(tick))
+                if d_tick <= 0:
+                    return float(Decimal(str(x)).quantize(Decimal('1e-10'), rounding=ROUND_HALF_UP))
+                q = (Decimal(str(x)) / d_tick).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+                y = (q * d_tick).quantize(d_tick, rounding=ROUND_HALF_UP)
+                return float(y)
+            except Exception:
+                return float(round(x / tick) * tick if tick else round(x, 10))
+
+        tp = _round_tick(tp_raw, TICK)
+        sl = _round_tick(sl_raw, TICK)
+
 
         # Allego le note diagnostiche della funzione adattiva senza perdere le tue
         for n in res_tp_sl.get("notes", []):
