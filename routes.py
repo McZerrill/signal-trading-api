@@ -442,60 +442,51 @@ _ensure_scanner()
 
 @router.get("/price")
 def get_price(symbol: str):
-    
     start = time.time()
-    symbol = symbol.upper()
+    s = (symbol or "").upper()
 
     try:
-        url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
-        response = requests.get(url, timeout=3)
-        data = response.json()
-
-        bid = float(data["bidPrice"])
-        ask = float(data["askPrice"])
-        if bid <= 0 or ask <= 0:
+        # Usa helper con cache/timeout/retry
+        book = get_bid_ask(s)
+        bid = float(book.get("bid", 0.0))
+        ask = float(book.get("ask", 0.0))
+        if bid <= 0.0 or ask <= 0.0:
             raise ValueError(f"Prezzo non valido: bid={bid}, ask={ask}")
 
-        spread = (ask - bid) / ((ask + bid) / 2) * 100
-        prezzo = round((bid + ask) / 2, 4)
+        # Spread già calcolato dall'helper; ricalcolo safe se assente
+        spread = float(book.get("spread", 0.0))
+        if spread == 0.0:
+            denom = (ask + bid) / 2.0
+            spread = ((ask - bid) / denom * 100.0) if denom > 0.0 else 0.0
 
+        prezzo = round((bid + ask) / 2.0, 4)
         elapsed = round(time.time() - start, 3)
+
+        # Leggi lo stato posizione una sola volta, sotto lock
         with _pos_lock:
-            pos = posizioni_attive.get(symbol, {})       # <-- lookup una sola volta
+            pos = dict(posizioni_attive.get(s, {}))
 
         return {
-            "symbol": symbol,
+            "symbol": s,
             "prezzo": prezzo,
             "spread": round(spread, 4),
             "tempo": elapsed,
             "motivo": pos.get("motivo", ""),
             "takeProfit": pos.get("tp", 0.0),
-            "stopLoss":  pos.get("sl", 0.0),
-            "chiusaDaBackend": pos.get("chiusa_da_backend", False)  # <-- nuovo campo
+            "stopLoss": pos.get("sl", 0.0),
+            "chiusaDaBackend": pos.get("chiusa_da_backend", False),
         }
 
     except Exception as e:
-        logging.error(f"❌ Errore durante l'analisi di {symbol.upper()}: {e}")
-
+        logging.error(f"❌ /price errore {s}: {e}")
         elapsed = round(time.time() - start, 3)
         return {
-            "symbol": symbol,
+            "symbol": s,
             "prezzo": 0.0,
             "spread": 0.0,
             "errore": str(e),
-            "tempo": elapsed
+            "tempo": elapsed,
         }
-
-# Cache e log filtri
-_hot_cache = {"time": 0, "data": []}
-_filtro_log = {
-    "totali": 0,
-    "atr": 0,
-    "ema_flat": 0,
-    "volume_basso": 0,
-    "prezzo_piattissimo": 0,
-    "macd_rsi_neutri": 0
-}
 MODALITA_TEST = True
 
 @router.get("/hotassets")
