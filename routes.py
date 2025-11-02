@@ -57,6 +57,25 @@ utc = dt_timezone.utc
 posizioni_attive = {}
 _pos_lock = threading.Lock()
 
+# ---- Avvio monitor incapsulato e idempotente ----
+_monitor_started = False
+monitor_thread = None
+
+def start_monitor_thread():
+    """Avvia il monitor 15m una sola volta per processo."""
+    global _monitor_started, monitor_thread
+    if _monitor_started:
+        return
+    monitor_thread = threading.Thread(
+        target=verifica_posizioni_attive,
+        name="monitor-15m",
+        daemon=True,
+    )
+    monitor_thread.start()
+    _monitor_started = True
+    logging.info("✅ Monitor 15m avviato")
+
+
 
 def _active_sim_count() -> int:
     with _pos_lock:
@@ -494,6 +513,8 @@ def analyze(symbol: str):
 _SCANNER_STARTED = False
 
 
+# ===== Avvio scanner Top Movers (incapsulato) =====
+_SCANNER_STARTED = False
 def _ensure_scanner():
     global _SCANNER_STARTED
     if _SCANNER_STARTED:
@@ -508,14 +529,12 @@ def _ensure_scanner():
             top_n_24h=80,
             cooldown_sec=90,
         )
-
         _SCANNER_STARTED = True
         logging.info("✅ Top Mover Scanner avviato da routes.py")
     except Exception as e:
         logging.error(f"❌ Impossibile avviare lo scanner: {e}")
 
 
-_ensure_scanner()
 # =========================================================
 
 
@@ -1004,10 +1023,6 @@ def verifica_posizioni_attive():
         set_sim_count(_active_sim_count())
 
 
-# Thread monitor
-monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
-monitor_thread.start()
-
 
 # -----------------------------------------------------------------------------
 # Simulazioni attive
@@ -1018,5 +1033,12 @@ def simulazioni_attive():
         set_sim_count(_active_sim_count())
         return dict(posizioni_attive)
 
+@router.on_event("startup")
+def _on_startup_routes():
+    # Avvia scanner e monitor una sola volta per processo
+    _ensure_scanner()
+    start_monitor_thread()
 
-__all__ = ["router"]
+
+__all__ = ["router", "posizioni_attive", "start_monitor_thread"]
+
