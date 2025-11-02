@@ -81,8 +81,8 @@ _PARAMS_TEST = {
         # --- Adaptive TP/SL ---
     "atr_mult": 2.8,
     "swing_lookback": 30,
-    "risk_min_pct": 0.006,   # 0.5%
-    "risk_max_pct": 0.035,    # 3.0%
+    "risk_min_pct": 0.006,   
+    "risk_max_pct": 0.035,    
     "rr_min": 1.2,
     "be_trigger_R": 0.8,
     "be_buffer_pct": 0.0005,
@@ -163,7 +163,7 @@ def _p(key):
 
 
 # --- Bridge punteggio_trend -> probabilità fusa (0..1) ---
-TREND_MIN, TREND_MAX = -5, 7   # adatta ai tuoi range osservati
+TREND_MIN, TREND_MAX = -8, 10   # adatta ai tuoi range osservati
 W_TREND, W_CONTEXT = 0.6, 0.4  # quanto pesa il trend vs la stima contestuale
 
 def _clamp(x, a=0.0, b=1.0):
@@ -244,12 +244,30 @@ def trend_score_description(score: int) -> str:
         return "⚠️ Trend↓ Moderato"
     return ""
 
+import re
+_EMOJI_RE = re.compile(r"^[\W_]+|\s*[\W_]+$")
+
+def _clean_pattern_name(name: str) -> str:
+    if not name: return ""
+    s = str(name)
+    # rimuove emoji/prefix/suffix e spazi extra
+    s = _EMOJI_RE.sub("", s).strip()
+    # uniforma alcuni alias tuoi
+    s = s.replace("🟩", "").replace("🔃", "").replace("🔄", "").strip()
+    # normalizza harami bear
+    if "Harami" in s and "Bear" in s:
+        return "Bearish Harami"
+    if "Harami" in s and "Bull" in s:
+        return "Bullish Harami"
+    return s
+
 
 def pattern_contrario(segnale: str, pattern: str) -> bool:
-    bearish = ["Shooting Star", "Bearish Engulfing", "Three Black Crows"]
-    bullish = ["Hammer", "Bullish Engulfing", "Three White Soldiers"]
-    return (segnale == "BUY" and pattern and any(p in pattern for p in bearish)) or \
-           (segnale == "SELL" and pattern and any(p in pattern for p in bullish))
+    patt = { _clean_pattern_name(p.strip()) for p in str(pattern).split(",") if p.strip() }
+    bearish = {"Shooting Star", "Bearish Engulfing", "Three Black Crows", "Bearish Harami"}
+    bullish = {"Hammer", "Bullish Engulfing", "Three White Soldiers", "Bullish Harami"}
+    return (segnale == "BUY"  and bool(patt & bearish)) or \
+           (segnale == "SELL" and bool(patt & bullish))
 
 
 def sintetizza_canale(chan: dict, solo_buy: bool = True) -> str:
@@ -263,7 +281,7 @@ def sintetizza_canale(chan: dict, solo_buy: bool = True) -> str:
 
     tipo = chan.get("type", "")
     freccia = {"ascending": "↑", "descending": "↓", "sideways": "↔︎"}.get(tipo, "•")
-    conf = int(round(float(chan.get("confidence", 0) * 100)))
+    conf = max(0, min(100, int(round(float(chan.get("confidence", 0)) * 100))))
 
     # Operatività (1 parola)
     op = "Attendi"
@@ -523,15 +541,16 @@ def calcola_punteggio_trend(
     elif rsi <= 45:
         punteggio -= 1
 
-    # 3. MACD
+    # 3. MACD (usa gap relativo al prezzo per coerenza cross-asset)
     macd_gap = macd - macd_signal
-    if macd_gap > 0.002:
+    gap_rel = _frac_of_close(abs(macd_gap), _safe_close(close))
+    if macd_gap > 0 and gap_rel > _p("macd_gap_rel_forte"):
         punteggio += 2
-    elif macd_gap > 0:
+    elif macd_gap > 0 and gap_rel > _p("macd_gap_rel_debole"):
         punteggio += 1
-    elif macd_gap < -0.002:
+    elif macd_gap < 0 and gap_rel > _p("macd_gap_rel_forte"):
         punteggio -= 2
-    elif macd_gap < 0:
+    elif macd_gap < 0 and gap_rel > _p("macd_gap_rel_debole"):
         punteggio -= 1
 
     # 4. Volume
@@ -630,14 +649,17 @@ def calcola_probabilita_successo(
     if breakout:
         punteggio += 10
 
-    # 6. Accelerazione coerente
+    # 6. Accelerazione coerente (penalità ridotta e no-penalty se breakout forte)
     soglia_acc = _p("accelerazione_minima")
-    if segnale == "BUY" and accelerazione > soglia_acc:
+    if breakout:
+        pass  # non penalizzare se breakout valido
+    elif segnale == "BUY" and accelerazione > soglia_acc:
         punteggio += 5
     elif segnale == "SELL" and accelerazione < -soglia_acc:
         punteggio += 5
     else:
-        punteggio -= 5
+        punteggio -= 2  # era -5
+
 
     # 7. Trend attivo da almeno 3-4 candele
     if 3 <= candele_attive <= 7:
@@ -734,6 +756,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     
     hist = hist.copy()  
+    
+    _cols = {"open","high","low","close"}
+    if not _cols.issubset(hist.columns):
+        missing = _cols - set(hist.columns)
+        logging.warning(f"⚠️ Dati insufficienti: mancano colonne {missing}")
+        return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, None
+
+
     if "volume" not in hist.columns:
         hist["volume"] = 0.0
 
@@ -810,11 +840,19 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     }
 
     for p in candles:
-        base = _pattern_boost_map.get(p.get("name",""), 0.0)
-        conf = float(p.get("confidence", 0.0))
-        weight = min(1.0, 0.5 + conf)
+        raw_name   = p.get("name", "")
+        name_clean = _clean_pattern_name(raw_name)
+        conf       = float(p.get("confidence", 0.0))
+        conf       = max(0.0, min(1.0, conf))  # clamp 0..1
+
+        base   = _pattern_boost_map.get(name_clean, 0.0)
+        weight = min(1.0, 0.5 + conf)          # 0.5..1.0
+
         pattern_adj += base * weight
-        pattern_notes.append(f'{p.get("name","?")}({p.get("direction","?")}, {conf:.2f})')
+
+        direction = p.get("direction", "?")
+        # usa il nome pulito nelle note, così è coerente con la boost map
+        pattern_notes.append(f"{name_clean}({direction}, {conf:.2f})")
 
     if pattern_adj > 0:
         pattern_adj = min(pattern_adj, PATTERN_MAX_ADJ)
@@ -840,7 +878,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         close_s = _safe_close(close)
     except Exception as e:
         logging.error(f"❌ Errore nell'accesso ai dati finali: {e}")
-        return "HOLD", hist, 0.0, "Errore su iloc finali", 0.0, 0.0, 0.0
+        return "HOLD", hist, 0.0, "Errore su iloc finali", 0.0, 0.0, None
 
     # Valuta il dump solo quando hai i dati dell’ultima candela
     is_dump = bool(pump_flag and (float(ultimo["close"]) < float(ultimo["open"])))
@@ -1313,11 +1351,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # 🆕 Se la funzione base non ha trovato nulla,
     # ma il motore "detect_candlestick_patterns" sì, usa i nomi più forti (conf >= 0.55)
     if not pattern and candles:
-        pattern = ", ".join([
-            p.get("name")
-            for p in candles
-            if float(p.get("confidence", 0)) >= 0.55
-        ])
+         strong = [
+             _clean_pattern_name(p.get("name",""))
+             for p in candles
+             if float(p.get("confidence", 0)) >= 0.55
+         ]
+         # evita eventuali stringhe vuote
+         pattern = ", ".join([s for s in strong if s])
 
     
     if segnale in ["BUY", "SELL"]:
@@ -1396,8 +1436,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if segnale in ["BUY", "SELL"]:
         # Fusione probabilità con punteggio_trend + penalità maturità
         durata = candele_reali_up if segnale == "BUY" else candele_reali_down
-        MAT_START = 10
-        MAT_SLOPE = 0.25  # dimezza la penalità
+        MAT_START = 12
+        MAT_SLOPE = 0.20  
         pen_maturita = max(0, durata - MAT_START) * MAT_SLOPE
         punteggio_trend_adj = punteggio_trend - pen_maturita
 
@@ -1420,18 +1460,20 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             if f"✅ Pattern: {pattern}" not in note:
                 note.append(f"✅ Pattern: {pattern}")
 
-        # BOOST per pattern candlestick coerenti
+        # Normalizza uno o più pattern (supporta lista separata da virgole)
+        pattern_set = { _clean_pattern_name(p.strip()) for p in str(pattern).split(",") if p.strip() }
+
         if segnale == "BUY":
-            if pattern in ("Three White Soldiers", "🟩 Three White Soldiers"):
+            if "Three White Soldiers" in pattern_set:
                 prob_fusa = min(1.0, prob_fusa + 0.03)
-            elif pattern in ("Bullish Harami", "🤰 Bullish Harami"):
+            if "Bullish Harami" in pattern_set:
+                prob_fusa = min(1.0, prob_fusa + 0.02)
+        elif segnale == "SELL":
+            if {"Shooting Star", "Bearish Engulfing", "Three Black Crows"} & pattern_set:
+                prob_fusa = min(1.0, prob_fusa + 0.03)
+            if "Bearish Harami" in pattern_set:
                 prob_fusa = min(1.0, prob_fusa + 0.02)
 
-        elif segnale == "SELL":
-            if pattern in ("🌠 Shooting Star", "🔃 Bearish Engulfing"):
-                prob_fusa = min(1.0, prob_fusa + 0.03)
-            elif pattern in ("Bearish Harami", "🤰 Bearish Harami (bear)"):
-                prob_fusa = min(1.0, prob_fusa + 0.02)
 
 
         # Soft boost su prob_fusa per canale trend
@@ -1517,6 +1559,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 log=tech_log,       # 👈 ora usa tech_log, non note
             )
 
+            # clamp di sicurezza dopo la pipeline
+            prob_fusa = max(0.0, min(1.0, prob_fusa))
+
             # scrive i dettagli tecnici solo nel file di log
             if tech_log:
                 logging.debug("[TECH] " + " | ".join(tech_log))
@@ -1551,16 +1596,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         # --- Impatto candlestick avanzati su prob_fusa ---
         if candles:
             prob_fusa = max(0.0, min(1.0, prob_fusa + pattern_adj))
-
-            # Soft override: frena inversioni deboli contro pattern forti
             strong_bull = any(p.get("direction")=="bull" and float(p.get("confidence",0))>=0.65 for p in candles)
             strong_bear = any(p.get("direction")=="bear" and float(p.get("confidence",0))>=0.65 for p in candles)
             if strong_bull and segnale == "SELL" and prob_fusa >= 0.45:
-                segnale = "HOLD"
                 note.append("⏸️ Override: HOLD per forte pattern bull contro SELL")
+                return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
             if strong_bear and segnale == "BUY" and prob_fusa <= 0.55:
-                segnale = "HOLD"
                 note.append("⏸️ Override: HOLD per forte pattern bear contro BUY")
+                return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
 
         # ... boost pattern, boost canale, eventuale boost pump ...
         note.append(f"🧪 Affidabilità: {round(prob_fusa*100)}%")
