@@ -6,7 +6,7 @@ import logging
 import pandas as pd
 # Thread di monitoraggio attivo ogni 5 secondi
 import threading
-from binance_api import get_binance_df, get_best_symbols, get_bid_ask
+from binance_api import get_binance_df, get_best_symbols, get_bid_ask, get_symbol_tick_step
 from trend_logic import analizza_trend, conta_candele_trend
 from indicators import calcola_rsi, calcola_macd, calcola_atr
 from models import SignalResponse
@@ -163,7 +163,10 @@ def analyze(symbol: str):
         df_1d  = get_binance_df(symbol, "1d", 300)
         df_1m  = get_binance_df(symbol, "1m", 100)
 
-        segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread, df_1m)
+        segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
+            df_15m, spread=spread, hist_1m=df_1m, symbol=symbol
+        )
+
         note = note15.split("\n") if note15 else []
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
@@ -235,7 +238,8 @@ def analyze(symbol: str):
         logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
 
         # 1h: ok usare ancora analizza_trend come conferma "soft"
-        segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread)
+        segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread=spread, symbol=symbol)
+
         logging.debug(f"[1h] {symbol} – Segnale: {segnale_1h}")
 
         # 1d: controllo RIGOROSO solo su EMA (niente recupero/RSI/MACD)
@@ -309,6 +313,14 @@ def analyze(symbol: str):
                     note.append(f"⚠️ Daily in conflitto ({daily_state})")
 
             logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
+
+            # 👉 tick dinamico del simbolo (per fill/trailing coerenti)
+            try:
+                tick_size = float(get_symbol_tick_step(symbol))
+            except Exception:
+                tick_size = 0.0
+
+            
             with _pos_lock:
                 posizioni_attive[symbol] = {
                     "tipo": segnale,
@@ -316,6 +328,7 @@ def analyze(symbol: str):
                     "tp": tp,
                     "sl": sl,
                     "spread": spread,
+                    "tick_size": tick_size,   # 👈 salvato
                     "chiusa_da_backend": False,
                     "motivo": " | ".join(note)
                 }
@@ -715,7 +728,15 @@ def verifica_posizioni_attive():
                 # ===== verifiche TP/SL su candela corrente (fill al livello, non a mercato) =====
                 # tolleranza tick (se disponibile)
                 TICK = float(sim.get("tick_size", 0.0)) if isinstance(sim.get("tick_size", 0.0), (int, float)) else 0.0
+                if not TICK or TICK <= 0:
+                    try:
+                        TICK = float(get_symbol_tick_step(symbol))
+                        with _pos_lock:
+                            sim["tick_size"] = TICK
+                    except Exception:
+                        TICK = 0.0
                 eps = TICK
+
 
                 fill_price = None
                 exit_reason = None
