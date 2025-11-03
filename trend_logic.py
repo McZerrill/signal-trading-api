@@ -103,7 +103,6 @@ def _resample_ohlcv(df: pd.DataFrame, rule: str = "1H") -> pd.DataFrame:
         return pd.DataFrame()
     _df = df[["open","high","low","close","volume"]].copy()
 
-    # Garantisce DatetimeIndex (se serve prova a convertire l'indice)
     if not isinstance(_df.index, pd.DatetimeIndex):
         try:
             _df.index = pd.to_datetime(_df.index, utc=True, errors="coerce")
@@ -111,8 +110,11 @@ def _resample_ohlcv(df: pd.DataFrame, rule: str = "1H") -> pd.DataFrame:
             return pd.DataFrame()
     _df = _df.dropna(subset=["open","high","low","close"])
 
+    # 👇 evita il warning: usa alias minuscoli
+    rule_lc = str(rule).lower()
+
     out = (
-        _df.resample(rule, label="right", closed="right")
+        _df.resample(rule_lc, label="right", closed="right")
            .agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum"})
            .dropna()
     )
