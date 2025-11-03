@@ -177,7 +177,8 @@ def analyze(symbol: str):
             )
 
             # se l’analisi ha “annullato” il segnale → marca la simulazione e restituisci HOLD annotato
-            if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
+            _annullamento_markers = ("Segnale annullato", "Gate non superato", "Tempo TP lungo", "Dati insufficienti")
+            if segnale == "HOLD" and note15 and any(m in note15 for m in _annullamento_markers):
                 with _pos_lock:
                     posizione["tipo"] = "HOLD"
                     posizione["esito"] = "Annullata"
@@ -235,7 +236,9 @@ def analyze(symbol: str):
         # 5) Logging timeframe e analisi di conferma
         logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
         logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
-        logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
+        _supporto_str = f"{supporto:.6f}" if isinstance(supporto, (int, float)) else "NA"
+        logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={_supporto_str}")
+
 
         # 1h: ok usare ancora analizza_trend come conferma "soft"
         segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread=spread, symbol=symbol)
@@ -792,18 +795,25 @@ def verifica_posizioni_attive():
                 if GESTIONE_ATTIVA and trend_ok and not verso_sl:
                     with _pos_lock:
                         sim.setdefault("tp_esteso", 1)
+                    # arrotondatore a tick (se disponibile)
+                    def _round_tick(x, tick=TICK):
+                        return round(round(x / tick) * tick, 10) if tick and tick > 0 else round(x, 10)
+
                     if tipo == "BUY":
-                        nuovo_tp = round(entry + distanza_entry * TP_TRAIL_FACTOR, 6)
+                        nuovo_tp_raw = entry + distanza_entry * TP_TRAIL_FACTOR
+                        nuovo_tp = _round_tick(nuovo_tp_raw)
                         if nuovo_tp > tp:
                             with _pos_lock:
                                 sim["tp"] = nuovo_tp
                                 sim["motivo"] = "📈 TP aggiornato (trend 15m)"
                     else:
-                        nuovo_tp = round(entry - distanza_entry * TP_TRAIL_FACTOR, 6)
+                        nuovo_tp_raw = entry - distanza_entry * TP_TRAIL_FACTOR
+                        nuovo_tp = _round_tick(nuovo_tp_raw)
                         if nuovo_tp < tp:
                             with _pos_lock:
                                 sim["tp"] = nuovo_tp
                                 sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+
 
                 # ===== messaggio di stato =====
                 if not trend_ok:
