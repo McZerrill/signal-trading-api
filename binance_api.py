@@ -92,26 +92,39 @@ def get_binance_df(symbol: str, interval: str, limit: int = 500, end_time: Optio
     return df
 
 
+def _safe_float(x, default=0.0):
+    try:
+        v = float(x)
+        if v != v:  # NaN
+            return default
+        return v
+    except Exception:
+        return default
+
 def get_bid_ask(symbol: str) -> dict:
     """
     Recupera bid/ask reali dal book Binance e calcola lo spread percentuale.
+    Ritorna spread=9999.0 in caso di dati non validi, così il chiamante filtra lo strumento.
     """
     try:
         url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-        bid = float(data["bidPrice"])
-        ask = float(data["askPrice"])
-        spread = (ask - bid) / ((ask + bid) / 2) * 100
-        return {
-            "bid": bid,
-            "ask": ask,
-            "spread": round(spread, 4)
-        }
-    except Exception as e:
-        print(f"❌ Errore get_bid_ask per {symbol}:", e)
-        return {
-            "bid": 0.0,
-            "ask": 0.0,
-            "spread": 0.0
-        }
+        data = requests.get(url, timeout=5).json()
+
+        bid = _safe_float(data.get("bidPrice"))
+        ask = _safe_float(data.get("askPrice"))
+
+        # Se prezzi non validi o non positivi → segnala come "spread enorme"
+        if bid <= 0.0 or ask <= 0.0:
+            return {"bid": 0.0, "ask": 0.0, "spread": 9999.0}
+
+        mid = (ask + bid) / 2.0
+        if mid <= 0.0:
+            return {"bid": bid, "ask": ask, "spread": 9999.0}
+
+        spread = (ask - bid) / mid * 100.0
+        return {"bid": bid, "ask": ask, "spread": round(spread, 4)}
+
+    except Exception:
+        # In qualunque errore di rete/parsing, evita crash del chiamante
+        return {"bid": 0.0, "ask": 0.0, "spread": 9999.0}
+
