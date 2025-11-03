@@ -1,5 +1,7 @@
 import time 
 import requests
+import certifi
+requests.adapters.DEFAULT_CA_BUNDLE_PATH = certifi.where()
 import pandas as pd
 from typing import Optional
 from binance.client import Client
