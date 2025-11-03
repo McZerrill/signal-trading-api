@@ -12,6 +12,7 @@ from indicators import (
     calcola_ema,
 )
 import logging
+import re
 
 # -----------------------------------------------------------------------------
 # Costanti di configurazione
@@ -19,7 +20,7 @@ import logging
 MODALITA_TEST = True
 SOGLIA_PUNTEGGIO = 2
 DISATTIVA_CHECK_EMA_1M = True
-SOLO_BUY = True
+SOLO_BUY = False
 
 
 # --- Override BUY da pattern strutturali ---
@@ -210,15 +211,21 @@ def trend_score_description(score: int) -> str:
         return "⚠️ Trend↓ Moderato"
     return ""
 
+def _normalize_pattern_name(name: str) -> str:
+    """Rimuove emoji/simboli e normalizza il nome del pattern per i confronti logici."""
+    if not name:
+        return ""
+    clean = re.sub(r'^[\W_]+', '', str(name)).strip()  # toglie emoji/simboli iniziali
+    clean = re.sub(r'[^A-Za-z ]+', '', clean).strip()  # lascia solo lettere e spazi
+    return clean
+
 
 def pattern_contrario(segnale: str, pattern: str) -> bool:
-    return (
-        segnale == "BUY"
-        and pattern
-        and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"])
-    ) or (
-        segnale == "SELL" and pattern and "Hammer" in pattern
-    )
+    patt = {_normalize_pattern_name(p.strip()) for p in str(pattern).split(",") if p.strip()}
+    bearish = {"Shooting Star", "Bearish Engulfing", "Three Black Crows", "Bearish Harami"}
+    bullish = {"Hammer", "Bullish Engulfing", "Three White Soldiers", "Bullish Harami"}
+    return (segnale == "BUY"  and (patt & bearish)) or (segnale == "SELL" and (patt & bullish))
+
 
 def sintetizza_canale(chan: dict, solo_buy: bool = True) -> str:
     """
@@ -1079,32 +1086,39 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     # SELL logic (con RSI in calo integrato)
     # ------------------------------------------------------------------
-    if not SOLO_BUY and (trend_down or recupero_sell) and distanza_ok:
+    # Nota: in questo file non abbiamo breakout_down_valid/is_dump,
+    # usiamo un criterio equivalente: breakout_valido con candela rossa
+    # oppure pump_flag su candela rossa.
+    dump_like = (pump_flag and (ultimo["close"] < ultimo["open"]))
+    breakout_down_like = (breakout_valido and (ultimo["close"] < penultimo["close"]))
+
+    if (not SOLO_BUY) and (trend_down or recupero_sell or breakout_down_like or dump_like) and (distanza_ok or dump_like):
+    
+        if dump_like and not distanza_ok:
+            note.append("ℹ️ SELL consentito per dump-like nonostante distanza EMA bassa")
+
+
         durata_trend = candele_reali_down
         rsi_in_calo = (rsi < penultimo["RSI"] < antepenultimo["RSI"])
 
-        if (
-            rsi <= _p("rsi_sell_forte")
-            and macd_sell_ok
-            and punteggio_trend <= -SOGLIA_PUNTEGGIO
-            and rsi_in_calo
-        ):
-            if durata_trend >= 15:
+        if (rsi <= _p("rsi_sell_forte") and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO and rsi_in_calo):
+            if ema25 >= penultimo["EMA_25"]:
+                note.append("⚠️ EMA25 non ancora in discesa → prudenza SELL")
+            elif durata_trend >= 15:
                 note.append(f"⛔ Trend↓ Maturo ({durata_trend} candele)")
             else:
                 segnale = "SELL"
                 note.append("✅ SELL confermato")
 
-        elif (
-            rsi <= _p("rsi_sell_debole")
-            and macd_sell_debole
-            and rsi_in_calo
-        ):
+        elif (rsi <= _p("rsi_sell_debole") and macd_sell_debole and rsi_in_calo):
+            if ema25 >= penultimo["EMA_25"]:
+                note.append("⚠️ EMA25 non in discesa → prudenza sul SELL moderato")
             if punteggio_trend <= -SOGLIA_PUNTEGGIO - 2 and durata_trend <= 10:
                 segnale = "SELL"
                 note.append("✅ SELL confermato Moderato")
             else:
                 note.append("🤔 Segnale↓ Debole")
+
 
     # ------------------------------------------------------------------
     # Nessun segnale valido
@@ -1122,6 +1136,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     # Se segnale BUY/SELL aggiungi meta info
     pattern = riconosci_pattern_candela(hist)
+    pattern_norm = _normalize_pattern_name(pattern)
+
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_reali_up if segnale == "BUY" else candele_reali_down
         dist_level = valuta_distanza(distanza_ema, close)
@@ -1157,11 +1173,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     low, high = _p("macd_rsi_range")
     soglia_macd = _p("macd_signal_threshold")
+    neutral_penalty = 0.0
     if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < soglia_macd:
-        note.append(f"⛔ Segnale annullato: RSI/MACD neutri (RSI {rsi:.1f}, gap {macd_gap:.5f})")
-        return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+        note.append(f"⚠️ RSI/MACD neutri: affidabilità ridotta (RSI {rsi:.1f}, gap {macd_gap:.5f})")
+        neutral_penalty = 0.06  # ~6% di taglio su prob_fusa nella fase successiva
 
-        
 
     # Controllo facoltativo EMA 1m
     if not DISATTIVA_CHECK_EMA_1M:
@@ -1208,6 +1224,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         if pump_flag:
             prob_fusa = min(1.0, prob_fusa + 0.06)
 
+        # Penale morbida per RSI/MACD neutri
+        if neutral_penalty > 0:
+            prob_fusa = max(0.0, prob_fusa - neutral_penalty)
+
+
+
         # --- BOOST soft dalla struttura (non crea segnali da solo) ---
         if sistema == "DB" and p_db.get("found"):
             prob_fusa = min(1.0, prob_fusa + PATTERN_SOFT_BOOST_DB * p_db["confidence"])
@@ -1225,10 +1247,20 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
         # esempi di aggiustamenti leggeri (solo BUY perché i due pattern sono bullish)
         if segnale == "BUY":
-            if pattern in ("Three White Soldiers", "🟩 Three White Soldiers"):
-                prob_fusa = min(1.0, prob_fusa + 0.03)   # +3% affidabilità
-            elif pattern in ("Bullish Harami", "🤰 Bullish Harami"):
-                prob_fusa = min(1.0, prob_fusa + 0.02)   # +2% affidabilità
+            if pattern_norm == "Three White Soldiers":
+                prob_fusa = min(1.0, prob_fusa + 0.03)
+            elif pattern_norm == "Bullish Harami":
+                prob_fusa = min(1.0, prob_fusa + 0.02)
+
+
+        # simmetria SELL per pattern ribassisti comuni
+        if segnale == "SELL":
+            if pattern_norm in ("Bearish Engulfing", "Three Black Crows"):
+                prob_fusa = min(1.0, prob_fusa + 0.03)
+            elif pattern_norm == "Bearish Harami":
+                prob_fusa = min(1.0, prob_fusa + 0.02)
+
+
 
         # Soft boost su prob_fusa per canale trend
 
@@ -1241,7 +1273,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 if chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "up":
                     prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST_BO * chan_15["confidence"])
 
-        
+            # Aggiunta simmetrica per SELL
+            if segnale == "SELL" and chan_15.get("type") in ("descending", "sideways"):
+                prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST * chan_15["confidence"])
+                if chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "down":
+                    prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST_BO * chan_15["confidence"])
+  
 
         # applica piccolo boost/malus dal multi-TF del canale
         prob_fusa = max(0.0, min(1.0, prob_fusa + channel_prob_adj))
