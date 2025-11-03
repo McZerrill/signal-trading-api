@@ -12,6 +12,7 @@ from indicators import (
     calcola_ema,
 )
 import logging
+from binance_api import get_symbol_tick_step
 import re
 
 # -----------------------------------------------------------------------------
@@ -671,7 +672,8 @@ def calcola_probabilita_successo(
 # -----------------------------------------------------------------------------
 # Funzione principale: analizza_trend
 # -----------------------------------------------------------------------------
-def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None, sistema: str = "EMA"):
+def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None, sistema: str = "EMA", symbol: str = ""):
+
 
     logging.debug("🔍 Inizio analisi trend")
     hist = hist.copy()  
@@ -1302,7 +1304,16 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         SL_BASE, SL_SPAN = 1.00, 0.40  # SL = 1.0x..0.6x ATR
         RR_MIN = 1.2
         DELTA_MINIMO = 0.1
-        TICK = 0.0001  # TODO: sostituire con tick_size reale del symbol (passalo da fuori se puoi)
+        # TICK dinamico: dal symbol se disponibile, altrimenti fallback
+        TICK = 0.0001
+        if symbol:
+            try:
+                tick_guess = float(get_symbol_tick_step(symbol))
+                if tick_guess and tick_guess > 0:
+                    TICK = tick_guess
+            except Exception:
+                pass
+
 
         atr_eff = atr if atr and atr > 0 else close_s * ATR_MIN_FRAC
 
