@@ -676,6 +676,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
 
     logging.debug("🔍 Inizio analisi trend")
+    note = []
+    neutral_penalty = 0.0
+
     hist = hist.copy()  
     if "volume" not in hist.columns:
         hist["volume"] = 0.0
@@ -707,11 +710,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                
             else:
                 logging.warning("⚠️ Dati insufficienti per l'analisi")
-                return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, None
+                note.append("📏 Serie troppo corta per analisi completa")
+                return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, None
+
         except Exception as e:
             logging.warning(f"Quick-pump listing check error: {e}")
             logging.warning("⚠️ Dati insufficienti per l'analisi")
-            return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, None
+            note.append("📏 Serie troppo corta per analisi completa")
+            return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, None
+
 
 
 
@@ -721,8 +728,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if sistema not in {"EMA", "DB", "TRI"}:
         sistema = "EMA"
 
-    note = []
-    #note.append(f"🔧 Sistema: {sistema}")
 
 
     try:
@@ -820,28 +825,50 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append(desc)
 
     # ------------------------------------------------------------------
-    # Breakout
+    # Breakout (qualità candela + retest + integrazione pump)
     # ------------------------------------------------------------------
     breakout_valido = False
+    retest_ok = False
     corpo_candela = abs(ultimo["close"] - ultimo["open"])
+    range_candela = ultimo["high"] - ultimo["low"]
+    body_frac = _safe_div(corpo_candela, max(range_candela, 1e-9))
 
-    if close > massimo_20 and volume_attuale > volume_medio * 1.5:
-        note.append("💥 Breakout↑ con Volume Alto")
-        if corpo_candela > atr:
-            note.append("🚀 Spike↑ con Breakout")
+    # Parametri di qualità del breakout
+    REQ_BODY_FRAC = 0.60      # corpo ≥60% del range → candela “piena”
+    REQ_PUSH_ATR  = 0.20      # breakout oltre livello di almeno 0.2×ATR
+    REQ_VOL_MULT  = 1.8       # volume ≥1.8×media
+
+    # --- Breakout ↑ o ↓ valido ---
+    if close > massimo_20 and volume_attuale >= REQ_VOL_MULT * volume_medio and body_frac >= REQ_BODY_FRAC:
+        if (close - massimo_20) >= REQ_PUSH_ATR * max(atr, 1e-9):
+            note.append("💥 Breakout↑ valido (corpo pieno + push + vol)")
             breakout_valido = True
-    elif close < minimo_20 and volume_attuale > volume_medio * 1.5:
-        note.append("💥 Breakout↓ con Volume Alto")
-        if corpo_candela > atr:
-            note.append("🚨 Spike↓ con Breakout")
+    elif close < minimo_20 and volume_attuale >= REQ_VOL_MULT * volume_medio and body_frac >= REQ_BODY_FRAC:
+        if (minimo_20 - close) >= REQ_PUSH_ATR * max(atr, 1e-9):
+            note.append("💥 Breakout↓ valido (corpo pieno + push + vol)")
             breakout_valido = True
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout? Vol↓")
 
-    # ✅ Promuovi il quick pump a breakout
+    # --- Retest successivo del livello breakout ---
+    if breakout_valido and len(hist) >= 2:
+        prev = hist.iloc[-2]
+        livello = massimo_20 if close > massimo_20 else minimo_20
+        dist_retest = min(abs(prev["low"] - livello), abs(prev["high"] - livello))
+        if close > massimo_20:
+            if dist_retest <= 0.20 * max(atr, 1e-9) and prev["close"] > prev["open"]:
+                retest_ok = True
+                note.append("🔁 Retest riuscito (BUY)")
+        else:
+            if dist_retest <= 0.20 * max(atr, 1e-9) and prev["close"] < prev["open"]:
+                retest_ok = True
+                note.append("🔁 Retest riuscito (SELL)")
+
+    # ✅ Promuovi il quick pump a breakout (mantiene coerenza con trend score)
     if pump_flag and not breakout_valido:
         breakout_valido = True
         punteggio_trend += 1
+
 
     # ------------------------------------------------------------------
     # Rilevamento Pump Verticale
@@ -1121,6 +1148,182 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             else:
                 note.append("🤔 Segnale↓ Debole")
 
+    # ------------------------------------------------------------------
+    # PATCH 3 — Filtro qualità operativa (momentum, volatilità, contesto)
+    # ------------------------------------------------------------------
+    if segnale in ["BUY", "SELL"]:
+        qualita_note = []
+        sl_rel = _frac_of_close(abs(close - sl or 0), close_s)
+        tp_rel = _frac_of_close(abs(tp - close or 0), close_s)
+        rr_est = _safe_div(tp_rel, sl_rel)
+
+        # 1️⃣ Momentum: RSI e MACD devono muoversi nella stessa direzione
+        if segnale == "BUY" and not (rsi > penultimo["RSI"] and macd > penultimo["MACD"]):
+            qualita_note.append("📉 Momentum BUY non coerente (RSI/MACD non in crescita)")
+        if segnale == "SELL" and not (rsi < penultimo["RSI"] and macd < penultimo["MACD"]):
+            qualita_note.append("📈 Momentum SELL non coerente (RSI/MACD non in calo)")
+
+        # 2️⃣ Volatilità troppo bassa → poca escursione
+        atr_pct = _frac_of_close(atr, close_s)
+        if atr_pct < _p("atr_minimo") * 1.2:
+            qualita_note.append("😴 ATR troppo basso → segnale fiacco")
+
+        # 3️⃣ Volume e ampiezza candela coerenti col trend
+        corpo_rel = _frac_of_close(abs(ultimo["close"] - ultimo["open"]), close_s)
+        if segnale == "BUY" and corpo_rel < 0.002 and volume_attuale < volume_medio:
+            qualita_note.append("⚠️ Candela BUY piccola e volume medio → breakout debole")
+        if segnale == "SELL" and corpo_rel < 0.002 and volume_attuale < volume_medio:
+            qualita_note.append("⚠️ Candela SELL piccola e volume medio → pressione bassa")
+
+        # 4️⃣ Rischio/Rendimento troppo stretto
+        if rr_est < 1.2:
+            qualita_note.append(f"⚠️ RR basso ({rr_est:.2f}) → inefficiente")
+
+        # 5️⃣ Condizione combinata: troppi punti deboli → retrocedi a HOLD
+        if len(qualita_note) >= 2:
+            note.extend(qualita_note)
+            note.append("⏸️ Segnale retrocesso a HOLD (qualità insufficiente)")
+            segnale = "HOLD"
+        elif qualita_note:
+            # singolo warning → solo penalità probabilità
+            note.extend(qualita_note)
+            note.append("⚠️ Qualità parziale, riduzione affidabilità")
+            neutral_penalty = max(neutral_penalty, 0.05)
+
+    # ------------------------------------------------------------------
+    # PATCH 4 — Qualità temporale (maturità trend, run-up, pullback, 1h)
+    # ------------------------------------------------------------------
+    if segnale in ["BUY", "SELL"]:
+        temporale_note = []
+
+        # Durate del trend (già calcolate sopra)
+        durata_reale = candele_reali_up if segnale == "BUY" else candele_reali_down
+        durata_strict = candele_trend_up_strict if segnale == "BUY" else candele_trend_down_strict
+
+        # 1) Run-up / eccesso recente (ultime 8 candele)
+        look = min(8, max(3, len(hist)-1))
+        recent_low  = float(hist["low"].iloc[-look:].min())
+        recent_high = float(hist["high"].iloc[-look:].max())
+        close_s = _safe_close(close)
+
+        if segnale == "BUY":
+            runup = _safe_div(close_s - recent_low, recent_low)  # % dal minimo locale
+            if runup > 0.06 and not (breakout_valido or pump_flag or retest_ok):
+                temporale_note.append(f"⛔ Run-up recente +{runup*100:.1f}% senza breakout/retest")
+        else:
+            rundown = _safe_div(recent_high - close_s, recent_high)  # % dal massimo locale
+            if rundown > 0.06 and not (breakout_valido or pump_flag or retest_ok):
+                temporale_note.append(f"⛔ Rundown recente {rundown*100:.1f}% senza breakout/retest")
+
+        # 2) Pullback “sano” assente (parabola): conta da quanto non c'è un ritorno su EMA7
+        def _bars_since_pullback(side="BUY", max_back=25):
+            cnt = 0
+            for i in range(len(hist)-1, max(-1, len(hist)-1-max_back), -1):
+                c = float(hist["close"].iloc[i]); e7v = float(hist["EMA_7"].iloc[i])
+                hit = (c < e7v) if side == "BUY" else (c > e7v)
+                if hit:
+                    break
+                cnt += 1
+            return cnt
+
+        bars_no_pb = _bars_since_pullback("BUY" if segnale=="BUY" else "SELL")
+        if (segnale == "BUY" and bars_no_pb >= 7) or (segnale == "SELL" and bars_no_pb >= 7):
+            temporale_note.append(f"🪙 Trend prolungato senza pullback su EMA7 ({bars_no_pb} barre)")
+
+        # 3) Maturità del trend (veto “late entry” salvo eccezioni forti)
+        LATE_HARD = 12
+        LATE_SOFT = 9
+        if durata_reale >= LATE_HARD and not (breakout_valido or pump_flag or retest_ok):
+            temporale_note.append(f"⛔ Trend maturo ({durata_reale} candele) senza evento nuovo")
+        elif durata_reale >= LATE_SOFT and not (breakout_valido or pump_flag):
+            temporale_note.append(f"⚠️ Trend avanzato ({durata_reale} candele) — preferibile pullback")
+
+        # 4) Curvatura EMA25: deve essere a favore per segnali tardivi
+        curv25 = float(ema25 - penultimo["EMA_25"])
+        if durata_reale >= LATE_SOFT:
+            if (segnale == "BUY" and curv25 <= 0) or (segnale == "SELL" and curv25 >= 0):
+                temporale_note.append("⚠️ Curvatura EMA25 non favorevole su trend maturo")
+
+        # 5) Coerenza 1h (se disponibile il resample già calcolato)
+        try:
+            if "df_1h" in locals() and len(df_1h) >= 5:
+                df_1h_chk = enrich_indicators(df_1h.copy())
+                e7h = float(df_1h_chk["EMA_7"].iloc[-1])
+                e25h = float(df_1h_chk["EMA_25"].iloc[-1])
+                e99h = float(df_1h_chk["EMA_99"].iloc[-1])
+                good_1h = (e7h > e25h > e99h) if segnale=="BUY" else (e7h < e25h < e99h)
+                if durata_reale >= LATE_SOFT and not good_1h and not (breakout_valido or pump_flag):
+                    temporale_note.append("⛔ 1h non coerente per ingresso tardivo")
+        except Exception:
+            pass
+
+        # Decisione: retrocedi o penalizza
+        hard_flags = any(s.startswith("⛔") for s in temporale_note)
+        if hard_flags:
+            note.extend(temporale_note)
+            note.append("⏸️ Segnale retrocesso a HOLD (timing sfavorevole)")
+            segnale = "HOLD"
+        elif temporale_note:
+            note.extend(temporale_note)
+            neutral_penalty = max(neutral_penalty, 0.05)  # abbassa prob_fusa più avanti
+
+    # ------------------------------------------------------------------
+    # PATCH 5 — Qualità di livello (supporto/resistenza e confluenza)
+    # ------------------------------------------------------------------
+    if segnale in ["BUY", "SELL"]:
+        livello_note = []
+
+        # 1️⃣ Supporto/resistenza vicina
+        if supporto is not None and supporto > 0:
+            distanza_sup = _frac_of_close(abs(close - supporto), close_s)
+            if segnale == "BUY" and close < supporto and distanza_sup < 0.004:
+                livello_note.append(f"⛔ BUY troppo vicino al supporto ({distanza_sup*100:.2f}%)")
+            if segnale == "SELL" and close > supporto and distanza_sup < 0.004:
+                livello_note.append(f"⛔ SELL troppo vicino alla resistenza ({distanza_sup*100:.2f}%)")
+
+        # 2️⃣ Congestione EMA (EMA7–25–99 troppo ravvicinate)
+        ema_spread = max(abs(ema7 - ema25), abs(ema25 - ema99), abs(ema7 - ema99))
+        spread_rel = _frac_of_close(ema_spread, close_s)
+        if spread_rel < 0.0008:  # <0.08%
+            livello_note.append("⚠️ EMA ravvicinate → congestione, breakout incerto")
+
+        # 3️⃣ Volume senza direzione chiara (stallo del flusso ordini)
+        vol_ratio = _safe_div(volume_attuale, max(volume_medio, 1e-9))
+        if 0.7 < vol_ratio < 1.2 and breakout_valido:
+            livello_note.append("⚠️ Breakout con volume medio → conferma debole")
+
+        # 4️⃣ Rischio/Rendimento operativo post-spread
+        # Calcola rischio e rendimento solo se tp e sl sono validi
+        if tp and sl:
+            sl_rel = _frac_of_close(abs(close - (sl or 0)), close_s)
+            tp_rel = _frac_of_close(abs((tp or 0) - close), close_s)
+
+            # Calcola il rapporto rischio/rendimento
+            rr_est = _safe_div(tp_rel, sl_rel)
+
+            # 4️⃣ Rischio/Rendimento troppo stretto
+            if rr_est < 1.2:
+                qualita_note.append(f"⚠️ RR basso ({rr_est:.2f}) → inefficiente")
+            elif rr_est > 3.5:
+                livello_note.append(f"ℹ️ RR molto alto ({rr_est:.2f}) → target ambizioso")
+
+
+        # 5️⃣ Spazio operativo vs ATR (evita target in “muro” laterale)
+        dist_maxmin = float(hist["high"].iloc[-40:].max() - hist["low"].iloc[-40:].min())
+        spazio_rel = _frac_of_close(dist_maxmin, close_s)
+        if spazio_rel < 0.01 and not pump_flag:
+            livello_note.append("⚠️ Range laterale stretto → spazio operativo limitato")
+
+        # Decisione finale
+        hard_flags = any(s.startswith("⛔") for s in livello_note)
+        if hard_flags:
+            note.extend(livello_note)
+            note.append("⏸️ Segnale retrocesso a HOLD (livelli sfavorevoli)")
+            segnale = "HOLD"
+        elif livello_note:
+            note.extend(livello_note)
+            neutral_penalty = max(neutral_penalty, 0.04)
+
 
     # ------------------------------------------------------------------
     # Nessun segnale valido
@@ -1175,10 +1378,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     low, high = _p("macd_rsi_range")
     soglia_macd = _p("macd_signal_threshold")
-    neutral_penalty = 0.0
-    if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < soglia_macd:
-        note.append(f"⚠️ RSI/MACD neutri: affidabilità ridotta (RSI {rsi:.1f}, gap {macd_gap:.5f})")
-        neutral_penalty = 0.06  # ~6% di taglio su prob_fusa nella fase successiva
+    
+    if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < (soglia_macd / 1.5):
+        if not (breakout_valido or pump_flag or retest_ok):
+            note.append("⛔ Momentum neutro senza breakout/retest → HOLD")
+            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+        else:
+            note.append(f"⚠️ RSI/MACD neutri: affidabilità ridotta (RSI {rsi:.1f}, gap {macd_gap:.5f})")
+            neutral_penalty = 0.06
+
 
 
     # Controllo facoltativo EMA 1m
@@ -1422,10 +1630,66 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         tp = _round_tick(tp_raw)
         sl = _round_tick(sl_raw)
 
-        if segnale == "BUY" and not (sl < close < tp):
+        if segnale == "BUY" and not (sl <= close <= tp):
             note.append("⚠️ TP/SL BUY incoerenti")
-        if segnale == "SELL" and not (tp < close < sl):
+        if segnale == "SELL" and not (tp <= close <= sl):
             note.append("⚠️ TP/SL SELL incoerenti")
+
+        entry = close_s
+
+        # ------------------------------------------------------------------
+        # PATCH 6 — Dynamic Trailing TP/SL (momentum & qualità)
+        # ------------------------------------------------------------------
+        try:
+            trailing_note = []
+            atr_dyn = max(atr_eff, close_s * 0.002)  # volatilità base
+
+            # 1️⃣ Parametri adattivi in base alla probabilità fusa
+            base_trail_pct = 0.30 - 0.15 * prob_fusa   # da 0.30→0.15
+            min_trail_atr  = 0.6 - 0.3 * prob_fusa     # da 0.6→0.3×ATR
+            boost_factor   = 1.0 + (0.5 * prob_fusa)   # aumenta trailing TP se qualità alta
+
+            # 2️⃣ Calcolo dei nuovi trailing target dinamici
+            if segnale == "BUY":
+                gain_unlocked = max(0.0, close - entry if 'entry' in locals() else 0.0)
+                trail_dist = max(min_trail_atr * atr_dyn, base_trail_pct * close_s)
+                tp_trail = close + (atr_dyn * boost_factor)
+                sl_trail = max(sl, close - trail_dist)
+            else:  # SELL
+                gain_unlocked = max(0.0, entry - close if 'entry' in locals() else 0.0)
+                trail_dist = max(min_trail_atr * atr_dyn, base_trail_pct * close_s)
+                tp_trail = close - (atr_dyn * boost_factor)
+                sl_trail = min(sl, close + trail_dist)
+
+            # 3️⃣ Momentum check: RSI & MACD coerenti
+            momentum_ok = (rsi > penultimo["RSI"] and macd > penultimo["MACD"]) if segnale=="BUY" else (rsi < penultimo["RSI"] and macd < penultimo["MACD"])
+
+            # 4️⃣ Regole di trailing
+            if gain_unlocked > 0 and momentum_ok:
+                # sposta TP in avanti (trailing attivo)
+                tp = max(tp, tp_trail) if segnale=="BUY" else min(tp, tp_trail)
+                note.append(f"🔄 Trailing TP attivo → nuovo TP {tp:.6f}")
+            else:
+                # sposta solo SL in modalità difensiva
+                sl = sl_trail
+                note.append(f"🛡️ Trailing SL attivo → nuovo SL {sl:.6f}")
+
+            # 5️⃣ Re-enforce RR ≥ 1.2
+            risk = abs(close - sl)
+            reward = abs(tp - close)
+            rr_now = _safe_div(reward, risk)
+            if rr_now < 1.2:
+                adjust = (1.2 * risk)
+                tp = (close + adjust) if segnale=="BUY" else (close - adjust)
+                note.append(f"ℹ️ TP riallineato per RR ≥ 1.2 ({rr_now:.2f}→1.2)")
+
+            # 6️⃣ Applica arrotondamento a tick
+            tp = round(round(tp / TICK) * TICK, 10)
+            sl = round(round(sl / TICK) * TICK, 10)
+
+        except Exception as e:
+            logging.warning(f"⚠️ Errore nel trailing dinamico: {e}")
+
 
     logging.debug("✅ Analisi completata")
 
