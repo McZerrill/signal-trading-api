@@ -1688,10 +1688,19 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             tp_raw -= half_spread
             sl_raw += half_spread
 
+        # 👉 Avvicina il TP senza toccare lo SL
+        TP_NEAR_FACTOR = 0.75  # es. 0.75 = TP 25% più vicino
+        if segnale == "BUY":
+            tp_raw = close + (tp_raw - close) * TP_NEAR_FACTOR
+        else:
+            tp_raw = close - (close - tp_raw) * TP_NEAR_FACTOR
+
         # Enforce RR minimo (prima allargo TP)
         rr_note_added = False
         EPS = 1e-9
         risk = abs(close - sl_raw)
+
+        
         if risk < EPS:
             step = max(TICK, 0.2 * (atr_eff if atr_eff > 0 else close_s * 0.003))
             sl_raw = sl_raw - step if segnale == "BUY" else sl_raw + step
@@ -1742,8 +1751,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             note.append(f"⛔ Tempo TP lungo: {ore_min}–{ore_max}h (cap {T_HARD_CAP_H}h)")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
+        PREFER_TP_NEAR = True  # evita di riallargare il TP se “troppo veloce”
+
         # Se troppo veloce, allarga TP (entro un limite) preservando RR
-        if ore_min < T_TARGET_MIN_H:
+        if (ore_min < T_TARGET_MIN_H) and not PREFER_TP_NEAR:
             dist_attuale_atr = _safe_div(distanza_tp, atr_eff if atr_eff > 0 else 1)
             if dist_attuale_atr < MAX_TP_SPAN_ATR:
                 scala_up = T_TARGET_MIN_H / max(ore_min, 0.05)
@@ -1755,6 +1766,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                     distanza_tp = reward_cand
                     ore_min = round((distanza_tp / (range_medio * eff_max)) * 0.25, 2)
                     ore_max = round((distanza_tp / (range_medio * eff_min)) * 0.25, 2)
+
 
         # Nota tempi finali
         note.append(f"⏱️ Target TP: ~{ore_min}–{ore_max}h")
