@@ -1155,9 +1155,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     if segnale in ["BUY", "SELL"]:
         qualita_note = []
-        sl_rel = _frac_of_close(abs(close - sl or 0), close_s)
-        tp_rel = _frac_of_close(abs(tp - close or 0), close_s)
-        rr_est = _safe_div(tp_rel, sl_rel)
 
         # 1️⃣ Momentum: RSI e MACD devono muoversi nella stessa direzione
         if segnale == "BUY" and not (rsi > penultimo["RSI"] and macd > penultimo["MACD"]):
@@ -1177,9 +1174,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         if segnale == "SELL" and corpo_rel < 0.002 and volume_attuale < volume_medio:
             qualita_note.append("⚠️ Candela SELL piccola e volume medio → pressione bassa")
 
-        # 4️⃣ Rischio/Rendimento troppo stretto
-        if rr_est < 1.2:
-            qualita_note.append(f"⚠️ RR basso ({rr_est:.2f}) → inefficiente")
+        # 4️⃣ Rischio/Rendimento: verifica SOLO se tp e sl sono già definiti
+        if tp and sl:
+            sl_rel = _frac_of_close(abs(close - sl), close_s)
+            tp_rel = _frac_of_close(abs(tp - close), close_s)
+            rr_est = _safe_div(tp_rel, sl_rel)
+            if rr_est < 1.2:
+                qualita_note.append(f"⚠️ RR basso ({rr_est:.2f}) → inefficiente")
 
         # 5️⃣ Condizione combinata: troppi punti deboli → retrocedi a HOLD
         if len(qualita_note) >= 3:
