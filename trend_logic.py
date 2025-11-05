@@ -2,7 +2,9 @@ import pandas as pd
 from patterns import (
     detect_double_bottom,
     detect_ascending_triangle,
-    detect_price_channel,   
+    detect_price_channel,
+    detect_double_top,              
+    detect_descending_triangle,     
 )
 from indicators import (
     calcola_rsi,
@@ -27,8 +29,15 @@ SOLO_BUY = False
 # --- Override BUY da pattern strutturali ---
 CONF_MIN_PATTERN = 0.60        # confidenza minima del pattern per l'override
 VOL_MULT_TRIANGLE = 1.30       # volume > 1.3x media per override triangolo
-PATTERN_SOFT_BOOST_DB  = 0.03  # +3% * conf su prob_fusa se doppio minimo
-PATTERN_SOFT_BOOST_TRI = 0.02  # +2% * conf su prob_fusa se triangolo
+PATTERN_SOFT_BOOST_DB    = 0.03  # +3% * conf su prob_fusa se Double Bottom
+PATTERN_SOFT_BOOST_TRI   = 0.02  # +2% * conf su prob_fusa se Asc. Triangle
+PATTERN_SOFT_BOOST_DT    = 0.03  # +3% * conf su prob_fusa se Double Top
+PATTERN_SOFT_BOOST_DTRI  = 0.02  # +2% * conf su prob_fusa se Desc. Triangle
+
+# --- Gate extra se c'è un pattern opposto forte ---
+OPPOSITE_GATE_CONF_MIN = 0.60   # conf. minima del pattern opposto per alzare il gate
+OPPOSITE_GATE_BUMP_BASE = 0.015
+OPPOSITE_GATE_BUMP_MAX  = 0.045
 
 
 # Parametri separati per test / produzione
@@ -272,8 +281,13 @@ def valuta_distanza(distanza: float, close: float) -> str:
 
 
 def conta_candele_trend(hist: pd.DataFrame, rialzista: bool = True, max_candele: int = 20) -> int:
+    if len(hist) < 2:
+        return 0
+    # limita il backtest alla lunghezza disponibile (senza uscire dall’indice)
+    max_back = min(max_candele, len(hist) - 1)
     count = 0
-    for i in range(-1, -max_candele - 1, -1):
+    for off in range(1, max_back + 1):
+        i = -off
         e7, e25, e99 = hist["EMA_7"].iloc[i], hist["EMA_25"].iloc[i], hist["EMA_99"].iloc[i]
         if rialzista and is_trend_up(e7, e25, e99):
             count += 1
@@ -282,6 +296,7 @@ def conta_candele_trend(hist: pd.DataFrame, rialzista: bool = True, max_candele:
         else:
             break
     return count
+
 
 def conta_candele_reali(hist: pd.DataFrame, side: str = "BUY", max_candele: int = 50) -> int:
     """
@@ -987,75 +1002,96 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
 
     # ------------------------------------------------------------------
-    # Pattern strutturali (solo BUY)
+    # Pattern strutturali (BUY + SELL)
     # ------------------------------------------------------------------
-    p_db  = detect_double_bottom(hist, lookback=180, neckline_confirm=True) or {}
-    p_tri = detect_ascending_triangle(hist, lookback=200, breakout_confirm=True) or {}
+    p_db   = detect_double_bottom(hist, lookback=180, neckline_confirm=True) or {}
+    p_tri  = detect_ascending_triangle(hist, lookback=200, breakout_confirm=True) or {}
+    p_dt   = detect_double_top(hist, lookback=180, neckline_confirm=True) or {}
+    p_dtri = detect_descending_triangle(hist, lookback=200, breakout_confirm=True) or {}
 
     def _pattern_recent(p: dict, max_age: int = 40) -> bool:
         pts = p.get("points", {}) or {}
         candidates = [
             p.get("breakout_index"),
             p.get("neckline_break_idx"),
-            p.get("right_bottom_idx"),
+            pts.get("top2_idx") if "Double Top" in str(p.get("pattern","")) else None,
+            pts.get("top1_idx") if "Double Top" in str(p.get("pattern","")) else None,
             pts.get("bottom2_idx"),
             pts.get("bottom1_idx"),
         ]
         for idx in candidates:
-            if idx is None:
+            if idx is None: 
                 continue
             try:
                 pos = hist.index.get_loc(idx)
             except Exception:
-                try:
-                    pos = int(idx)
-                except Exception:
-                    continue
+                try: pos = int(idx)
+                except Exception: continue
             if (len(hist) - 1 - pos) <= max_age:
                 return True
-        # se non databile, mantieni permissivo come ora
-        return True
+        return False  # conservativo: se non databile, non lo consideriamo "recente"
 
 
-    
-
-    # Gating robusto (usato sia per mostrare la nota sia per l'override)
+    # BUY
     pattern_db_ok = (
         p_db.get("found")
-        and p_db.get("confidence", 0) >= CONF_MIN_PATTERN
-        and _pattern_recent(p_db, max_age=40)
+        and p_db.get("confidence",0) >= CONF_MIN_PATTERN
+        and _pattern_recent(p_db, 40)
         and p_db.get("neckline_confirmed", p_db.get("neckline_breakout", False))
         and (macd_gap > 0) and (rsi > 50)
     )
-
     pattern_tri_ok = (
         p_tri.get("found")
-        and p_tri.get("confidence", 0) >= CONF_MIN_PATTERN
-        and _pattern_recent(p_tri, max_age=40)
+        and p_tri.get("confidence",0) >= CONF_MIN_PATTERN
+        and _pattern_recent(p_tri, 40)
         and p_tri.get("breakout_confirmed", False)
         and (volume_attuale > volume_medio * VOL_MULT_TRIANGLE)
     )
 
+    # SELL (nuovi)
+    pattern_dt_ok = (
+        p_dt.get("found")
+        and p_dt.get("confidence",0) >= CONF_MIN_PATTERN
+        and _pattern_recent(p_dt, 40)
+        and p_dt.get("neckline_confirmed", p_dt.get("neckline_breakout", False))
+        and (macd_gap < 0) and (rsi < 50)
+    )
+    pattern_dtri_ok = (
+        p_dtri.get("found")
+        and p_dtri.get("confidence",0) >= CONF_MIN_PATTERN
+        and _pattern_recent(p_dtri, 40)
+        and p_dtri.get("breakout_confirmed", False)
+        and (volume_attuale > volume_medio * VOL_MULT_TRIANGLE)
+    )
 
-    # Mostra le note SOLO se il pattern supera i criteri
+    # Note pattern (solo se superano i criteri)
     if pattern_db_ok:
-        note.append(f"🧩 {p_db.get('pattern', 'Double Bottom')} ({int(p_db.get('confidence',0)*100)}%)")
+        note.append(f"🧩 {p_db.get('pattern','Double Bottom')} ({int(p_db.get('confidence',0)*100)}%)")
     if pattern_tri_ok:
-        note.append(f"🧩 {p_tri.get('pattern', 'Ascending Triangle')} ({int(p_tri.get('confidence',0)*100)}%)")
+        note.append(f"🧩 {p_tri.get('pattern','Ascending Triangle')} ({int(p_tri.get('confidence',0)*100)}%)")
+    if pattern_dt_ok:
+        note.append(f"🧩 {p_dt.get('pattern','Double Top')} ({int(p_dt.get('confidence',0)*100)}%)")
+    if pattern_dtri_ok:
+        note.append(f"🧩 {p_dtri.get('pattern','Descending Triangle')} ({int(p_dtri.get('confidence',0)*100)}%)")
+
 
     # Condizione base per strategia + override coerente
     if sistema == "EMA":
         cond_base = (trend_up or recupero_buy or breakout_valido or pump_flag)
         pattern_buy_override = False
+        pattern_sell_override = False
     elif sistema == "DB":
         cond_base = pattern_db_ok
         pattern_buy_override = pattern_db_ok
+        pattern_sell_override = False
     elif sistema == "TRI":
         cond_base = pattern_tri_ok
         pattern_buy_override = pattern_tri_ok
+        pattern_sell_override = False
     else:
         cond_base = False
         pattern_buy_override = False
+        pattern_sell_override = False
 
     # Se distanza EMA insufficiente, disattiva tutto
     if not distanza_ok and not pump_flag:
@@ -1088,7 +1124,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         elif sistema == "EMA":
             durata_trend = candele_reali_up
             rsi_in_crescita = (rsi > penultimo["RSI"] > antepenultimo["RSI"])
-            rsi_ok_alt = (rsi >= _p("rsi_buy_forte") and (macd - macd_signal) > _p("macd_gap_rel_debole"))
+            rsi_ok_alt = (rsi >= _p("rsi_buy_forte") and (macd > macd_signal) and (gap_rel > _p("macd_gap_rel_debole")))
+
             
             # Regole standard (tuo codice esistente)
             if (
@@ -1116,6 +1153,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 else:
                     note.append("🤔 Segnale↑ Debole")
 
+    # Trigger SELL strutturali se stai usando la strategia EMA
+    if sistema == "EMA" and segnale == "HOLD":
+        if pattern_dt_ok:
+            segnale = "SELL"
+            note.append("✅ SELL per Pattern override (Double Top)")
+        elif pattern_dtri_ok:
+            segnale = "SELL"
+            note.append("✅ SELL per Pattern override (Descending Triangle)")
+
 
     # ------------------------------------------------------------------
     # SELL logic (con RSI in calo integrato)
@@ -1135,21 +1181,23 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         durata_trend = candele_reali_down
         rsi_in_calo = (rsi < penultimo["RSI"] < antepenultimo["RSI"])
 
-        if (rsi <= _p("rsi_sell_forte") and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO and rsi_in_calo):
+        if (rsi <= _p("rsi_sell_forte") and macd_sell_ok and punteggio_trend <= (-SOGLIA_PUNTEGGIO + 1) and rsi_in_calo):
             if durata_trend >= 15:
                 note.append(f"⛔ Trend↓ Maturo ({durata_trend} candele)")
             else:
                 segnale = "SELL"
                 note.append("✅ SELL confermato")
+
             if ema25 >= penultimo["EMA_25"]:
                 note.append("⚠️ EMA25 non ancora in discesa → ingresso anticipato")
 
         elif (rsi <= _p("rsi_sell_debole") and macd_sell_debole and rsi_in_calo):
-            if punteggio_trend <= -SOGLIA_PUNTEGGIO - 1 and durata_trend <= 10:
+            if punteggio_trend <= -SOGLIA_PUNTEGGIO - 1 and durata_trend <= 12:
                 segnale = "SELL"
                 note.append("✅ SELL confermato Moderato")
             else:
                 note.append("🤔 Segnale↓ Debole")
+
     # ------------------------------------------------------------------
     # PATCH 3 — Filtro qualità operativa (momentum, volatilità, contesto)
     # ------------------------------------------------------------------
@@ -1182,15 +1230,16 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             if rr_est < 1.2:
                 qualita_note.append(f"⚠️ RR basso ({rr_est:.2f}) → inefficiente")
 
-        # 5️⃣ Condizione combinata: troppi punti deboli → retrocedi a HOLD
-        if len(qualita_note) >= 3:
+        # 5️⃣ Condizione combinata (più tollerante)
+        if len(qualita_note) >= 4:
             note.extend(qualita_note)
             note.append("⏸️ Segnale retrocesso a HOLD (qualità insufficiente)")
             segnale = "HOLD"
         elif qualita_note:
             note.extend(qualita_note)
             note.append("⚠️ Qualità parziale, riduzione affidabilità")
-            neutral_penalty = max(neutral_penalty, 0.05)
+            neutral_penalty = max(neutral_penalty, 0.06)  # leggermente più alta per compensare la tolleranza
+
 
 
     # ------------------------------------------------------------------
@@ -1379,17 +1428,21 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     
 
 
-    # Invalidation per pattern contrario o neutralità MACD/RSI
-    if pattern_contrario(segnale, pattern):
-        note.append(f"⚠️ Pattern contrario: inversione ({pattern})")
-        return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+    # Invalidation per pattern contrario → diventa malus soft (niente veto duro)
+    if segnale in ["BUY", "SELL"]:
+        if pattern_contrario(segnale, pattern):
+            note.append(f"⚖️ Pattern contrario rilevato ({pattern}) → affidabilità ridotta")
+            neutral_penalty = max(neutral_penalty, 0.05)
+
 
     low, high = _p("macd_rsi_range")
-    soglia_macd = _p("macd_signal_threshold")
-    
-    if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < (soglia_macd / 1.5) and not (breakout_valido or pump_flag):
-        note.append(f"⚠️ RSI/MACD neutri: affidabilità ridotta (RSI {rsi:.1f}, gap {macd_gap:.5f})")
+    # coerenza con la metrica relativa già usata sopra
+    gap_rel_neutro = _p("macd_gap_rel_debole") * 0.6  # leggermente più permissivo
+
+    if segnale in ["BUY", "SELL"] and low < rsi < high and (gap_rel < gap_rel_neutro) and not (breakout_valido or pump_flag):
+        note.append(f"⚠️ RSI/MACD neutri (RSI {rsi:.1f}, gap_rel {gap_rel:.5f})")
         neutral_penalty = max(neutral_penalty, 0.03)
+
 
 
     # Controllo facoltativo EMA 1m
@@ -1444,12 +1497,50 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
 
         # --- BOOST soft dalla struttura (non crea segnali da solo) ---
+        # BUY (boost solo se stai usando la strategia del pattern)
         if sistema == "DB" and p_db.get("found"):
-            prob_fusa = min(1.0, prob_fusa + PATTERN_SOFT_BOOST_DB * p_db["confidence"])
+            add = PATTERN_SOFT_BOOST_DB * p_db["confidence"]
+            prob_fusa = min(1.0, prob_fusa + add)
+            note.append(f"🧩 Boost struttura DB +{add:.2%}")
         if sistema == "TRI" and p_tri.get("found"):
-            prob_fusa = min(1.0, prob_fusa + PATTERN_SOFT_BOOST_TRI * p_tri["confidence"])
-        # (niente boost pattern su EMA, per non contaminare le strategie)
+            add = PATTERN_SOFT_BOOST_TRI * p_tri["confidence"]
+            prob_fusa = min(1.0, prob_fusa + add)
+            note.append(f"🧩 Boost struttura TRI +{add:.2%}")
 
+        # SELL (simmetrico) – abilita boost quando il segnale è SELL ed esistono DT/DTRI
+        if segnale == "SELL":
+            if p_dt.get("found") and pattern_dt_ok:
+                add = PATTERN_SOFT_BOOST_DT * p_dt["confidence"]
+                prob_fusa = min(1.0, prob_fusa + add)
+                note.append(f"🧩 Boost struttura DT +{add:.2%}")
+            if p_dtri.get("found") and pattern_dtri_ok:
+                add = PATTERN_SOFT_BOOST_DTRI * p_dtri["confidence"]
+                prob_fusa = min(1.0, prob_fusa + add)
+                note.append(f"🧩 Boost struttura DescTRI +{add:.2%}")
+
+        # --- Malus simmetrici soft quando compare il pattern opposto (non bloccante) ---
+        if segnale == "BUY":
+            if p_dt.get("found") and pattern_dt_ok:
+                mal = 0.02 * p_dt["confidence"]
+                prob_fusa = max(0.0, prob_fusa - mal)
+                note.append(f"⚖️ Malus opposto DT −{mal:.2%}")
+            if p_dtri.get("found") and pattern_dtri_ok:
+                mal = 0.015 * p_dtri["confidence"]
+                prob_fusa = max(0.0, prob_fusa - mal)
+                note.append(f"⚖️ Malus opposto DescTRI −{mal:.2%}")
+        elif segnale == "SELL":
+            if p_db.get("found") and pattern_db_ok:
+                mal = 0.02 * p_db["confidence"]
+                prob_fusa = max(0.0, prob_fusa - mal)
+                note.append(f"⚖️ Malus opposto DB −{mal:.2%}")
+            if p_tri.get("found") and pattern_tri_ok:
+                mal = 0.015 * p_tri["confidence"]
+                prob_fusa = max(0.0, prob_fusa - mal)
+                note.append(f"⚖️ Malus opposto TRI −{mal:.2%}")
+
+
+        # Evita saturazioni o depressioni eccessive da somma di soft boost/malus
+        prob_fusa = max(0.35, min(0.92, prob_fusa))
 
 
         # --- BOOST/MALUS da pattern candlestick (opzionale) ---
@@ -1482,35 +1573,80 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
         if chan_15.get('found'):
             if segnale == "BUY" and chan_15.get("type") in ("ascending", "sideways"):
-                prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST * chan_15["confidence"])
+                add = CHANNEL_SOFT_BOOST * chan_15["confidence"]
+                prob_fusa = min(1.0, prob_fusa + add)
+                note.append(f"🛤️ Boost canale 15m +{add:.2%}")
                 if chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "up":
-                    prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST_BO * chan_15["confidence"])
+                    add_bo = CHANNEL_SOFT_BOOST_BO * chan_15["confidence"]
+                    prob_fusa = min(1.0, prob_fusa + add_bo)
+                    note.append(f"🛤️ Boost canale 15m (breakout) +{add_bo:.2%}")
 
-            # Aggiunta simmetrica per SELL
             if segnale == "SELL" and chan_15.get("type") in ("descending", "sideways"):
-                prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST * chan_15["confidence"])
+                add = CHANNEL_SOFT_BOOST * chan_15["confidence"]
+                prob_fusa = min(1.0, prob_fusa + add)
+                note.append(f"🛤️ Boost canale 15m +{add:.2%}")
                 if chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "down":
-                    prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST_BO * chan_15["confidence"])
+                    add_bo = CHANNEL_SOFT_BOOST_BO * chan_15["confidence"]
+                    prob_fusa = min(1.0, prob_fusa + add_bo)
+                    note.append(f"🛤️ Boost canale 15m (breakout) +{add_bo:.2%}")
+
   
 
         # applica piccolo boost/malus dal multi-TF del canale
+        old_pf = prob_fusa
         prob_fusa = max(0.0, min(1.0, prob_fusa + channel_prob_adj))
+        if channel_prob_adj != 0:
+            note.append(f"🛤️ Adj canale 1h {channel_prob_adj:+.2%} (da {old_pf:.2f} a {prob_fusa:.2f})")
+
         if gate_buy_canale and segnale == "BUY" and not pump_flag:
             note.append("⛔ Gate multi-TF: canale 1h discendente forte")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
 
         # ... boost pattern, boost canale, eventuale boost pump ...
         note.append(f"🧪 Affidabilità: {round(prob_fusa*100)}%")
 
 
-        # Gate di entrata coerente con prob_fusa
+        # Gate di entrata coerente con prob_fusa (alzalo se c'è pattern opposto forte)
         if breakout_valido or pump_flag:
             P_ENTER = 0.54
         else:
             P_ENTER = 0.60 if segnale == "BUY" else 0.58
+
+            # 🔎 Pattern opposto forte? → alza il gate in modo proporzionale alla confidenza
+            def _strong_opposite_info():
+                # Ritorna (conf_max, label) del pattern opposto più forte
+                if segnale == "BUY":
+                    c_dt   = float(p_dt.get("confidence", 0.0))   if p_dt.get("found")   else 0.0
+                    c_dtri = float(p_dtri.get("confidence", 0.0)) if p_dtri.get("found") else 0.0
+                    if c_dt >= c_dtri and c_dt > 0:
+                        return c_dt, "Double Top"
+                    elif c_dtri > 0:
+                        return c_dtri, "Descending Triangle"
+                    return 0.0, ""
+                else:  # segnale == "SELL"
+                    c_db  = float(p_db.get("confidence", 0.0))   if p_db.get("found")  else 0.0
+                    c_tri = float(p_tri.get("confidence", 0.0))  if p_tri.get("found") else 0.0
+                    if c_db >= c_tri and c_db > 0:
+                        return c_db, "Double Bottom"
+                    elif c_tri > 0:
+                        return c_tri, "Ascending Triangle"
+                    return 0.0, ""
+
+            conf_opp, label_opp = _strong_opposite_info()
+            if conf_opp >= OPPOSITE_GATE_CONF_MIN:
+                # bump cresce da BASE fino a MAX in modo dolce con la confidenza (0.60→1.00)
+                scale = (conf_opp - OPPOSITE_GATE_CONF_MIN) / max(1.0 - OPPOSITE_GATE_CONF_MIN, 1e-9)
+                bump  = min(OPPOSITE_GATE_BUMP_MAX, OPPOSITE_GATE_BUMP_BASE + 0.03 * max(0.0, scale))
+
+                P_ENTER = min(0.80, P_ENTER + bump)  # safety cap al gate
+                note.append(f"⚖️ Gate alzato per pattern opposto forte ({label_opp} {int(conf_opp*100)}%): +{bump:.2%} → {P_ENTER:.2f}")
+
+        # Verifica gate finale
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
 
         # TP/SL proporzionale alla probabilità fusa
         ATR_MIN_FRAC = 0.004
@@ -1656,16 +1792,21 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             boost_factor   = 1.0 + (0.5 * prob_fusa)   # aumenta trailing TP se qualità alta
 
             # 2️⃣ Calcolo dei nuovi trailing target dinamici
+            # Se non abbiamo un vero prezzo di ingresso, usa una proxy prudente
+            if 'entry' not in locals() or entry is None:
+                entry = penultimo["close"]  # proxy: costo opportunità dal bar precedente
+
             if segnale == "BUY":
-                gain_unlocked = max(0.0, close - entry if 'entry' in locals() else 0.0)
+                gain_unlocked = max(0.0, float(close) - float(entry))
                 trail_dist = max(min_trail_atr * atr_dyn, base_trail_pct * close_s)
                 tp_trail = close + (atr_dyn * boost_factor)
                 sl_trail = max(sl, close - trail_dist)
             else:  # SELL
-                gain_unlocked = max(0.0, entry - close if 'entry' in locals() else 0.0)
+                gain_unlocked = max(0.0, float(entry) - float(close))
                 trail_dist = max(min_trail_atr * atr_dyn, base_trail_pct * close_s)
                 tp_trail = close - (atr_dyn * boost_factor)
                 sl_trail = min(sl, close + trail_dist)
+
 
             # 3️⃣ Momentum check: RSI & MACD coerenti
             momentum_ok = (rsi > penultimo["RSI"] and macd > penultimo["MACD"]) if segnale=="BUY" else (rsi < penultimo["RSI"] and macd < penultimo["MACD"])
