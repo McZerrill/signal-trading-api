@@ -59,8 +59,8 @@ _PARAMS_TEST = {
 
     "rsi_buy_forte": 52,
     "rsi_buy_debole": 50,
-    "rsi_sell_forte": 42,
-    "rsi_sell_debole": 46,
+    "rsi_sell_forte": 44,
+    "rsi_sell_debole": 50,
 
     "accelerazione_minima": 0.00003,
 }
@@ -92,8 +92,8 @@ _PARAMS_PROD = {
 
     "rsi_buy_forte": 54,
     "rsi_buy_debole": 50,
-    "rsi_sell_forte": 46,
-    "rsi_sell_debole": 50,
+    "rsi_sell_forte": 48,
+    "rsi_sell_debole": 52,
 
     "accelerazione_minima": 0.00001,
 }
@@ -1121,8 +1121,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     dump_like = (pump_flag and (ultimo["close"] < ultimo["open"]))
     breakout_down_like = (breakout_valido and (ultimo["close"] < penultimo["close"]))
 
-    if (not SOLO_BUY) and (trend_down or recupero_sell or breakout_down_like or dump_like) and (distanza_ok or dump_like):
-    
+    if (not SOLO_BUY) and (trend_down or recupero_sell or breakout_down_like or dump_like) and (distanza_ok or dump_like or (trend_down and macd_sell_debole and rsi <= _p("rsi_sell_debole"))):
+
         if dump_like and not distanza_ok:
             note.append("ℹ️ SELL consentito per dump-like nonostante distanza EMA bassa")
 
@@ -1180,15 +1180,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             qualita_note.append(f"⚠️ RR basso ({rr_est:.2f}) → inefficiente")
 
         # 5️⃣ Condizione combinata: troppi punti deboli → retrocedi a HOLD
-        if len(qualita_note) >= 2:
+        if len(qualita_note) >= 3:
             note.extend(qualita_note)
             note.append("⏸️ Segnale retrocesso a HOLD (qualità insufficiente)")
             segnale = "HOLD"
         elif qualita_note:
-            # singolo warning → solo penalità probabilità
             note.extend(qualita_note)
             note.append("⚠️ Qualità parziale, riduzione affidabilità")
             neutral_penalty = max(neutral_penalty, 0.05)
+
 
     # ------------------------------------------------------------------
     # PATCH 4 — Qualità temporale (maturità trend, run-up, pullback, 1h)
@@ -1273,13 +1273,16 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if segnale in ["BUY", "SELL"]:
         livello_note = []
 
-        # 1️⃣ Supporto/resistenza vicina
+        # 1️⃣ Supporto vicino (blocca SELL se il supporto è troppo sotto e vicino)
         if supporto is not None and supporto > 0:
             distanza_sup = _frac_of_close(abs(close - supporto), close_s)
+            # BUY: evita se stai comprando sotto al supporto (rischio rimbalzo contro)
             if segnale == "BUY" and close < supporto and distanza_sup < 0.004:
                 livello_note.append(f"⛔ BUY troppo vicino al supporto ({distanza_sup*100:.2f}%)")
-            if segnale == "SELL" and close > supporto and distanza_sup < 0.004:
-                livello_note.append(f"⛔ SELL troppo vicino alla resistenza ({distanza_sup*100:.2f}%)")
+            # SELL: evita se sei troppo vicino al supporto SOTTO di te (poco spazio di discesa)
+            if segnale == "SELL" and supporto < close and distanza_sup < 0.004:
+                livello_note.append(f"⛔ SELL troppo vicino al supporto ({distanza_sup*100:.2f}%)")
+
 
         # 2️⃣ Congestione EMA (EMA7–25–99 troppo ravvicinate)
         ema_spread = max(abs(ema7 - ema25), abs(ema25 - ema99), abs(ema7 - ema99))
@@ -1380,13 +1383,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     soglia_macd = _p("macd_signal_threshold")
     
     if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < (soglia_macd / 1.5):
-        if not (breakout_valido or pump_flag or retest_ok):
-            note.append("⛔ Momentum neutro senza breakout/retest → HOLD")
-            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
-        else:
-            note.append(f"⚠️ RSI/MACD neutri: affidabilità ridotta (RSI {rsi:.1f}, gap {macd_gap:.5f})")
-            neutral_penalty = 0.06
-
+        note.append(f"⚠️ RSI/MACD neutri: affidabilità ridotta (RSI {rsi:.1f}, gap {macd_gap:.5f})")
+        neutral_penalty = max(neutral_penalty, 0.06)
 
 
     # Controllo facoltativo EMA 1m
