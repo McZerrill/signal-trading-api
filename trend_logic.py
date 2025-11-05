@@ -19,7 +19,7 @@ import re
 # Costanti di configurazione
 # -----------------------------------------------------------------------------
 MODALITA_TEST = True
-SOGLIA_PUNTEGGIO = 2
+SOGLIA_PUNTEGGIO = 1 if MODALITA_TEST else 2
 DISATTIVA_CHECK_EMA_1M = True
 SOLO_BUY = False
 
@@ -54,8 +54,8 @@ _PARAMS_TEST = {
     "macd_signal_threshold": 0.00015,  # assoluta
     "macd_gap_forte": 0.0005,
     "macd_gap_debole": 0.0002,
-    "macd_gap_rel_forte": 0.0006,  
-    "macd_gap_rel_debole": 0.00025,
+    "macd_gap_rel_forte": 0.0005,  
+    "macd_gap_rel_debole": 0.00020,
 
     "rsi_buy_forte": 52,
     "rsi_buy_debole": 50,
@@ -83,12 +83,12 @@ _PARAMS_PROD = {
     "distanza_media": 0.001,
     "distanza_alta": 0.002,
 
-    "macd_rsi_range": (47, 53),
+    "macd_rsi_range": (46, 54),
     "macd_signal_threshold": 0.0006,
     "macd_gap_forte": 0.002,
     "macd_gap_debole": 0.001,
-    "macd_gap_rel_forte": 8e-4,   # 0.08% del prezzo
-    "macd_gap_rel_debole": 3e-4,
+    "macd_gap_rel_forte": 7e-4,
+    "macd_gap_rel_debole": 2.5e-4,
 
     "rsi_buy_forte": 54,
     "rsi_buy_debole": 50,
@@ -1059,8 +1059,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     # Se distanza EMA insufficiente, disattiva tutto
     if not distanza_ok and not pump_flag:
-        cond_base = False
-        pattern_buy_override = False
+        # Consenti comunque se c'è breakout valido O canale 15m con breakout O forte direzione 1h
+        allow_thin = breakout_valido or (chan_15.get("found") and chan_15.get("breakout_confirmed")) \
+                     or (chan_1h.get("found") and float(chan_1h.get("confidence",0)) >= 0.7)
+        if not allow_thin:
+            cond_base = False
+            pattern_buy_override = False
 
 
     # ------------------------------------------------------------------
@@ -1084,13 +1088,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         elif sistema == "EMA":
             durata_trend = candele_reali_up
             rsi_in_crescita = (rsi > penultimo["RSI"] > antepenultimo["RSI"])
+            rsi_ok_alt = (rsi >= _p("rsi_buy_forte") and (macd - macd_signal) > _p("macd_gap_rel_debole"))
             
             # Regole standard (tuo codice esistente)
             if (
                 rsi >= _p("rsi_buy_forte")
                 and macd_buy_ok
                 and punteggio_trend >= SOGLIA_PUNTEGGIO
-                and rsi_in_crescita
+                and (rsi_in_crescita or rsi_ok_alt)
             ):
                 # consenti anche trend lunghi se breakout/pump
                 LIM_MATURITA = 10
@@ -1131,23 +1136,20 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         rsi_in_calo = (rsi < penultimo["RSI"] < antepenultimo["RSI"])
 
         if (rsi <= _p("rsi_sell_forte") and macd_sell_ok and punteggio_trend <= -SOGLIA_PUNTEGGIO and rsi_in_calo):
-            if ema25 >= penultimo["EMA_25"]:
-                note.append("⚠️ EMA25 non ancora in discesa → prudenza SELL")
-            elif durata_trend >= 15:
+            if durata_trend >= 15:
                 note.append(f"⛔ Trend↓ Maturo ({durata_trend} candele)")
             else:
                 segnale = "SELL"
                 note.append("✅ SELL confermato")
+            if ema25 >= penultimo["EMA_25"]:
+                note.append("⚠️ EMA25 non ancora in discesa → ingresso anticipato")
 
         elif (rsi <= _p("rsi_sell_debole") and macd_sell_debole and rsi_in_calo):
-            if ema25 >= penultimo["EMA_25"]:
-                note.append("⚠️ EMA25 non in discesa → prudenza sul SELL moderato")
-            if punteggio_trend <= -SOGLIA_PUNTEGGIO - 2 and durata_trend <= 10:
+            if punteggio_trend <= -SOGLIA_PUNTEGGIO - 1 and durata_trend <= 10:
                 segnale = "SELL"
                 note.append("✅ SELL confermato Moderato")
             else:
                 note.append("🤔 Segnale↓ Debole")
-
     # ------------------------------------------------------------------
     # PATCH 3 — Filtro qualità operativa (momentum, volatilità, contesto)
     # ------------------------------------------------------------------
@@ -1231,8 +1233,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             temporale_note.append(f"🪙 Trend prolungato senza pullback su EMA7 ({bars_no_pb} barre)")
 
         # 3) Maturità del trend (veto “late entry” salvo eccezioni forti)
-        LATE_HARD = 12
-        LATE_SOFT = 9
+        if breakout_valido or retest_ok or (chan_15.get("found") and chan_15.get("breakout_confirmed")):
+            LATE_SOFT, LATE_HARD = 11, 14
+        else:
+            LATE_SOFT, LATE_HARD = 9, 12
         if durata_reale >= LATE_HARD and not (breakout_valido or pump_flag or retest_ok):
             temporale_note.append(f"⛔ Trend maturo ({durata_reale} candele) senza evento nuovo")
         elif durata_reale >= LATE_SOFT and not (breakout_valido or pump_flag):
@@ -1306,7 +1310,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
             # 4️⃣ Rischio/Rendimento troppo stretto
             if rr_est < 1.2:
-                qualita_note.append(f"⚠️ RR basso ({rr_est:.2f}) → inefficiente")
+                livello_note.append(f"⚠️ RR basso ({rr_est:.2f}) → inefficiente")
             elif rr_est > 3.5:
                 livello_note.append(f"ℹ️ RR molto alto ({rr_est:.2f}) → target ambizioso")
 
@@ -1382,9 +1386,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     low, high = _p("macd_rsi_range")
     soglia_macd = _p("macd_signal_threshold")
     
-    if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < (soglia_macd / 1.5):
+    if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < (soglia_macd / 1.5) and not (breakout_valido or pump_flag):
         note.append(f"⚠️ RSI/MACD neutri: affidabilità ridotta (RSI {rsi:.1f}, gap {macd_gap:.5f})")
-        neutral_penalty = max(neutral_penalty, 0.06)
+        neutral_penalty = max(neutral_penalty, 0.03)
 
 
     # Controllo facoltativo EMA 1m
@@ -1499,7 +1503,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
 
         # Gate di entrata coerente con prob_fusa
-        P_ENTER = 0.55 if (breakout_valido or pump_flag) else 0.62
+        if breakout_valido or pump_flag:
+            P_ENTER = 0.54
+        else:
+            P_ENTER = 0.60 if segnale == "BUY" else 0.58
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
