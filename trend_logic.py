@@ -1791,6 +1791,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
         entry = close_s
 
+        # PATCH — TP ridotto all'80% del target originario per chiusura anticipata
+        TP_CLOSE_FACTOR = 0.8
+        if segnale == "BUY":
+            tp = close + (tp - close) * TP_CLOSE_FACTOR
+        else:
+            tp = close - (close - tp) * TP_CLOSE_FACTOR
+        note.append(f"🎯 TP regolato al {int(TP_CLOSE_FACTOR*100)}% per chiusura anticipata di sicurezza")
+
+
         # ------------------------------------------------------------------
         # PATCH 6 — Dynamic Trailing TP/SL (momentum & qualità)
         # ------------------------------------------------------------------
