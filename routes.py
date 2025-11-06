@@ -4,7 +4,7 @@ import time
 import requests
 import logging
 import pandas as pd
-# Thread di monitoraggio attivo ogni 5 secondi
+# Thread di monitoraggio attivo ogni 60 secondi
 import threading
 from binance_api import get_binance_df, get_best_symbols, get_bid_ask, get_symbol_tick_step
 from trend_logic import analizza_trend, conta_candele_trend
@@ -394,31 +394,9 @@ def analyze(symbol: str):
 
         # <-- PAUSA -->
 
-# ===== Avvio scanner Top Movers (evita doppio avvio) =====
-_SCANNER_STARTED = False
 
-def _ensure_scanner():
-    global _SCANNER_STARTED
-    if _SCANNER_STARTED:
-        return
-    try:
-        # puoi cambiare gli intervalli/soglie come preferisci
-        start_top_mover_scanner(
-            analyze_fn=analyze,
-            interval_sec=30,
-            gain_threshold_normale=0.10,
-            gain_threshold_listing=1.00,
-            quote_suffix=("USDC","USDT"),
-            top_n_24h=80,
-            cooldown_sec=90,
-        )
 
-        _SCANNER_STARTED = True
-        logging.info("✅ Top Mover Scanner avviato da routes.py")
-    except Exception as e:
-        logging.error(f"❌ Impossibile avviare lo scanner: {e}")
 
-_ensure_scanner()
 # =========================================================
 
 
@@ -665,6 +643,47 @@ def hot_assets():
     _hot_cache["data"] = risultati
     return risultati
 
+# ===== Avvio scanner Top Movers (versione unica, dopo hot_assets) =====
+_SCANNER_STARTED = False
+
+def _hot_syms():
+    """
+    Raccoglie i simboli 'hot' che vedi nelle card /hotassets
+    e li unisce allo scanner 1m per chiamare analyze() anche su quelli.
+    """
+    try:
+        items = hot_assets()
+        return [it.get("symbol") for it in items if it.get("symbol")]
+    except Exception:
+        return []
+
+def _ensure_scanner():
+    """
+    Avvia lo scanner una sola volta, con i parametri consigliati
+    e l'hook extra_symbols_fn che integra le card /hotassets.
+    """
+    global _SCANNER_STARTED
+    if _SCANNER_STARTED:
+        return
+    try:
+        start_top_mover_scanner(
+            analyze_fn=analyze,
+            interval_sec=30,              # scansione 1m reattiva
+            gain_threshold_normale=0.05,  # trigger su spike veloci
+            gain_threshold_listing=0.80,  # trigger su nuovi listing
+            quote_suffix=("USDC","USDT"),
+            top_n_24h=200,                # bacino più ampio
+            cooldown_sec=90,
+            extra_symbols_fn=_hot_syms,   # 👈 unisce /hotassets allo scanner
+        )
+        _SCANNER_STARTED = True
+        logging.info("✅ Top Mover Scanner avviato (unico) da routes.py")
+    except Exception as e:
+        logging.error(f"❌ Impossibile avviare lo scanner: {e}")
+
+# Avvio (ora che hot_assets e _hot_syms esistono)
+_ensure_scanner()
+# =========================================================
 
 
 # ------------------------------------------------------------------
@@ -840,6 +859,10 @@ def verifica_posizioni_attive():
 # Thread monitor
 monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
 monitor_thread.start()
+
+@router.get("/scanner_status")
+def scanner_status():
+    return {"started": bool(globals().get("_SCANNER_STARTED", False))}
 
     
 @router.get("/simulazioni_attive")
