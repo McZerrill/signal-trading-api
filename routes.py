@@ -669,10 +669,10 @@ def _ensure_scanner():
         start_top_mover_scanner(
             analyze_fn=analyze,
             interval_sec=30,              # scansione 1m reattiva
-            gain_threshold_normale=0.05,  # trigger su spike veloci
-            gain_threshold_listing=0.80,  # trigger su nuovi listing
+            gain_threshold_normale=0.045,  # trigger su spike veloci
+            gain_threshold_listing=0.60,  # trigger su nuovi listing
             quote_suffix=("USDC","USDT"),
-            top_n_24h=200,                # bacino più ampio
+            top_n_24h=120,                # bacino più ampio
             cooldown_sec=90,
             extra_symbols_fn=_hot_syms,   # 👈 unisce /hotassets allo scanner
         )
