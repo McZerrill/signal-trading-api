@@ -64,7 +64,7 @@ _PARAMS_TEST = {
     "macd_gap_forte": 0.0005,
     "macd_gap_debole": 0.0002,
     "macd_gap_rel_forte": 0.0005,  
-    "macd_gap_rel_debole": 0.00020,
+    "macd_gap_rel_debole": 0.00018,
 
     "rsi_buy_forte": 50,
     "rsi_buy_debole": 48,
@@ -93,7 +93,7 @@ _PARAMS_PROD = {
     "distanza_alta": 0.002,
 
     "macd_rsi_range": (46, 54),
-    "macd_signal_threshold": 0.0006,
+    "macd_signal_threshold": 0.00008,
     "macd_gap_forte": 0.002,
     "macd_gap_debole": 0.001,
     "macd_gap_rel_forte": 7e-4,
@@ -849,9 +849,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     body_frac = _safe_div(corpo_candela, max(range_candela, 1e-9))
 
     # Parametri di qualità del breakout
-    REQ_BODY_FRAC = 0.60      # corpo ≥60% del range → candela “piena”
+    REQ_BODY_FRAC = 0.55      # corpo ≥55% del range → candela “piena”
     REQ_PUSH_ATR  = 0.20      # breakout oltre livello di almeno 0.2×ATR
-    REQ_VOL_MULT  = 1.8       # volume ≥1.8×media
+    REQ_VOL_MULT  = 1.50       # volume ≥1.8×media
 
     # --- Breakout ↑ o ↓ valido ---
     if close > massimo_20 and volume_attuale >= REQ_VOL_MULT * volume_medio and body_frac >= REQ_BODY_FRAC:
