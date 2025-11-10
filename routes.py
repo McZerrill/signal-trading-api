@@ -167,46 +167,17 @@ def analyze(symbol: str):
             df_15m, spread=spread, hist_1m=df_1m, symbol=symbol
         )
 
-        # ---- VETO GUARDIANS ----
-        has_strong_up_event = False  # <--- inizializza sempre
-
-        # Veto BUY contro-trend pieno su 15m se non c'è un evento forte pro-rialzo
-        try:
-            if segnale == "BUY":
-                ema7  = float(hist["EMA_7"].iloc[-1])
-                ema25 = float(hist["EMA_25"].iloc[-1])
-                ema99 = float(hist["EMA_99"].iloc[-1])
-                bear_15 = (ema7 < ema25 < ema99)
-
-                has_strong_up_event = any(
-                    kw in (note15 or "")
-                    for kw in ("Breakout↑", "continuation breakout", "EMA7 kiss",
-                               "Pattern override", "Incrocio Progressivo")
-                )
-                if bear_15 and not has_strong_up_event:
-                    segnale = "HOLD"
-                    note15 = (note15 + "\n" if note15 else "") + \
-                             "⛔ Veto BUY server-side: 15m in trend↓ (7<25<99) senza evento forte"
-        except Exception:
-            pass
-
-        # Estendi controllo anche su 1h (EMA-only)
-        try:
-            e7h  = float(df_1h["close"].ewm(span=7).mean().iloc[-1])
-            e25h = float(df_1h["close"].ewm(span=25).mean().iloc[-1])
-            e99h = float(df_1h["close"].ewm(span=99).mean().iloc[-1])
-            bear_1h = (e7h <= e25h <= e99h)
-            if segnale == "BUY" and bear_1h and not has_strong_up_event:
-                segnale = "HOLD"
-                note15 = (note15 + "\n" if note15 else "") + \
-                         "⛔ Veto BUY server-side: 1h non coerente con BUY"
-        except Exception:
-            pass
-
-        # <-- crea 'note' SOLO ORA, dopo i possibili update di note15 -->
         note = note15.split("\n") if note15 else []
 
-
+        # Verifica finale leggera (facoltativa)
+        try:
+            if segnale == "BUY":
+                e7 = float(hist["EMA_7"].iloc[-1]); e25 = float(hist["EMA_25"].iloc[-1]); e99 = float(hist["EMA_99"].iloc[-1])
+                if e7 < e25 < e99 and not _strong_momentum(hist.iloc[-1], hist, float(hist["ATR"].iloc[-1])):
+                    segnale = "HOLD"
+                    note.append("⛔ Verifica finale: 15m ribassista e momentum debole")
+        except Exception:
+            pass
 
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
@@ -498,6 +469,44 @@ _filtro_log = {
     "prezzo_piattissimo": 0,
     "macd_rsi_neutri": 0
 }
+
+# === Helpers per filtro Hot ===
+def _strong_momentum(last_row, df, atr_val):
+    try:
+        o = float(last_row["open"]); c = float(last_row["close"])
+        h = float(last_row["high"]); l = float(last_row["low"])
+        rng = h - l
+        body = abs(c - o)
+        wick_ratio = (rng - body) / max(rng, 1e-9)
+        vol = float(last_row.get("volume", 0.0))
+        vol_med = float(df["volume"].iloc[-21:-1].mean()) if "volume" in df.columns and len(df) > 21 else 0.0
+        return (
+            rng > 2.0 * max(atr_val, 1e-9) and
+            body > 0.55 * rng and         # corpo “pieno”
+            wick_ratio < 0.45 and
+            vol > 1.8 * max(vol_med, 1e-9)
+        )
+    except Exception:
+        return False
+
+
+def _allow_hot_card(kind, df, ema7, ema25, ema99):
+    """kind: 'BUY' | 'SELL' | 'NA'"""
+    last = df.iloc[-1]
+    atr_val = float(df["ATR"].iloc[-1]) if "ATR" in df.columns else 0.0
+
+    if kind == "BUY":
+        # consenti se trend rialzista pieno O momentum forte contro-trend
+        if ema7 > ema25 > ema99:
+            return True
+        return _strong_momentum(last, df, atr_val) and (last["close"] > last["open"])
+    if kind == "SELL":
+        if ema7 < ema25 < ema99:
+            return True
+        return _strong_momentum(last, df, atr_val) and (last["close"] < last["open"])
+    return False
+
+
 MODALITA_TEST = True
 
 @router.get("/hotassets")
@@ -664,15 +673,19 @@ def hot_assets():
                 and (macd < macd_signal or abs(macd - macd_signal) < 0.01)
             )
 
+            # === GATE unico per la card hot ===
+            kind = "NA"
+            if trend_buy or presegnale_buy:
+                kind = "BUY"
+            elif trend_sell or presegnale_sell:
+                kind = "SELL"
 
-            # Veto BUY contro-trend pieno su 15m, a meno che non ci sia un vero pump verde
-            bear_full_15 = recenti_ribasso  # alias chiaro
-            if (recenti_ribasso and (trend_buy or presegnale_buy)):
-                # consenti solo se c'è stata una candela "pump verde" nell'ultima barra
-                last_green_pump = (ultimo["close"] > ultimo["open"]) and cond_volume and (cond_corpo or (cond_range and cond_wick))
-                if not last_green_pump:
-                    trend_buy = False
-                    presegnale_buy = False
+            if kind == "NA" or not _allow_hot_card(kind, df, ema7, ema25, ema99):
+                continue
+
+
+
+            
 
             
             if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
