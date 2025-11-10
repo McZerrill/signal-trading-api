@@ -167,7 +167,47 @@ def analyze(symbol: str):
             df_15m, spread=spread, hist_1m=df_1m, symbol=symbol
         )
 
+        # ---- VETO GUARDIANS ----
+        has_strong_up_event = False  # <--- inizializza sempre
+
+        # Veto BUY contro-trend pieno su 15m se non c'è un evento forte pro-rialzo
+        try:
+            if segnale == "BUY":
+                ema7  = float(hist["EMA_7"].iloc[-1])
+                ema25 = float(hist["EMA_25"].iloc[-1])
+                ema99 = float(hist["EMA_99"].iloc[-1])
+                bear_15 = (ema7 < ema25 < ema99)
+
+                has_strong_up_event = any(
+                    kw in (note15 or "")
+                    for kw in ("Breakout↑", "continuation breakout", "EMA7 kiss",
+                               "Pattern override", "Incrocio Progressivo")
+                )
+                if bear_15 and not has_strong_up_event:
+                    segnale = "HOLD"
+                    note15 = (note15 + "\n" if note15 else "") + \
+                             "⛔ Veto BUY server-side: 15m in trend↓ (7<25<99) senza evento forte"
+        except Exception:
+            pass
+
+        # Estendi controllo anche su 1h (EMA-only)
+        try:
+            e7h  = float(df_1h["close"].ewm(span=7).mean().iloc[-1])
+            e25h = float(df_1h["close"].ewm(span=25).mean().iloc[-1])
+            e99h = float(df_1h["close"].ewm(span=99).mean().iloc[-1])
+            bear_1h = (e7h <= e25h <= e99h)
+            if segnale == "BUY" and bear_1h and not has_strong_up_event:
+                segnale = "HOLD"
+                note15 = (note15 + "\n" if note15 else "") + \
+                         "⛔ Veto BUY server-side: 1h non coerente con BUY"
+        except Exception:
+            pass
+
+        # <-- crea 'note' SOLO ORA, dopo i possibili update di note15 -->
         note = note15.split("\n") if note15 else []
+
+
+
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
         if posizione:
@@ -235,7 +275,8 @@ def analyze(symbol: str):
 
         # 5) Logging timeframe e analisi di conferma
         logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
-        logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
+        logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {(note15 or '').replace(chr(10), ' | ')}")
+
         _supporto_str = f"{supporto:.6f}" if isinstance(supporto, (int, float)) else "NA"
         logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={_supporto_str}")
 
@@ -337,7 +378,8 @@ def analyze(symbol: str):
                 }
 
 
-        commento = "\n".join(note) if note else "Nessuna nota"
+        commento = "\n".join([r for r in note if r.strip()]) if note else "Nessuna nota"
+
 
         return SignalResponse(
             symbol=symbol,
@@ -605,12 +647,12 @@ def hot_assets():
             macd_ok = macd > macd_signal or abs(macd - macd_signal) < 0.01
 
             presegnale_buy = (
-                df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2]
-                and ema7 > ema25
-                and ema25 < ema99
-                and distanza_relativa < 0.015
-                and rsi > 50
-                and macd_ok
+                df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2] and  # cross up recente
+                ema7 > ema25 and
+                ema25 < ema99 and                               # ancora "recupero", non trend pieno
+                distanza_relativa < 0.015 and
+                rsi > 50 and
+                (macd > 0) and (macd > macd_signal)             # MACD davvero pro-BUY
             )
 
             presegnale_sell = (
@@ -622,6 +664,17 @@ def hot_assets():
                 and (macd < macd_signal or abs(macd - macd_signal) < 0.01)
             )
 
+
+            # Veto BUY contro-trend pieno su 15m, a meno che non ci sia un vero pump verde
+            bear_full_15 = recenti_ribasso  # alias chiaro
+            if (recenti_ribasso and (trend_buy or presegnale_buy)):
+                # consenti solo se c'è stata una candela "pump verde" nell'ultima barra
+                last_green_pump = (ultimo["close"] > ultimo["open"]) and cond_volume and (cond_corpo or (cond_range and cond_wick))
+                if not last_green_pump:
+                    trend_buy = False
+                    presegnale_buy = False
+
+            
             if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
                 segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
