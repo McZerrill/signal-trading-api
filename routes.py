@@ -169,15 +169,25 @@ def analyze(symbol: str):
 
         note = note15.split("\n") if note15 else []
 
-        # Verifica finale leggera (facoltativa)
+        # Verifica finale leggera (facoltativa, BUY e SELL)
         try:
+            e7 = float(hist["EMA_7"].iloc[-1])
+            e25 = float(hist["EMA_25"].iloc[-1])
+            e99 = float(hist["EMA_99"].iloc[-1])
+            last = hist.iloc[-1]
+            atr_val = float(hist["ATR"].iloc[-1])
+
             if segnale == "BUY":
-                e7 = float(hist["EMA_7"].iloc[-1]); e25 = float(hist["EMA_25"].iloc[-1]); e99 = float(hist["EMA_99"].iloc[-1])
-                if e7 < e25 < e99 and not _strong_momentum(hist.iloc[-1], hist, float(hist["ATR"].iloc[-1])):
+                if e7 < e25 < e99 and not _strong_momentum(last, hist, atr_val):
                     segnale = "HOLD"
                     note.append("⛔ Verifica finale: 15m ribassista e momentum debole")
+            elif segnale == "SELL":
+                if e7 > e25 > e99 and not _strong_momentum(last, hist, atr_val):
+                    segnale = "HOLD"
+                    note.append("⛔ Verifica finale: 15m rialzista e momentum debole")
         except Exception:
             pass
+
 
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
