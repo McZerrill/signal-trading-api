@@ -59,12 +59,12 @@ _PARAMS_TEST = {
     "distanza_media": 0.0008,
     "distanza_alta": 0.0015,
 
-    "macd_rsi_range": (45, 55),
+    "macd_rsi_range": (44, 56),
     "macd_signal_threshold": 0.00010,  # assoluta
     "macd_gap_forte": 0.0005,
     "macd_gap_debole": 0.0002,
     "macd_gap_rel_forte": 0.0005,  
-    "macd_gap_rel_debole": 0.00018,
+    "macd_gap_rel_debole": 0.00015,
 
     "rsi_buy_forte": 50,
     "rsi_buy_debole": 48,
@@ -81,7 +81,7 @@ _PARAMS_PROD = {
     "volume_basso": 0.8,
     "volume_molto_basso": 0.5,
 
-    "atr_minimo": 0.0009,
+    "atr_minimo": 0.0006,
     "atr_buono": 0.0015,
     "atr_basso": 0.0008,
     "atr_troppo_basso": 0.0002,
@@ -92,7 +92,7 @@ _PARAMS_PROD = {
     "distanza_media": 0.001,
     "distanza_alta": 0.002,
 
-    "macd_rsi_range": (46, 54),
+    "macd_rsi_range": (44, 56),
     "macd_signal_threshold": 0.00008,
     "macd_gap_forte": 0.002,
     "macd_gap_debole": 0.001,
@@ -776,8 +776,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if pd.isna(escursione_media) or escursione_media <= 0:
         escursione_media = max(
             (hist["high"] - hist["low"]).tail(3).mean(),
-            atr,          # <-- era float(atr) if pd.notna(atr) else 0.0
-            1e-9,
+            atr, close_s * 0.003, 1e-9,
+            
         )
 
     distanza_ema = abs(ema7 - ema25)
@@ -849,9 +849,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     body_frac = _safe_div(corpo_candela, max(range_candela, 1e-9))
 
     # Parametri di qualità del breakout
-    REQ_BODY_FRAC = 0.55      # corpo ≥55% del range → candela “piena”
-    REQ_PUSH_ATR  = 0.20      # breakout oltre livello di almeno 0.2×ATR
-    REQ_VOL_MULT  = 1.50       # volume ≥1.8×media
+    REQ_BODY_FRAC = 0.50      # corpo ≥50% del range → candela “piena”
+    REQ_PUSH_ATR  = 0.15      # breakout oltre livello di almeno 0.15×ATR
+    REQ_VOL_MULT  = 1.30       # volume ≥1.3×media
 
     # --- Breakout ↑ o ↓ valido ---
     if close > massimo_20 and volume_attuale >= REQ_VOL_MULT * volume_medio and body_frac >= REQ_BODY_FRAC:
@@ -869,13 +869,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if breakout_valido and len(hist) >= 2:
         prev = hist.iloc[-2]
         livello = massimo_20 if close > massimo_20 else minimo_20
-        dist_retest = min(abs(prev["low"] - livello), abs(prev["high"] - livello))
+        dist_retest = min(abs(float(prev["low"]) - float(livello)), abs(float(prev["high"]) - float(livello)))
         if close > massimo_20:
-            if dist_retest <= 0.20 * max(atr, 1e-9) and prev["close"] > prev["open"]:
+            if dist_retest <= 0.20 * max(atr, 1e-9) and prev["close"] >= prev["open"]:
                 retest_ok = True
                 note.append("🔁 Retest riuscito (BUY)")
         else:
-            if dist_retest <= 0.20 * max(atr, 1e-9) and prev["close"] < prev["open"]:
+            if dist_retest <= 0.20 * max(atr, 1e-9) and prev["close"] <= prev["open"]:
                 retest_ok = True
                 note.append("🔁 Retest riuscito (SELL)")
 
@@ -934,6 +934,48 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     except Exception as e:
         logging.warning(f"⚠️ Errore rilevamento pump: {e}")
 
+    # ------------------------------------------------------------------
+    # Continuation breakout (post-pullback su EMA7/EMA25)
+    # ------------------------------------------------------------------
+    continuation_ok = False
+    try:
+        # Finestra di pullback 3–6 barre: massimi decrescenti e tocco su EMA7/25
+        pb = hist.iloc[-6:-1]
+        if len(pb) >= 3:
+            highs = pb["high"].to_list()
+            highs_nonincr = all(highs[i] >= highs[i+1] for i in range(len(highs)-1))
+            touch_ema = (pb["low"] <= pb["EMA_7"] * 1.002).any() or (pb["low"] <= pb["EMA_25"] * 1.003).any()
+            pullback_high = pb["high"].max()
+            vol_mediana = pb["volume"].median() if pb["volume"].notna().any() else volume_medio
+
+            if (trend_up or recupero_buy) and highs_nonincr and touch_ema \
+               and close > pullback_high and volume_attuale >= 1.2 * vol_mediana:
+                continuation_ok = True
+                breakout_valido = True
+                note.append("📈 Continuation breakout (post-pullback su EMA)")
+    except Exception:
+        pass
+
+
+    # ------------------------------------------------------------------
+    # EMA7 Kiss: tocco su EMA7 e ripartenza con conferma volume
+    # ------------------------------------------------------------------
+    ema7_kiss = False
+    try:
+        wnd = hist.tail(6)
+        vol_med = float(wnd["volume"].median()) if wnd["volume"].notna().any() else volume_medio
+        for i in range(len(wnd) - 1):
+            c_i = float(wnd["close"].iloc[i]); e7_i = float(wnd["EMA_7"].iloc[i])
+            near = abs(c_i - e7_i) / max(c_i, 1e-9) <= 0.0015  # ±0.15%
+            if near and wnd["close"].iloc[i + 1] > wnd["high"].iloc[i] and volume_attuale >= 1.1 * vol_med:
+                ema7_kiss = True
+                break
+        if ema7_kiss:
+            note.append("💫 EMA7 kiss → ripartenza")
+    except Exception:
+        ema7_kiss = False
+
+    
     # ------------------------------------------------------------------
     # --- Canale di prezzo (15m + validazione 1h) ---
     # ------------------------------------------------------------------
@@ -1095,9 +1137,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     # Se distanza EMA insufficiente, disattiva tutto
     if not distanza_ok and not pump_flag:
-        # Consenti comunque se c'è breakout valido O canale 15m con breakout O forte direzione 1h
-        allow_thin = breakout_valido or (chan_15.get("found") and chan_15.get("breakout_confirmed")) \
-                     or (chan_1h.get("found") and float(chan_1h.get("confidence",0)) >= 0.7)
+        # Consenti anche su continuation_ok
+        allow_thin = breakout_valido or continuation_ok or ema7_kiss
+        # (canale 15m/1h verranno considerati più avanti quando definiti)
+
         if not allow_thin:
             cond_base = False
             pattern_buy_override = False
@@ -1126,32 +1169,53 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             rsi_in_crescita = (rsi > penultimo["RSI"] > antepenultimo["RSI"])
             rsi_ok_alt = (rsi >= _p("rsi_buy_forte") and (macd > macd_signal) and (gap_rel > _p("macd_gap_rel_debole")))
 
-            
-            # Regole standard (tuo codice esistente)
-            if (
-                rsi >= _p("rsi_buy_forte")
-                and macd_buy_ok
-                and punteggio_trend >= SOGLIA_PUNTEGGIO
-                and (rsi_in_crescita or rsi_ok_alt)
-            ):
-                # consenti anche trend lunghi se breakout/pump
-                LIM_MATURITA = 10
-                if durata_trend >= LIM_MATURITA and not (breakout_valido or pump_flag):
-                    note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
-                else:
-                    segnale = "BUY"
-                    note.append("✅ BUY confermato")
+            # ⏩ Fast-track: segnali rapidi (usano i flag calcolati PRIMA: continuation_ok, ema7_kiss)
+            momentum_spike = (
+                 (rsi >= 60) and
+                 (macd > macd_signal) and
+                 (
+                   (hist["MACD"].iloc[-2] <= 0 < hist["MACD"].iloc[-1]) or
+                   (gap_rel >= _p("macd_gap_rel_debole") and hist["MACD"].iloc[-1] > 0)
+                 ) and
+                 (ema7 > ema25 > ema99) and
+                 (volume_attuale >= 1.10 * max(volume_medio, 1e-9))
+             )
 
-            elif (
-                rsi >= _p("rsi_buy_debole")
-                and macd_buy_debole
-                and rsi_in_crescita
-            ):
-                if punteggio_trend >= SOGLIA_PUNTEGGIO + 1 and durata_trend <= 12:
-                    segnale = "BUY"
-                    note.append("✅ BUY confermato Moderato")
+            if continuation_ok or ema7_kiss or momentum_spike:
+                segnale = "BUY"
+                if continuation_ok:
+                    note.append("✅ BUY confermato (continuation breakout)")
+                elif ema7_kiss:
+                    note.append("✅ BUY confermato (EMA7 kiss)")
                 else:
-                    note.append("🤔 Segnale↑ Debole")
+                    note.append("✅ BUY confermato (momentum spike)")
+            else:
+                # Regole standard (tuo codice esistente)
+                if (
+                    rsi >= _p("rsi_buy_forte")
+                    and macd_buy_ok
+                    and punteggio_trend >= SOGLIA_PUNTEGGIO
+                    and (rsi_in_crescita or rsi_ok_alt)
+                ):
+                    # consenti anche trend lunghi se breakout/pump
+                    LIM_MATURITA = 10
+                    if durata_trend >= LIM_MATURITA and not (breakout_valido or pump_flag):
+                        note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
+                    else:
+                        segnale = "BUY"
+                        note.append("✅ BUY confermato")
+
+                elif (
+                    rsi >= _p("rsi_buy_debole")
+                    and macd_buy_debole
+                    and rsi_in_crescita
+                ):
+                    if punteggio_trend >= SOGLIA_PUNTEGGIO + 1 and durata_trend <= 12:
+                        segnale = "BUY"
+                        note.append("✅ BUY confermato Moderato")
+                    else:
+                        note.append("🤔 Segnale↑ Debole")
+
 
     # Trigger SELL strutturali se stai usando la strategia EMA
     if sistema == "EMA" and segnale == "HOLD":
@@ -1284,7 +1348,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
         # 3) Maturità del trend (veto “late entry” salvo eccezioni forti)
         if breakout_valido or retest_ok or (chan_15.get("found") and chan_15.get("breakout_confirmed")):
-            LATE_SOFT, LATE_HARD = 11, 14
+            LATE_SOFT, LATE_HARD = 12, 15
         else:
             LATE_SOFT, LATE_HARD = 9, 12
         if durata_reale >= LATE_HARD and not (breakout_valido or pump_flag or retest_ok):
@@ -1345,7 +1409,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             livello_note.append("⚠️ EMA ravvicinate → congestione, breakout incerto")
 
         # 3️⃣ Volume senza direzione chiara (stallo del flusso ordini)
-        vol_ratio = _safe_div(volume_attuale, max(volume_medio, 1e-9))
+        vol_ratio = _safe_div(volume_attuale, max(volume_medio, 1e-6))
         if 0.7 < vol_ratio < 1.2 and breakout_valido:
             livello_note.append("⚠️ Breakout con volume medio → conferma debole")
 
@@ -1432,7 +1496,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if segnale in ["BUY", "SELL"]:
         if pattern_contrario(segnale, pattern):
             note.append(f"⚖️ Pattern contrario rilevato ({pattern}) → affidabilità ridotta")
-            neutral_penalty = max(neutral_penalty, 0.05)
+            neutral_penalty = max(neutral_penalty, 0.03)  # leggermente più soft per non sommare eccessivo
 
 
     low, high = _p("macd_rsi_range")
@@ -1600,8 +1664,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
         if gate_buy_canale and segnale == "BUY" and not pump_flag:
             note.append("⛔ Gate multi-TF: canale 1h discendente forte")
-            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
-
+            # esci PRIMA della costruzione TP/SL per risparmiare CPU
+            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), 0.0, 0.0, supporto
 
         # ... boost pattern, boost canale, eventuale boost pump ...
         note.append(f"🧪 Affidabilità: {round(prob_fusa*100)}%")
@@ -1611,7 +1675,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         if breakout_valido or pump_flag:
             P_ENTER = 0.50
         else:
-            P_ENTER = 0.55 if segnale == "BUY" else 0.53
+            P_ENTER = 0.52 if segnale == "BUY" else 0.53
 
             # 🔎 Pattern opposto forte? → alza il gate in modo proporzionale alla confidenza
             def _strong_opposite_info():
@@ -1846,7 +1910,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             risk = abs(close - sl)
             reward = abs(tp - close)
             rr_now = _safe_div(reward, risk)
-            if rr_now < 1.2:
+            if rr_now < 1.2 and rr_est >= 1.2:
                 adjust = (1.2 * risk)
                 tp = (close + adjust) if segnale=="BUY" else (close - adjust)
                 note.append(f"ℹ️ TP riallineato per RR ≥ 1.2 ({rr_now:.2f}→1.2)")
@@ -1854,6 +1918,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             # 6️⃣ Applica arrotondamento a tick
             tp = round(round(tp / TICK) * TICK, 10)
             sl = round(round(sl / TICK) * TICK, 10)
+            if segnale == "BUY" and sl >= close:
+                sl = max(close - TICK, sl - TICK)
+            if segnale == "SELL" and sl <= close:
+                sl = min(close + TICK, sl + TICK)
 
         except Exception as e:
             logging.warning(f"⚠️ Errore nel trailing dinamico: {e}")
@@ -1868,7 +1936,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     # Ordina note: conferme → punteggi/tempi/eventi → warning → altro
     priorita = lambda x: (
-        0 if "✅" in x else
+        0 if ("✅" in x or "🧩" in x) else
         1 if ("📊" in x or "⏱️" in x or "⚡" in x or "🚀" in x or "🚨" in x or "💥" in x) else
         2 if ("⚠️" in x or "⛔" in x or "ℹ️" in x) else
         3
