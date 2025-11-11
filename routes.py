@@ -338,6 +338,7 @@ def analyze(symbol: str):
                 }
 
 
+
         commento = "\n".join([r for r in note if r.strip()]) if note else "Nessuna nota"
 
 
@@ -656,8 +657,7 @@ def hot_assets():
             trend_buy = recenti_rialzo and rsi > 50 and macd > macd_signal
             trend_sell = recenti_ribasso and rsi < 50 and macd < macd_signal
 
-            # Permissivo per presegnali: MACD > signal o vicino
-            macd_ok = macd > macd_signal or abs(macd - macd_signal) < 0.01
+            
 
             presegnale_buy = (
                 df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2] and  # cross up recente
@@ -678,17 +678,33 @@ def hot_assets():
             )
 
             
-            # === GATE unico per la card hot ===
+            # === GATE unico per la card hot (con override stack EMA) ===
             kind = "NA"
             if trend_buy or presegnale_buy:
                 kind = "BUY"
             elif trend_sell or presegnale_sell:
                 kind = "SELL"
 
+            # 🔁 OVERRIDE in base allo stack EMA, se chiaramente direzionale
+            #    - se EMA7 > EMA25 > EMA99 → forza BUY
+            #    - se EMA7 < EMA25 < EMA99 → forza SELL
+            if ema7 > ema25 > ema99:
+                kind = "BUY"
+            elif ema7 < ema25 < ema99:
+                kind = "SELL"
+
             # Se non passa il gate finale, scarta
             if kind == "NA":
                 continue
+
+            # Validazione rigida della coerenza momentanea (RSI/MACD + momentum) 
             if not _allow_hot_card(kind, df, ema7, ema25, ema99):
+                # Debug utile per capire perché è stato scartato
+                logging.debug(
+                    f"[HOT] {symbol} scartato: kind={kind} "
+                    f"ema7={ema7:.6f} ema25={ema25:.6f} ema99={ema99:.6f} "
+                    f"rsi={rsi:.2f} macd={macd:.5f} sig={macd_signal:.5f}"
+                )
                 continue
 
             # Append UNA SOLA VOLTA, in base al kind validato
