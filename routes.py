@@ -501,20 +501,35 @@ def _strong_momentum(last_row, df, atr_val):
 
 
 def _allow_hot_card(kind, df, ema7, ema25, ema99):
-    """kind: 'BUY' | 'SELL' | 'NA'"""
     last = df.iloc[-1]
     atr_val = float(df["ATR"].iloc[-1]) if "ATR" in df.columns else 0.0
+    macd = float(df["MACD"].iloc[-1]); sig = float(df["MACD_SIGNAL"].iloc[-1])
+    rsi  = float(df["RSI"].iloc[-1])
+    green = last["close"] > last["open"]
+    red   = last["close"] < last["open"]
 
     if kind == "BUY":
-        # consenti se trend rialzista pieno O momentum forte contro-trend
         if ema7 > ema25 > ema99:
             return True
-        return _strong_momentum(last, df, atr_val) and (last["close"] > last["open"])
+        # momentum contro-trend: ammesso solo se davvero forte e con MACD/RSI coerenti
+        return (
+            _strong_momentum(last, df, atr_val)
+            and green
+            and (macd - sig) > 0.002
+            and rsi >= 50.0
+        )
+
     if kind == "SELL":
         if ema7 < ema25 < ema99:
             return True
-        return _strong_momentum(last, df, atr_val) and (last["close"] < last["open"])
+        return (
+            _strong_momentum(last, df, atr_val)
+            and red
+            and (sig - macd) > 0.002
+            and rsi <= 50.0
+        )
     return False
+
 
 
 MODALITA_TEST = True
@@ -683,6 +698,7 @@ def hot_assets():
                 and (macd < macd_signal or abs(macd - macd_signal) < 0.01)
             )
 
+            
             # === GATE unico per la card hot ===
             kind = "NA"
             if trend_buy or presegnale_buy:
@@ -690,28 +706,27 @@ def hot_assets():
             elif trend_sell or presegnale_sell:
                 kind = "SELL"
 
-            if kind == "NA" or not _allow_hot_card(kind, df, ema7, ema25, ema99):
+            # Se non passa il gate finale, scarta
+            if kind == "NA":
+                continue
+            if not _allow_hot_card(kind, df, ema7, ema25, ema99):
                 continue
 
+            # Append UNA SOLA VOLTA, in base al kind validato
+            segnale_hot = "BUY" if kind == "BUY" else "SELL"
+            candele_trend = conta_candele_trend(df, rialzista=(segnale_hot == "BUY"))
+            risultati.append({
+                "symbol": symbol,
+                "segnali": 1,
+                "trend": segnale_hot,
+                "rsi": round(rsi, 2),
+                "ema7": round(ema7, 2),
+                "ema25": round(ema25, 2),
+                "ema99": round(ema99, 2),
+                "prezzo": round(prezzo, 4),
+                "candele_trend": candele_trend
+            })
 
-
-            
-
-            
-            if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
-                segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
-                candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
-                risultati.append({
-                    "symbol": symbol,
-                    "segnali": 1,
-                    "trend": segnale,
-                    "rsi": round(rsi, 2),
-                    "ema7": round(ema7, 2),
-                    "ema25": round(ema25, 2),
-                    "ema99": round(ema99, 2),
-                    "prezzo": round(prezzo, 4),
-                    "candele_trend": candele_trend
-                })
         except Exception:
             continue
 
