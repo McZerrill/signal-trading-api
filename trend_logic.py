@@ -54,7 +54,7 @@ _PARAMS_TEST = {
     "atr_troppo_basso": 0.0001,
     "atr_troppo_alto": 0.01,
 
-    "distanza_minima": 0.0005,
+    "distanza_minima": 0.005,
     "distanza_bassa": 0.0003,
     "distanza_media": 0.0008,
     "distanza_alta": 0.0015,
@@ -447,7 +447,8 @@ def rileva_pattern_v(hist: pd.DataFrame) -> bool:
         corpo_rossa = abs(sub.iloc[i]["close"] - sub.iloc[i]["open"])
         corpo_verde = abs(sub.iloc[i + 1]["close"] - sub.iloc[i + 1]["open"])
         if rossa and verde and corpo_verde >= corpo_rossa:
-            return rsi_start < 30 and rsi_end > 50 and abs(macd) < 0.01
+            macd_rel = _frac_of_close(abs(macd), _safe_close(sub["close"].iloc[-1]))
+            return (rsi_start < 30) and (rsi_end > 50) and (macd_rel < _p("macd_gap_rel_debole"))
     return False
 
 
@@ -497,16 +498,18 @@ def calcola_punteggio_trend(
     elif rsi <= 45:
         punteggio -= 1
 
-    # 3. MACD
+    # 3. MACD (scala relativa su prezzo)
     macd_gap = macd - macd_signal
-    if macd_gap > 0.002:
+    gap_rel_local = _frac_of_close(abs(macd_gap), _safe_close(close))
+    if gap_rel_local > _p("macd_gap_rel_forte"):
         punteggio += 2
-    elif macd_gap > 0:
+    elif gap_rel_local > _p("macd_gap_rel_debole"):
         punteggio += 1
-    elif macd_gap < -0.002:
+    elif (gap_rel_local < _p("macd_gap_rel_debole") * 0.5) and (macd_gap < 0):
         punteggio -= 2
     elif macd_gap < 0:
         punteggio -= 1
+
 
     # 4. Volume
     if volume_attuale > volume_medio * _p("volume_alto"):
@@ -576,22 +579,27 @@ def calcola_probabilita_successo(
     if low < rsi < high:
         punteggio -= 5
 
-    # 3. MACD coerente con segnale
+    # 3. MACD coerente con segnale (scala relativa)
     macd_gap = macd - macd_signal
+    gap_rel_local = _frac_of_close(abs(macd_gap), _safe_close(close))
+    thr_forte  = _p("macd_gap_rel_forte")
+    thr_debole = _p("macd_gap_rel_debole")
+
     if segnale == "BUY":
-        if macd > macd_signal and macd_gap > 0.001:
+        if (macd > macd_signal) and (gap_rel_local >= thr_forte):
             punteggio += 10
-        elif macd > 0 and macd_gap > 0:
+        elif (macd > 0) and (gap_rel_local >= thr_debole):
             punteggio += 5
-        elif abs(macd_gap) < _p("macd_signal_threshold"):
+        elif gap_rel_local < _p("macd_signal_threshold"):  # usata come soglia neutra "relativa"
             punteggio -= 5
-    elif segnale == "SELL":
-        if macd < macd_signal and macd_gap < -0.001:
+    else:  # SELL
+        if (macd < macd_signal) and (gap_rel_local >= thr_forte):
             punteggio += 10
-        elif macd < 0 and macd_gap < 0:
+        elif (macd < 0) and (gap_rel_local >= thr_debole):
             punteggio += 5
-        elif abs(macd_gap) < _p("macd_signal_threshold"):
+        elif gap_rel_local < _p("macd_signal_threshold"):
             punteggio -= 5
+
 
     # 4. Volume coerente
     if volume_attuale > volume_medio * _p("volume_alto"):
@@ -818,9 +826,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     # Filtri preliminari (ATR, Volume)
     # ------------------------------------------------------------------
-    if _frac_of_close(atr, close_s) < _p("atr_minimo") and not pump_flag:
-        note.append("⚠️ ATR Basso: poco volatile")
-        return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+    atr_rel = _frac_of_close(atr, close_s)
+    if atr_rel < _p("atr_minimo") and not pump_flag:
+        note.append("😴 ATR basso: proseguo con affidabilità ridotta")
+        neutral_penalty = max(neutral_penalty, 0.05)  # malus soft
+        # NON faccio return: lascio passare se ci sono altri segnali forti
+
 
     # ⬇️ aggiungi `and not pump_flag` anche qui
     if volume_attuale < _p("volume_soglia") and not MODALITA_TEST and not pump_flag:
@@ -1067,8 +1078,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             try:
                 pos = hist.index.get_loc(idx)
             except Exception:
-                try: pos = int(idx)
-                except Exception: continue
+                try:
+                    pos = int(idx)
+                    if pos < 0 or pos >= len(hist):
+                        continue
+                except Exception:
+                    continue
+
             if (len(hist) - 1 - pos) <= max_age:
                 return True
         return False  # conservativo: se non databile, non lo consideriamo "recente"
@@ -1137,13 +1153,17 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     # Se distanza EMA insufficiente, disattiva tutto
     if not distanza_ok and not pump_flag:
-        # Consenti anche su continuation_ok
-        allow_thin = breakout_valido or continuation_ok or ema7_kiss
-        # (canale 15m/1h verranno considerati più avanti quando definiti)
-
+        allow_thin = (
+            breakout_valido or continuation_ok or ema7_kiss
+            or (trend_up and macd > macd_signal and rsi >= _p("rsi_buy_debole"))
+            or (trend_down and macd < macd_signal and rsi <= _p("rsi_sell_debole"))
+        )
         if not allow_thin:
             cond_base = False
             pattern_buy_override = False
+        else:
+            note.append("ℹ️ Dist EMA bassa ma contesto favorevole → consentito")
+            neutral_penalty = max(neutral_penalty, 0.03)
 
 
     # ------------------------------------------------------------------
@@ -1234,7 +1254,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # usiamo un criterio equivalente: breakout_valido con candela rossa
     # oppure pump_flag su candela rossa.
     dump_like = (pump_flag and (ultimo["close"] < ultimo["open"]))
-    breakout_down_like = (breakout_valido and (ultimo["close"] < penultimo["close"]))
+    breakout_down_like = ((close < minimo_20) and breakout_valido and (ultimo["close"] < penultimo["close"]))
+
 
     if (not SOLO_BUY) and (trend_down or recupero_sell or breakout_down_like or dump_like) and (distanza_ok or dump_like or (trend_down and macd_sell_debole and rsi <= _p("rsi_sell_debole"))):
 
@@ -1295,14 +1316,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 qualita_note.append(f"⚠️ RR basso ({rr_est:.2f}) → inefficiente")
 
         # 5️⃣ Condizione combinata (più tollerante)
-        if len(qualita_note) >= 4:
+        if len(qualita_note) >= 5:
             note.extend(qualita_note)
             note.append("⏸️ Segnale retrocesso a HOLD (qualità insufficiente)")
             segnale = "HOLD"
         elif qualita_note:
             note.extend(qualita_note)
             note.append("⚠️ Qualità parziale, riduzione affidabilità")
-            neutral_penalty = max(neutral_penalty, 0.06)  # leggermente più alta per compensare la tolleranza
+            neutral_penalty = max(neutral_penalty, 0.04)  # più morbida
+
 
 
 
@@ -1323,15 +1345,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         close_s = _safe_close(close)
 
         if segnale == "BUY":
-            runup = _safe_div(close_s - recent_low, recent_low)  # % dal minimo locale
+            runup = _safe_div(close_s - recent_low, recent_low)
             if runup > 0.06 and not (breakout_valido or pump_flag or retest_ok):
                 temporale_note.append(f"⛔ Run-up recente +{runup*100:.1f}% senza breakout/retest")
         else:
-            rundown = _safe_div(recent_high - close_s, recent_high)  # % dal massimo locale
+            rundown = _safe_div(recent_high - close_s, recent_high)
             if rundown > 0.06 and not (breakout_valido or pump_flag or retest_ok):
                 temporale_note.append(f"⛔ Rundown recente {rundown*100:.1f}% senza breakout/retest")
 
-        # 2) Pullback “sano” assente (parabola): conta da quanto non c'è un ritorno su EMA7
+        # 2) Pullback “sano” assente (parabola) su EMA7
         def _bars_since_pullback(side="BUY", max_back=25):
             cnt = 0
             for i in range(len(hist)-1, max(-1, len(hist)-1-max_back), -1):
@@ -1346,23 +1368,23 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         if (segnale == "BUY" and bars_no_pb >= 7) or (segnale == "SELL" and bars_no_pb >= 7):
             temporale_note.append(f"🪙 Trend prolungato senza pullback su EMA7 ({bars_no_pb} barre)")
 
-        # 3) Maturità del trend (veto “late entry” salvo eccezioni forti)
+        # 3) Maturità del trend — soglie più larghe
         if breakout_valido or retest_ok or (chan_15.get("found") and chan_15.get("breakout_confirmed")):
-            LATE_SOFT, LATE_HARD = 12, 15
+            LATE_SOFT, LATE_HARD = 14, 18
         else:
-            LATE_SOFT, LATE_HARD = 9, 12
+            LATE_SOFT, LATE_HARD = 11, 14
         if durata_reale >= LATE_HARD and not (breakout_valido or pump_flag or retest_ok):
             temporale_note.append(f"⛔ Trend maturo ({durata_reale} candele) senza evento nuovo")
         elif durata_reale >= LATE_SOFT and not (breakout_valido or pump_flag):
             temporale_note.append(f"⚠️ Trend avanzato ({durata_reale} candele) — preferibile pullback")
 
-        # 4) Curvatura EMA25: deve essere a favore per segnali tardivi
+        # 4) Curvatura EMA25 favorevole per ingressi tardivi
         curv25 = float(ema25 - penultimo["EMA_25"])
         if durata_reale >= LATE_SOFT:
             if (segnale == "BUY" and curv25 <= 0) or (segnale == "SELL" and curv25 >= 0):
                 temporale_note.append("⚠️ Curvatura EMA25 non favorevole su trend maturo")
 
-        # 5) Coerenza 1h (se disponibile il resample già calcolato)
+        # 5) Coerenza 1h per ingressi tardivi
         try:
             if "df_1h" in locals() and len(df_1h) >= 5:
                 df_1h_chk = enrich_indicators(df_1h.copy())
@@ -1375,7 +1397,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         except Exception:
             pass
 
-        # Decisione: retrocedi o penalizza
+        # Decisione
         hard_flags = any(s.startswith("⛔") for s in temporale_note)
         if hard_flags:
             note.extend(temporale_note)
@@ -1383,7 +1405,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             segnale = "HOLD"
         elif temporale_note:
             note.extend(temporale_note)
-            neutral_penalty = max(neutral_penalty, 0.05)  # abbassa prob_fusa più avanti
+            neutral_penalty = max(neutral_penalty, 0.05)
+
 
     # ------------------------------------------------------------------
     # PATCH 5 — Qualità di livello (supporto/resistenza e confluenza)
@@ -1391,45 +1414,46 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if segnale in ["BUY", "SELL"]:
         livello_note = []
 
-        # 1️⃣ Supporto vicino (blocca SELL se il supporto è troppo sotto e vicino)
+        # 1️⃣ Supporto vicino (più permissivo, con warning soft)
         if supporto is not None and supporto > 0:
             distanza_sup = _frac_of_close(abs(close - supporto), close_s)
-            # BUY: evita se stai comprando sotto al supporto (rischio rimbalzo contro)
-            if segnale == "BUY" and close < supporto and distanza_sup < 0.004:
-                livello_note.append(f"⛔ BUY troppo vicino al supporto ({distanza_sup*100:.2f}%)")
-            # SELL: evita se sei troppo vicino al supporto SOTTO di te (poco spazio di discesa)
-            if segnale == "SELL" and supporto < close and distanza_sup < 0.004:
-                livello_note.append(f"⛔ SELL troppo vicino al supporto ({distanza_sup*100:.2f}%)")
 
+            if segnale == "BUY" and close < supporto:
+                if distanza_sup < 0.002:
+                    livello_note.append(f"⛔ BUY troppo vicino al supporto ({distanza_sup*100:.2f}%)")
+                elif distanza_sup < 0.004:
+                    livello_note.append(f"⚠️ BUY vicino al supporto ({distanza_sup*100:.2f}%)")
+                    neutral_penalty = max(neutral_penalty, 0.03)
 
-        # 2️⃣ Congestione EMA (EMA7–25–99 troppo ravvicinate)
+            if segnale == "SELL" and supporto < close:
+                if distanza_sup < 0.002:
+                    livello_note.append(f"⛔ SELL troppo vicino al supporto ({distanza_sup*100:.2f}%)")
+                elif distanza_sup < 0.004:
+                    livello_note.append(f"⚠️ SELL vicino al supporto ({distanza_sup*100:.2f}%)")
+                    neutral_penalty = max(neutral_penalty, 0.03)
+
+        # 2️⃣ Congestione EMA più tollerante
         ema_spread = max(abs(ema7 - ema25), abs(ema25 - ema99), abs(ema7 - ema99))
         spread_rel = _frac_of_close(ema_spread, close_s)
-        if spread_rel < 0.0008:  # <0.08%
+        if spread_rel < 0.0006:  # <0.06% (prima 0.0008)
             livello_note.append("⚠️ EMA ravvicinate → congestione, breakout incerto")
 
-        # 3️⃣ Volume senza direzione chiara (stallo del flusso ordini)
+        # 3️⃣ Volume/ampiezza: conferma sul breakout
         vol_ratio = _safe_div(volume_attuale, max(volume_medio, 1e-6))
         if 0.7 < vol_ratio < 1.2 and breakout_valido:
             livello_note.append("⚠️ Breakout con volume medio → conferma debole")
 
         # 4️⃣ Rischio/Rendimento operativo post-spread
-        # Calcola rischio e rendimento solo se tp e sl sono validi
         if tp and sl:
             sl_rel = _frac_of_close(abs(close - (sl or 0)), close_s)
             tp_rel = _frac_of_close(abs((tp or 0) - close), close_s)
-
-            # Calcola il rapporto rischio/rendimento
             rr_est = _safe_div(tp_rel, sl_rel)
-
-            # 4️⃣ Rischio/Rendimento troppo stretto
             if rr_est < 1.2:
                 livello_note.append(f"⚠️ RR basso ({rr_est:.2f}) → inefficiente")
             elif rr_est > 3.5:
                 livello_note.append(f"ℹ️ RR molto alto ({rr_est:.2f}) → target ambizioso")
 
-
-        # 5️⃣ Spazio operativo vs ATR (evita target in “muro” laterale)
+        # 5️⃣ Spazio operativo vs ATR
         dist_maxmin = float(hist["high"].iloc[-40:].max() - hist["low"].iloc[-40:].min())
         spazio_rel = _frac_of_close(dist_maxmin, close_s)
         if spazio_rel < 0.01 and not pump_flag:
@@ -1444,6 +1468,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         elif livello_note:
             note.extend(livello_note)
             neutral_penalty = max(neutral_penalty, 0.04)
+
 
 
     # ------------------------------------------------------------------
@@ -1503,9 +1528,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # coerenza con la metrica relativa già usata sopra
     gap_rel_neutro = _p("macd_gap_rel_debole") * 0.6  # leggermente più permissivo
 
-    if segnale in ["BUY", "SELL"] and low < rsi < high and (gap_rel < gap_rel_neutro) and not (breakout_valido or pump_flag):
+    has_struct = (chan_15.get("found") or pattern_db_ok or pattern_tri_ok or pattern_dt_ok or pattern_dtri_ok)
+    if segnale in ["BUY", "SELL"] and low < rsi < high and (gap_rel < gap_rel_neutro) and not (breakout_valido or pump_flag or has_struct):
         note.append(f"⚠️ RSI/MACD neutri (RSI {rsi:.1f}, gap_rel {gap_rel:.5f})")
-        neutral_penalty = max(neutral_penalty, 0.03)
+        neutral_penalty = max(neutral_penalty, 0.02)  # più lieve
+
 
 
 
@@ -1671,45 +1698,49 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append(f"🧪 Affidabilità: {round(prob_fusa*100)}%")
 
 
-        # Gate di entrata coerente con prob_fusa (alzalo se c'è pattern opposto forte)
+        # Gate di entrata coerente con prob_fusa (più permissivo + sconto strutturale)
         if breakout_valido or pump_flag:
-            P_ENTER = 0.50
+            P_ENTER = 0.46
         else:
-            P_ENTER = 0.52 if segnale == "BUY" else 0.53
+            P_ENTER = 0.49 if segnale == "BUY" else 0.50
 
-            # 🔎 Pattern opposto forte? → alza il gate in modo proporzionale alla confidenza
-            def _strong_opposite_info():
-                # Ritorna (conf_max, label) del pattern opposto più forte
-                if segnale == "BUY":
-                    c_dt   = float(p_dt.get("confidence", 0.0))   if p_dt.get("found")   else 0.0
-                    c_dtri = float(p_dtri.get("confidence", 0.0)) if p_dtri.get("found") else 0.0
-                    if c_dt >= c_dtri and c_dt > 0:
-                        return c_dt, "Double Top"
-                    elif c_dtri > 0:
-                        return c_dtri, "Descending Triangle"
-                    return 0.0, ""
-                else:  # segnale == "SELL"
-                    c_db  = float(p_db.get("confidence", 0.0))   if p_db.get("found")  else 0.0
-                    c_tri = float(p_tri.get("confidence", 0.0))  if p_tri.get("found") else 0.0
-                    if c_db >= c_tri and c_db > 0:
-                        return c_db, "Double Bottom"
-                    elif c_tri > 0:
-                        return c_tri, "Ascending Triangle"
-                    return 0.0, ""
+        # Sconto se esiste struttura a favore (canale 15m coerente o pattern strutturale ok)
+        if segnale == "BUY" and ( (chan_15.get("found") and chan_15.get("type") in ("ascending","sideways")) or pattern_db_ok or pattern_tri_ok ):
+            P_ENTER = max(0.45, P_ENTER - 0.02)
+        if segnale == "SELL" and ( (chan_15.get("found") and chan_15.get("type") in ("descending","sideways")) or pattern_dt_ok or pattern_dtri_ok ):
+            P_ENTER = max(0.45, P_ENTER - 0.02)
 
-            conf_opp, label_opp = _strong_opposite_info()
-            if conf_opp >= OPPOSITE_GATE_CONF_MIN:
-                # bump cresce da BASE fino a MAX in modo dolce con la confidenza (0.60→1.00)
-                scale = (conf_opp - OPPOSITE_GATE_CONF_MIN) / max(1.0 - OPPOSITE_GATE_CONF_MIN, 1e-9)
-                bump  = min(OPPOSITE_GATE_BUMP_MAX, OPPOSITE_GATE_BUMP_BASE + 0.03 * max(0.0, scale))
+        # 🔎 Pattern opposto forte? → alza il gate proporzionalmente alla confidenza
+        def _strong_opposite_info():
+            if segnale == "BUY":
+                c_dt   = float(p_dt.get("confidence", 0.0))   if p_dt.get("found")   else 0.0
+                c_dtri = float(p_dtri.get("confidence", 0.0)) if p_dtri.get("found") else 0.0
+                if c_dt >= c_dtri and c_dt > 0:
+                    return c_dt, "Double Top"
+                elif c_dtri > 0:
+                    return c_dtri, "Descending Triangle"
+                return 0.0, ""
+            else:  # SELL
+                c_db  = float(p_db.get("confidence", 0.0))   if p_db.get("found")  else 0.0
+                c_tri = float(p_tri.get("confidence", 0.0))  if p_tri.get("found") else 0.0
+                if c_db >= c_tri and c_db > 0:
+                    return c_db, "Double Bottom"
+                elif c_tri > 0:
+                    return c_tri, "Ascending Triangle"
+                return 0.0, ""
 
-                P_ENTER = min(0.80, P_ENTER + bump)  # safety cap al gate
-                note.append(f"⚖️ Gate alzato per pattern opposto forte ({label_opp} {int(conf_opp*100)}%): +{bump:.2%} → {P_ENTER:.2f}")
+        conf_opp, label_opp = _strong_opposite_info()
+        if conf_opp >= OPPOSITE_GATE_CONF_MIN:
+            scale = (conf_opp - OPPOSITE_GATE_CONF_MIN) / max(1.0 - OPPOSITE_GATE_CONF_MIN, 1e-9)
+            bump  = min(OPPOSITE_GATE_BUMP_MAX, OPPOSITE_GATE_BUMP_BASE + 0.03 * max(0.0, scale))
+            P_ENTER = min(0.80, P_ENTER + bump)
+            note.append(f"⚖️ Gate alzato per pattern opposto forte ({label_opp} {int(conf_opp*100)}%): +{bump:.2%} → {P_ENTER:.2f}")
 
         # Verifica gate finale
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
 
 
         # TP/SL proporzionale alla probabilità fusa
@@ -1778,6 +1809,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 note.append(f"ℹ️ TP riallineato per RR ≥ {RR_MIN}: reward/risk={_safe_div(abs(tp_raw - close), risk):.2f}")
                 rr_note_added = True
 
+        # 🧮 RR stimato alla fine del blocco di enforce (serve al trailing)
+        reward = abs(tp_raw - close)
+        rr_est = _safe_div(reward, risk)
+
+
         # Stima tempi TP
         # (timeframe 15m => 0.25h per candela)
         T_TARGET_MIN_H = 0.7          # evita target troppo vicino
@@ -1810,10 +1846,17 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             else:
                 note.append("⚠️ TP non ridotto: RR sarebbe < minimo")
 
-        # Se ancora troppo lento, veto hard
+        # Hard-cap più alto e prima prova con malus
+        T_HARD_CAP_H   = 18.0
+        T_EXTREME_CAP_H = 24.0
+
         if ore_max > T_HARD_CAP_H:
-            note.append(f"⛔ Tempo TP lungo: {ore_min}–{ore_max}h (cap {T_HARD_CAP_H}h)")
-            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+            note.append(f"⚠️ Tempo TP lungo: {ore_min}–{ore_max}h (> {T_HARD_CAP_H}h)")
+            neutral_penalty = max(neutral_penalty, 0.05)
+            if ore_max > T_EXTREME_CAP_H:
+                note.append(f"⛔ TP eccessivamente lontano (> {T_EXTREME_CAP_H}h)")
+                return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
 
         PREFER_TP_NEAR = True  # evita di riallargare il TP se “troppo veloce”
 
@@ -1919,9 +1962,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             tp = round(round(tp / TICK) * TICK, 10)
             sl = round(round(sl / TICK) * TICK, 10)
             if segnale == "BUY" and sl >= close:
-                sl = max(close - TICK, sl - TICK)
+                sl = min(sl - 2*TICK, close - TICK)
             if segnale == "SELL" and sl <= close:
-                sl = min(close + TICK, sl + TICK)
+                sl = max(sl + 2*TICK, close + TICK)
+
 
         except Exception as e:
             logging.warning(f"⚠️ Errore nel trailing dinamico: {e}")
