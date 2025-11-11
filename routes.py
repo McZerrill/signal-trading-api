@@ -169,22 +169,19 @@ def analyze(symbol: str):
 
         note = note15.split("\n") if note15 else []
 
-        # Verifica finale leggera (facoltativa, BUY e SELL)
+        # Verifica finale RIGIDA (15m deve essere allineato alle EMA)
         try:
-            e7 = float(hist["EMA_7"].iloc[-1])
+            e7  = float(hist["EMA_7"].iloc[-1])
             e25 = float(hist["EMA_25"].iloc[-1])
             e99 = float(hist["EMA_99"].iloc[-1])
-            last = hist.iloc[-1]
-            atr_val = float(hist["ATR"].iloc[-1])
 
-            if segnale == "BUY":
-                if e7 < e25 < e99 and not _strong_momentum(last, hist, atr_val):
-                    segnale = "HOLD"
-                    note.append("⛔ Verifica finale: 15m ribassista e momentum debole")
-            elif segnale == "SELL":
-                if e7 > e25 > e99 and not _strong_momentum(last, hist, atr_val):
-                    segnale = "HOLD"
-                    note.append("⛔ Verifica finale: 15m rialzista e momentum debole")
+            if segnale == "BUY" and not (e7 > e25 > e99):
+                segnale = "HOLD"
+                note.append("⛔ 15m contro-trend (EMA)")
+            elif segnale == "SELL" and not (e7 < e25 < e99):
+                segnale = "HOLD"
+                note.append("⛔ 15m contro-trend (EMA)")
+
         except Exception:
             pass
 
@@ -296,46 +293,28 @@ def analyze(symbol: str):
             logging.warning(f"⚠️ Errore EMA 1h: {e}")
             ema_confirm = False
 
-        if ema_confirm:
-            note.append("🧭 1h✓ (EMA)")
-        else:
-            # Se le EMA non confermano, usa la conferma 'soft' con analizza_trend su 1h
-            if segnale != segnale_1h:
-                logging.info(f"🧭 {symbol} – 1h NON conferma {segnale} (1h = {segnale_1h})")
-                try:
-                    ultimo_1h = hist_1h.iloc[-1]
-                    macd_1h   = float(ultimo_1h['MACD'])
-                    signal_1h = float(ultimo_1h['MACD_SIGNAL'])
-                    rsi_1h    = float(ultimo_1h['RSI'])
-
-                    if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
-                        note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con SELL")
-                    elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
-                        note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con BUY")
-                    else:
-                        note.append(f"⚠️ {segnale} non confermato su 1h")
-
-                    trend_1h = conta_candele_trend(hist_1h, rialzista=(segnale == "BUY"))
-                    if trend_1h < 2:
-                        note.append(f"⚠️ Trend su 1h debole ({trend_1h} candele)")
-                except Exception as e:
-                    logging.warning(f"⚠️ Errore dati 1h: {e}")
+        if segnale in ("BUY", "SELL"):
+            if ema_confirm:
+                note.append("🧭 1h✓ (EMA)")
             else:
-                note.append("🧭 1h✓")
+                segnale = "HOLD"
+                note.append("⛔ 1h non conferma (EMA)")
+
 
 
 
         # 7) Note 1d e possibile apertura simulazione
         if segnale in ["BUY", "SELL"]:
             if daily_state == "NA":
-                note.append("📅 1d - Check fallito")  # dati non disponibili / check fallito
+                note.append("📅 1d - Check fallito")
+                segnale = "HOLD"
             else:
-                ok_daily = (segnale == "BUY" and daily_state == "BUY") or \
-                   (segnale == "SELL" and daily_state == "SELL")
+                ok_daily = (segnale == "BUY" and daily_state == "BUY") or (segnale == "SELL" and daily_state == "SELL")
                 if ok_daily:
                     note.append("📅 1d✓")
                 else:
-                    note.append(f"⚠️ Daily in conflitto ({daily_state})")
+                    note.append(f"⛔ Daily in conflitto ({daily_state})")
+                    segnale = "HOLD"
 
             logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
 
