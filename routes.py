@@ -17,6 +17,7 @@ from patterns import detect_price_channel
 
 from top_mover_scanner import start_top_mover_scanner
 
+
 logging.basicConfig(
     filename="log.txt",
     level=logging.DEBUG,
@@ -329,7 +330,9 @@ def analyze(symbol: str):
                         note.append("ℹ️ 1h non confermato, MACD/RSI coerenti (⬆️)")
 
                     else:
-                        note.append(f"⚠️ {segnale} non confermato su 1h")
+                        _dir = "rialzo (⬆️)" if segnale == "BUY" else ("ribasso (⬇️)" if segnale == "SELL" else "neutro")
+                        note.append(f"⚠️ Direzione non confermata su 1h: {_dir}")
+
 
                     trend_1h = conta_candele_trend(hist_1h, rialzista=(segnale == "BUY"))
                     if trend_1h < 2:
