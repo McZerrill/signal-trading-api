@@ -4,12 +4,16 @@ import time
 import requests
 import logging
 import pandas as pd
-# Thread di monitoraggio attivo ogni 60 secondi
+# Thread di monitoraggio attivo ogni 5 secondi
 import threading
 from binance_api import get_binance_df, get_best_symbols, get_bid_ask, get_symbol_tick_step
 from trend_logic import analizza_trend, conta_candele_trend
 from indicators import calcola_rsi, calcola_macd, calcola_atr
 from models import SignalResponse
+# Patch canale: difesa trailing al bordo con momentum debole
+from trend_patches_all import channel_defense_adjust
+# Rilevamento canale 15m per la patch
+from patterns import detect_price_channel
 
 from top_mover_scanner import start_top_mover_scanner
 
@@ -89,9 +93,11 @@ def analyze(symbol: str):
 
                         if trigger:
                             prezzo_notifica = close_tmp if close_tmp > 0 else round(float(u["close"]), 6)
+                            # direzione coerente: candela verde -> BUY, candela rossa -> SELL
+                            segnale_pump = "BUY" if float(u["close"]) >= float(u["open"]) else "SELL"
                             return SignalResponse(
                                 symbol=symbol,
-                                segnale="BUY",
+                                segnale=segnale_pump,
                                 commento="🚀 Listing/Vertical pump rilevato • ⚠️ Spread elevato: operazione ad altissimo rischio",
                                 prezzo=prezzo_notifica,
                                 take_profit=0.0,
@@ -164,28 +170,10 @@ def analyze(symbol: str):
         df_1m  = get_binance_df(symbol, "1m", 100)
 
         segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
-            df_15m, spread=spread, hist_1m=df_1m, symbol=symbol
+            df_15m, spread, df_1m, symbol=symbol
         )
 
         note = note15.split("\n") if note15 else []
-
-        # Verifica finale RIGIDA (15m deve essere allineato alle EMA)
-        try:
-            e7  = float(hist["EMA_7"].iloc[-1])
-            e25 = float(hist["EMA_25"].iloc[-1])
-            e99 = float(hist["EMA_99"].iloc[-1])
-
-            if segnale == "BUY" and not (e7 > e25 > e99):
-                segnale = "HOLD"
-                note.append("⛔ 15m contro-trend (EMA)")
-            elif segnale == "SELL" and not (e7 < e25 < e99):
-                segnale = "HOLD"
-                note.append("⛔ 15m contro-trend (EMA)")
-
-        except Exception:
-            pass
-
-
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
         if posizione:
@@ -195,8 +183,7 @@ def analyze(symbol: str):
             )
 
             # se l’analisi ha “annullato” il segnale → marca la simulazione e restituisci HOLD annotato
-            _annullamento_markers = ("Segnale annullato", "Gate non superato", "Tempo TP lungo", "Dati insufficienti")
-            if segnale == "HOLD" and note15 and any(m in note15 for m in _annullamento_markers):
+            if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
                 with _pos_lock:
                     posizione["tipo"] = "HOLD"
                     posizione["esito"] = "Annullata"
@@ -253,14 +240,14 @@ def analyze(symbol: str):
 
         # 5) Logging timeframe e analisi di conferma
         logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
-        logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {(note15 or '').replace(chr(10), ' | ')}")
-
-        _supporto_str = f"{supporto:.6f}" if isinstance(supporto, (int, float)) else "NA"
-        logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={_supporto_str}")
-
+        logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
+        logging.debug(
+            f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, "
+            f"supporto={(0.0 if supporto is None else float(supporto)):.6f}"
+        )
 
         # 1h: ok usare ancora analizza_trend come conferma "soft"
-        segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread=spread, symbol=symbol)
+        segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread, symbol=symbol)
 
         logging.debug(f"[1h] {symbol} – Segnale: {segnale_1h}")
 
@@ -293,38 +280,51 @@ def analyze(symbol: str):
             logging.warning(f"⚠️ Errore EMA 1h: {e}")
             ema_confirm = False
 
-        if segnale in ("BUY", "SELL"):
-            if ema_confirm:
-                note.append("🧭 1h✓ (EMA)")
-            else:
-                segnale = "HOLD"
-                note.append("⛔ 1h non conferma (EMA)")
+        if ema_confirm:
+            note.append("🧭 1h✓ (EMA)")
+        else:
+            # Se le EMA non confermano, usa la conferma 'soft' con analizza_trend su 1h
+            if segnale != segnale_1h:
+                logging.info(f"🧭 {symbol} – 1h NON conferma {segnale} (1h = {segnale_1h})")
+                try:
+                    ultimo_1h = hist_1h.iloc[-1]
+                    macd_1h   = float(ultimo_1h['MACD'])
+                    signal_1h = float(ultimo_1h['MACD_SIGNAL'])
+                    rsi_1h    = float(ultimo_1h['RSI'])
 
+                    if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
+                        note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con SELL")
+                    elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
+                        note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con BUY")
+                    else:
+                        note.append(f"⚠️ {segnale} non confermato su 1h")
+
+                    trend_1h = conta_candele_trend(hist_1h, rialzista=(segnale == "BUY"))
+                    if trend_1h < 2:
+                        note.append(f"⚠️ Trend su 1h debole ({trend_1h} candele)")
+                except Exception as e:
+                    logging.warning(f"⚠️ Errore dati 1h: {e}")
+            else:
+                note.append("🧭 1h✓")
 
 
 
         # 7) Note 1d e possibile apertura simulazione
         if segnale in ["BUY", "SELL"]:
             if daily_state == "NA":
-                note.append("📅 1d - Check fallito")
-                segnale = "HOLD"
+                note.append("📅 1d - Check fallito")  # dati non disponibili / check fallito
             else:
-                ok_daily = (segnale == "BUY" and daily_state == "BUY") or (segnale == "SELL" and daily_state == "SELL")
+                ok_daily = (segnale == "BUY" and daily_state == "BUY") or \
+                   (segnale == "SELL" and daily_state == "SELL")
                 if ok_daily:
                     note.append("📅 1d✓")
                 else:
-                    note.append(f"⛔ Daily in conflitto ({daily_state})")
-                    segnale = "HOLD"
+                    note.append(f"⚠️ Daily in conflitto ({daily_state})")
 
             logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
-
-            # 👉 tick dinamico del simbolo (per fill/trailing coerenti)
-            try:
-                tick_size = float(get_symbol_tick_step(symbol))
-            except Exception:
-                tick_size = 0.0
-
             
+            tick_size, step_size = get_symbol_tick_step(symbol)
+
             with _pos_lock:
                 posizioni_attive[symbol] = {
                     "tipo": segnale,
@@ -332,15 +332,14 @@ def analyze(symbol: str):
                     "tp": tp,
                     "sl": sl,
                     "spread": spread,
-                    "tick_size": tick_size,   # 👈 salvato
+                    "tick_size": float(tick_size),
+                    "step_size": float(step_size),
                     "chiusa_da_backend": False,
                     "motivo": " | ".join(note)
                 }
 
 
-
-        commento = "\n".join([r for r in note if r.strip()]) if note else "Nessuna nota"
-
+        commento = "\n".join(note) if note else "Nessuna nota"
 
         return SignalResponse(
             symbol=symbol,
@@ -397,9 +396,31 @@ def analyze(symbol: str):
 
         # <-- PAUSA -->
 
+# ===== Avvio scanner Top Movers (evita doppio avvio) =====
+_SCANNER_STARTED = False
 
+def _ensure_scanner():
+    global _SCANNER_STARTED
+    if _SCANNER_STARTED:
+        return
+    try:
+        # puoi cambiare gli intervalli/soglie come preferisci
+        start_top_mover_scanner(
+            analyze_fn=analyze,
+            interval_sec=30,
+            gain_threshold_normale=0.10,
+            gain_threshold_listing=1.00,
+            quote_suffix=("USDC","USDT"),
+            top_n_24h=80,
+            cooldown_sec=90,
+        )
 
+        _SCANNER_STARTED = True
+        logging.info("✅ Top Mover Scanner avviato da routes.py")
+    except Exception as e:
+        logging.error(f"❌ Impossibile avviare lo scanner: {e}")
 
+_ensure_scanner()
 # =========================================================
 
 
@@ -459,59 +480,6 @@ _filtro_log = {
     "prezzo_piattissimo": 0,
     "macd_rsi_neutri": 0
 }
-
-# === Helpers per filtro Hot ===
-def _strong_momentum(last_row, df, atr_val):
-    try:
-        o = float(last_row["open"]); c = float(last_row["close"])
-        h = float(last_row["high"]); l = float(last_row["low"])
-        rng = h - l
-        body = abs(c - o)
-        wick_ratio = (rng - body) / max(rng, 1e-9)
-        vol = float(last_row.get("volume", 0.0))
-        vol_med = float(df["volume"].iloc[-21:-1].mean()) if "volume" in df.columns and len(df) > 21 else 0.0
-        return (
-            rng > 2.0 * max(atr_val, 1e-9) and
-            body > 0.55 * rng and         # corpo “pieno”
-            wick_ratio < 0.45 and
-            vol > 1.8 * max(vol_med, 1e-9)
-        )
-    except Exception:
-        return False
-
-
-def _allow_hot_card(kind, df, ema7, ema25, ema99):
-    last = df.iloc[-1]
-    atr_val = float(df["ATR"].iloc[-1]) if "ATR" in df.columns else 0.0
-    macd = float(df["MACD"].iloc[-1]); sig = float(df["MACD_SIGNAL"].iloc[-1])
-    rsi  = float(df["RSI"].iloc[-1])
-    green = last["close"] > last["open"]
-    red   = last["close"] < last["open"]
-
-    if kind == "BUY":
-        if ema7 > ema25 > ema99:
-            return True
-        # momentum contro-trend: ammesso solo se davvero forte e con MACD/RSI coerenti
-        return (
-            _strong_momentum(last, df, atr_val)
-            and green
-            and (macd - sig) > 0.002
-            and rsi >= 50.0
-        )
-
-    if kind == "SELL":
-        if ema7 < ema25 < ema99:
-            return True
-        return (
-            _strong_momentum(last, df, atr_val)
-            and red
-            and (sig - macd) > 0.002
-            and rsi <= 50.0
-        )
-    return False
-
-
-
 MODALITA_TEST = True
 
 @router.get("/hotassets")
@@ -657,15 +625,16 @@ def hot_assets():
             trend_buy = recenti_rialzo and rsi > 50 and macd > macd_signal
             trend_sell = recenti_ribasso and rsi < 50 and macd < macd_signal
 
-            
+            # Permissivo per presegnali: MACD > signal o vicino
+            macd_ok = macd > macd_signal or abs(macd - macd_signal) < 0.01
 
             presegnale_buy = (
-                df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2] and  # cross up recente
-                ema7 > ema25 and
-                ema25 < ema99 and                               # ancora "recupero", non trend pieno
-                distanza_relativa < 0.015 and
-                rsi > 50 and
-                (macd > 0) and (macd > macd_signal)             # MACD davvero pro-BUY
+                df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2]
+                and ema7 > ema25
+                and ema25 < ema99
+                and distanza_relativa < 0.015
+                and rsi > 50
+                and macd_ok
             )
 
             presegnale_sell = (
@@ -677,51 +646,20 @@ def hot_assets():
                 and (macd < macd_signal or abs(macd - macd_signal) < 0.01)
             )
 
-            
-            # === GATE unico per la card hot (con override stack EMA) ===
-            kind = "NA"
-            if trend_buy or presegnale_buy:
-                kind = "BUY"
-            elif trend_sell or presegnale_sell:
-                kind = "SELL"
-
-            # 🔁 OVERRIDE in base allo stack EMA, se chiaramente direzionale
-            #    - se EMA7 > EMA25 > EMA99 → forza BUY
-            #    - se EMA7 < EMA25 < EMA99 → forza SELL
-            if ema7 > ema25 > ema99:
-                kind = "BUY"
-            elif ema7 < ema25 < ema99:
-                kind = "SELL"
-
-            # Se non passa il gate finale, scarta
-            if kind == "NA":
-                continue
-
-            # Validazione rigida della coerenza momentanea (RSI/MACD + momentum) 
-            if not _allow_hot_card(kind, df, ema7, ema25, ema99):
-                # Debug utile per capire perché è stato scartato
-                logging.debug(
-                    f"[HOT] {symbol} scartato: kind={kind} "
-                    f"ema7={ema7:.6f} ema25={ema25:.6f} ema99={ema99:.6f} "
-                    f"rsi={rsi:.2f} macd={macd:.5f} sig={macd_signal:.5f}"
-                )
-                continue
-
-            # Append UNA SOLA VOLTA, in base al kind validato
-            segnale_hot = "BUY" if kind == "BUY" else "SELL"
-            candele_trend = conta_candele_trend(df, rialzista=(segnale_hot == "BUY"))
-            risultati.append({
-                "symbol": symbol,
-                "segnali": 1,
-                "trend": segnale_hot,
-                "rsi": round(rsi, 2),
-                "ema7": round(ema7, 2),
-                "ema25": round(ema25, 2),
-                "ema99": round(ema99, 2),
-                "prezzo": round(prezzo, 4),
-                "candele_trend": candele_trend
-            })
-
+            if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
+                segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
+                candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
+                risultati.append({
+                    "symbol": symbol,
+                    "segnali": 1,
+                    "trend": segnale,
+                    "rsi": round(rsi, 2),
+                    "ema7": round(ema7, 2),
+                    "ema25": round(ema25, 2),
+                    "ema99": round(ema99, 2),
+                    "prezzo": round(prezzo, 4),
+                    "candele_trend": candele_trend
+                })
         except Exception:
             continue
 
@@ -729,47 +667,6 @@ def hot_assets():
     _hot_cache["data"] = risultati
     return risultati
 
-# ===== Avvio scanner Top Movers (versione unica, dopo hot_assets) =====
-_SCANNER_STARTED = False
-
-def _hot_syms():
-    """
-    Raccoglie i simboli 'hot' che vedi nelle card /hotassets
-    e li unisce allo scanner 1m per chiamare analyze() anche su quelli.
-    """
-    try:
-        items = hot_assets()
-        return [it.get("symbol") for it in items if it.get("symbol")]
-    except Exception:
-        return []
-
-def _ensure_scanner():
-    """
-    Avvia lo scanner una sola volta, con i parametri consigliati
-    e l'hook extra_symbols_fn che integra le card /hotassets.
-    """
-    global _SCANNER_STARTED
-    if _SCANNER_STARTED:
-        return
-    try:
-        start_top_mover_scanner(
-            analyze_fn=analyze,
-            interval_sec=30,              # scansione 1m reattiva
-            gain_threshold_normale=0.045,  # trigger su spike veloci
-            gain_threshold_listing=0.60,  # trigger su nuovi listing
-            quote_suffix=("USDC","USDT"),
-            top_n_24h=120,                # bacino più ampio
-            cooldown_sec=90,
-            extra_symbols_fn=_hot_syms,   # 👈 unisce /hotassets allo scanner
-        )
-        _SCANNER_STARTED = True
-        logging.info("✅ Top Mover Scanner avviato (unico) da routes.py")
-    except Exception as e:
-        logging.error(f"❌ Impossibile avviare lo scanner: {e}")
-
-# Avvio (ora che hot_assets e _hot_syms esistono)
-_ensure_scanner()
-# =========================================================
 
 
 # ------------------------------------------------------------------
@@ -827,6 +724,45 @@ def verifica_posizioni_attive():
                 ema25 = float(df["EMA_25"].iloc[-1])
                 dist_ema = abs(ema7 - ema25)
 
+                # --- Indicatori minimi per la patch (RSI/MACD hist) ---
+                try:
+                    # calcolo veloce solo sulle ultime barre necessarie
+                    df["RSI"] = calcola_rsi(df["close"])
+                    _macd, _macd_sig = calcola_macd(df["close"])
+                    macd_hist_15m = float(_macd.iloc[-1] - _macd_sig.iloc[-1])
+                    rsi_15m = float(df["RSI"].iloc[-1])
+                except Exception:
+                    macd_hist_15m, rsi_15m = None, None
+
+                # --- Canale 15m per patch (parametri allineati a trend_logic) ---
+                try:
+                    chan_15 = detect_price_channel(
+                        df, lookback=200, min_touches_side=2,
+                        parallel_tolerance=0.20, touch_tol_mult_atr=0.55,
+                        min_confidence=0.55, require_volume_for_breakout=True,
+                        breakout_vol_mult=1.30
+                    )
+                except Exception:
+                    chan_15 = {}
+
+                # --- Applica difesa canale: inietta eventuale 'trailing_tp_step' e nota ---
+                try:
+                    indicators = {
+                        "last_price": float(df["close"].iloc[-1]),
+                        "rsi_15m": rsi_15m,
+                        "macd_hist_15m": macd_hist_15m,
+                    }
+                    with _pos_lock:
+                        sim.setdefault("note_log", [])
+                        new_sim = channel_defense_adjust(sim, indicators=indicators, ch15=chan_15, log=sim["note_log"])
+                        if new_sim is not sim:
+                            posizioni_attive[symbol] = new_sim
+                            sim = new_sim
+                except Exception:
+                    pass
+
+
+
                 in_range = (EMA_DIST_MIN_PERC * c) <= dist_ema <= (EMA_DIST_MAX_PERC * c)
                 trend_ok = (
                     (tipo == "BUY"  and c >= ema7 and ema7 > ema25 and in_range) or
@@ -836,15 +772,7 @@ def verifica_posizioni_attive():
                 # ===== verifiche TP/SL su candela corrente (fill al livello, non a mercato) =====
                 # tolleranza tick (se disponibile)
                 TICK = float(sim.get("tick_size", 0.0)) if isinstance(sim.get("tick_size", 0.0), (int, float)) else 0.0
-                if not TICK or TICK <= 0:
-                    try:
-                        TICK = float(get_symbol_tick_step(symbol))
-                        with _pos_lock:
-                            sim["tick_size"] = TICK
-                    except Exception:
-                        TICK = 0.0
                 eps = TICK
-
 
                 fill_price = None
                 exit_reason = None
@@ -900,24 +828,30 @@ def verifica_posizioni_attive():
                 if GESTIONE_ATTIVA and trend_ok and not verso_sl:
                     with _pos_lock:
                         sim.setdefault("tp_esteso", 1)
-                    # arrotondatore a tick (se disponibile)
-                    def _round_tick(x, tick=TICK):
-                        return round(round(x / tick) * tick, 10) if tick and tick > 0 else round(x, 10)
-
                     if tipo == "BUY":
-                        nuovo_tp_raw = entry + distanza_entry * TP_TRAIL_FACTOR
-                        nuovo_tp = _round_tick(nuovo_tp_raw)
+                        nuovo_tp = round(entry + distanza_entry * TP_TRAIL_FACTOR, 6)
+                        # extra stretta se la patch ha impostato trailing_tp_step (es. 0.003 = 0.3% prezzo)
+                        extra = float(sim.get("trailing_tp_step", 0.0) or 0.0)
+                        cause = ""
+                        if extra > 0:
+                            nuovo_tp = max(nuovo_tp, round(tp + float(df["close"].iloc[-1]) * extra, 6))
+                            cause = " (channel defense)"
                         if nuovo_tp > tp:
                             with _pos_lock:
                                 sim["tp"] = nuovo_tp
-                                sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                                sim["motivo"] = f"📈 TP aggiornato (trend 15m){cause}"
+
                     else:
-                        nuovo_tp_raw = entry - distanza_entry * TP_TRAIL_FACTOR
-                        nuovo_tp = _round_tick(nuovo_tp_raw)
+                        nuovo_tp = round(entry - distanza_entry * TP_TRAIL_FACTOR, 6)
+                        extra = float(sim.get("trailing_tp_step", 0.0) or 0.0)
+                        cause = ""
+                        if extra > 0:
+                            nuovo_tp = min(nuovo_tp, round(tp - float(df["close"].iloc[-1]) * extra, 6))
+                            cause = " (channel defense)"
                         if nuovo_tp < tp:
                             with _pos_lock:
                                 sim["tp"] = nuovo_tp
-                                sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                                sim["motivo"] = f"📈 TP aggiornato (trend 15m){cause}"
 
 
                 # ===== messaggio di stato =====
@@ -945,10 +879,6 @@ def verifica_posizioni_attive():
 # Thread monitor
 monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
 monitor_thread.start()
-
-@router.get("/scanner_status")
-def scanner_status():
-    return {"started": bool(globals().get("_SCANNER_STARTED", False))}
 
     
 @router.get("/simulazioni_attive")
