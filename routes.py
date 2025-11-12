@@ -625,8 +625,8 @@ def hot_assets():
             trend_buy = recenti_rialzo and rsi > 50 and macd > macd_signal
             trend_sell = recenti_ribasso and rsi < 50 and macd < macd_signal
 
-            # Permissivo per presegnali: MACD > signal o vicino
-            macd_ok = macd > macd_signal or abs(macd - macd_signal) < 0.01
+            # MACD deve essere davvero sopra il signal (niente tolleranza)
+            macd_ok = macd > macd_signal
 
             presegnale_buy = (
                 df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2]
@@ -643,8 +643,9 @@ def hot_assets():
                 and ema25 > ema99
                 and distanza_relativa < 0.015
                 and rsi < 50
-                and (macd < macd_signal or abs(macd - macd_signal) < 0.01)
+                and (macd < macd_signal)
             )
+
 
             if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
                 segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
