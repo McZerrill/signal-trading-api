@@ -1,11 +1,3 @@
-# top_mover_scanner.py
-# Scanner 1m per top movers Binance con:
-# - trigger UP e DOWN (BUY/SELL)
-# - rilevamento listing (1 sola candela, body ≥ 70%)
-# - prefiltro 24h, cooldown anti-spam
-# - hook extra_symbols_fn (es. /hotassets) per includere simboli aggiuntivi
-# - compatibile con routes.py (start_top_mover_scanner)
-
 import time
 import random
 import logging
@@ -34,6 +26,7 @@ def _http_get_with_retry(
     for attempt in range(1, max_retries + 1):
         try:
             resp = sess.get(url, params=params, timeout=timeout)
+            # gestione basica rate-limit / errori server
             if resp.status_code in (429, 500, 502, 503, 504):
                 raise requests.RequestException(f"HTTP {resp.status_code}")
             resp.raise_for_status()
@@ -42,6 +35,7 @@ def _http_get_with_retry(
             if attempt == max_retries:
                 logging.warning(f"[HTTP] GET fallito {url} (tentativo {attempt}/{max_retries}): {e}")
                 return None
+            # backoff con jitter
             sleep_s = backoff * (1.0 + 0.25 * random.random())
             time.sleep(sleep_s)
             backoff *= 2.0
@@ -61,25 +55,27 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
 def scan_top_movers(
     analyze_fn: Callable[[str], Any],
     interval_sec: int = 60,
-    gain_threshold_normale: float = 0.10,     # +10% o -10% in 1 minuto
-    gain_threshold_listing: float = 1.00,     # +100% o -100% su prima candela (listing)
-    quote_suffix: Tuple[str, ...] = ("USDC", "USDT"),
-    top_n_24h: int = 80,                      # prefiltra: analizza i migliori per %change 24h
-    cooldown_sec: int = 180,                  # non ri-triggerare la stessa coin entro X sec
-    extra_symbols_fn: Optional[Callable[[], List[str]]] = None,  # es. hotassets()
+    gain_threshold_normale: float = 0.10,   
+    gain_threshold_listing: float = 1.00,   
+    quote_suffix: Tuple[str, ...] = ("USDC", "USDT"),  # coppie più comuni
+    top_n_24h: int = 80,                    # prefiltra: analizza solo i top n per %change 24h
+    cooldown_sec: int = 180                 # evita spam: non ri-triggerare la stessa coin entro X secondi
 ):
     """
-    - Caso A (>=2 barre 1m): trigger se |last/prev - 1| >= gain_threshold_normale (UP/DOWN).
-    - Caso B (1 sola barra = nuovo listing): trigger se body>=70% e |close/open -1|>=gain_threshold_listing.
+    Scanner top mover Binance (1m).
+
+    - Caso A (>=2 barre 1m): allerta se last_close > prev_close * (1 + gain_threshold_normale).
+    - Caso B (1 sola barra = nuovo listing): allerta se (close/open - 1) >= gain_threshold_listing
+      e la candela è 'piena' (body >= 70% del range).
     - Prefiltro: considera solo i top 'top_n_24h' simboli per priceChangePercent nel 24h.
     - Cooldown: non richiama analyze per la stessa coin entro 'cooldown_sec'.
-    - extra_symbols_fn: callable che restituisce una lista di simboli extra (dedup automatico).
     """
     url_tickers = "https://api.binance.com/api/v3/ticker/24hr"
     url_klines = "https://api.binance.com/api/v3/klines"
 
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "top-mover-scanner/1.1"})
+    # headers innocui per evitare cache/proxy strani
+    sess.headers.update({"User-Agent": "top-mover-scanner/1.0"})
 
     last_alert: Dict[str, float] = {}  # symbol -> last_ts
 
@@ -96,7 +92,7 @@ def scan_top_movers(
                 logging.warning("[TopMover] payload 24hr non è una lista, skip ciclo")
                 raise RuntimeError("Payload non valido per /ticker/24hr")
 
-            # Solo le quote desiderate e ordina per %change 24h
+            # Solo le quote desiderate (es. USDC/USDT) e ordina per %change 24h
             filtered = (d for d in tickers if str(d.get("symbol", "")).endswith(quote_suffix))
             try:
                 movers = sorted(
@@ -105,25 +101,16 @@ def scan_top_movers(
                     reverse=True
                 )[:max(1, int(top_n_24h))]
             except Exception:
+                # se manca priceChangePercent, fallback senza sort
                 movers = [d for d in filtered]
 
-            # ===== Costruisci lista finale (movers + extra_symbols_fn) =====
-            final_symbols: List[str] = [str(d.get("symbol") or "").strip().upper() for d in movers if d.get("symbol")]
-            if extra_symbols_fn:
-                try:
-                    extras = [s.strip().upper() for s in (extra_symbols_fn() or []) if s]
-                    # dedup preservando l'ordine
-                    final_symbols = list(dict.fromkeys(final_symbols + extras))
-                except Exception as _e:
-                    logging.warning(f"[TopMover] extra_symbols_fn error: {_e}")
-
             # ===== Loop simboli selezionati =====
-            for symbol in final_symbols:
+            for d in movers:
+                symbol = str(d.get("symbol") or "").strip()
                 if not symbol:
                     continue
 
                 now = time.time()
-                # cooldown anti-spam
                 if now - last_alert.get(symbol, 0.0) < cooldown_sec:
                     continue
 
@@ -148,7 +135,7 @@ def scan_top_movers(
 
                 triggered = False
 
-                # ---- Caso A: almeno 2 barre 1m disponibili (UP o DOWN)
+                # ---- Caso A: almeno 2 barre 1m disponibili
                 if len(kl) >= 2:
                     prev_close = _safe_float(kl[-2][4])
                     last_close = _safe_float(kl[-1][4])
@@ -156,43 +143,39 @@ def scan_top_movers(
                         gain = (last_close / prev_close) - 1.0
                         if gain >= gain_threshold_normale:
                             logging.info(
-                                f"🔥 Top mover UP: {symbol} +{gain:.2%} "
-                                f"(prev={prev_close:.8f} → last={last_close:.8f})"
-                            )
-                            triggered = True
-                        elif gain <= -gain_threshold_normale:
-                            logging.info(
-                                f"📉 Top mover DOWN: {symbol} {gain:.2%} "
+                                f"🔥 Top mover: {symbol} gain={gain:.2%} "
                                 f"(prev={prev_close:.8f} → last={last_close:.8f})"
                             )
                             triggered = True
 
-                # ---- Caso B: nuovo listing (1 sola candela) – UP o DOWN con body “pieno”
+                # ---- Caso B: nuovo listing (1 sola candela)
                 if not triggered and len(kl) == 1:
                     try:
                         o = _safe_float(kl[0][1])
                         h = _safe_float(kl[0][2])
                         l = _safe_float(kl[0][3])
                         c = _safe_float(kl[0][4])
+                        # v = _safe_float(kl[0][5])  # se serve
                     except Exception:
                         o = h = l = c = 0.0
 
                     if o > 0.0 and h >= l:
                         gain = (c / o) - 1.0
                         body_frac = abs(c - o) / max(h - l, 1e-9)
-                        if body_frac >= 0.70 and abs(gain) >= gain_threshold_listing:
-                            direction = "UP" if gain > 0 else "DOWN"
+                        if gain >= gain_threshold_listing and body_frac >= 0.70:
                             logging.info(
-                                f"🆕 LISTING {direction}: {symbol} gain={gain:.2%} body={body_frac:.0%} "
+                                f"🚀 NUOVO LISTING: {symbol} gain={gain:.2%} body={body_frac:.0%} "
                                 f"(open={o:.8f} high={h:.8f} low={l:.8f} close={c:.8f})"
                             )
                             triggered = True
 
-                # ---- Se trigger, aggiorno il cooldown e invoco analyze_fn ----
+                # Se trigger, aggiorno SUBITO il cooldown per evitare spam,
+                # poi chiamo analyze_fn in try/except.
                 if triggered:
                     last_alert[symbol] = now
                     try:
                         result = analyze_fn(symbol)
+                        # Supporta sia oggetto (SignalResponse) sia dict like
                         segnale = getattr(result, "segnale", None) or getattr(result, "signal", "HOLD")
                         commento = getattr(result, "commento", None) or getattr(result, "comment", "")
                         logging.info(f"[TopMover→analyze] {symbol} → {segnale} | {commento}")
@@ -205,6 +188,7 @@ def scan_top_movers(
         # attende il prossimo ciclo (compensando il tempo già speso) + jitter anti-sync
         elapsed = time.time() - loop_started_at
         sleep_left = max(0.0, interval_sec - elapsed)
+        # leggerissimo jitter per evitare sincronizzazioni coi cluster API
         time.sleep(sleep_left + random.uniform(0.0, 0.5))
 
 
@@ -215,12 +199,11 @@ def start_top_mover_scanner(
     gain_threshold_listing: float = 0.80,
     quote_suffix: Tuple[str, ...] = ("USDC", "USDT"),
     top_n_24h: int = 80,
-    cooldown_sec: int = 120,
-    extra_symbols_fn: Optional[Callable[[], List[str]]] = None,
+    cooldown_sec: int = 120
 ) -> Thread:
     """
     Avvia lo scanner in un thread separato.
-    Mantiene la compatibilità con routes.py.
+    Mantiene la compatibilità con routes.py (stessi parametri principali).
     """
     t = Thread(
         target=scan_top_movers,
@@ -232,7 +215,6 @@ def start_top_mover_scanner(
             "quote_suffix": tuple(quote_suffix),
             "top_n_24h": int(top_n_24h),
             "cooldown_sec": int(cooldown_sec),
-            "extra_symbols_fn": extra_symbols_fn,
         },
         daemon=True
     )
@@ -249,24 +231,13 @@ if __name__ == "__main__":
         datefmt="%H:%M:%S"
     )
 
-    # Callback fittizia per test rapido
+    # Callback fittizia per test manuale
     def _fake_analyze(sym: str):
         class R:
             segnale = "HOLD"
             commento = f"test analyze su {sym}"
         return R()
 
-    # Esempio: nessun extra_symbols_fn
-    start_top_mover_scanner(
-        analyze_fn=_fake_analyze,
-        interval_sec=30,
-        gain_threshold_normale=0.05,
-        gain_threshold_listing=0.80,
-        quote_suffix=("USDC", "USDT"),
-        top_n_24h=120,
-        cooldown_sec=90,
-        extra_symbols_fn=None,
-    )
-
+    start_top_mover_scanner(_fake_analyze)
     while True:
         time.sleep(3600)
