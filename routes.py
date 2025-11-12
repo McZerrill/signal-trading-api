@@ -407,15 +407,18 @@ def analyze(symbol: str):
             logging.warning(f"⚠️ Fallito anche il recupero prezzo fallback: {e2}")
             close = 0.0
 
-        # --- DEBUG: payload in uscita /analyze ---
+        # DEBUG sicuro: usa locals().get per evitare NameError su variabili non assegnate
         try:
+            _s  = locals().get("segnale", "HOLD")
+            _tp = float(locals().get("tp", 0.0) or 0.0)
+            _sl = float(locals().get("sl", 0.0) or 0.0)
+            _sp = float(locals().get("spread", 0.0) or 0.0)
+            _n  = (locals().get("note15") or "")
             logging.info(
-                f"[RETURN] {symbol} -> segnale={segnale} prezzo={close:.6f} "
-                f"tp={float(tp):.6f} sl={float(sl):.6f} spread={spread:.4f}% | "
-                f"note={(note15 or '').replace(chr(10),' | ')[:220]}"
+                f"[RETURN] {symbol} -> segnale={_s} prezzo={close:.6f} "
+                f"tp={_tp:.6f} sl={_sl:.6f} spread={_sp:.4f}% | "
+                f"note={_n.replace(chr(10), ' | ')[:220]}"
             )
-        except Exception:
-            pass
 
 
         return SignalResponse(
