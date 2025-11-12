@@ -1586,6 +1586,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # --- Filtro di sicurezza: rimuove le note tecniche dall'output se disattivate ---
     if not SHOW_TECH_NOTES:
         note = [n for n in note if not (n.startswith("[STRUCT]") or n.startswith("[FLAT]"))]
-
+        
+    # 🔎 LOG DIAGNOSTICO FINALE
+    try:
+        _head = note[0] if note else "-"
+        logging.debug(f"[ANALISI-FINALE] {symbol or '?'} → segnale={segnale} | tp={tp:.6f} | sl={sl:.6f} | distEMA={distanza_ema:.6f}")
+        logging.debug(f"[ANALISI-FINALE] pump={pump_flag} breakout={breakout_valido} | first_note={_head}")
+    except Exception as _e_diag:
+        logging.debug(f"[ANALISI-FINALE] diag error: {_e_diag}")
         
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
