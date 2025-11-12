@@ -1079,10 +1079,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         cond_base = False
         pattern_buy_override = False
 
-    # Se distanza EMA insufficiente, disattiva tutto
-    if not distanza_ok and not pump_flag:
+    # consenti operatività se c’è breakout o dump anche con distanza bassa
+    if not (distanza_ok or breakout_valido or pump_flag):
         cond_base = False
         pattern_buy_override = False
+
 
 
     # ------------------------------------------------------------------
@@ -1147,7 +1148,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     # SELL logic (con RSI in calo integrato)
     # ------------------------------------------------------------------
-    if not SOLO_BUY and (trend_down or recupero_sell or breakout_down_valid or is_dump) and (distanza_ok or is_dump):
+    if not SOLO_BUY and (trend_down or recupero_sell or breakout_down_valid or is_dump) and (distanza_ok or is_dump or breakout_down_valid):
         durata_trend = candele_reali_down
         rsi_in_calo = (rsi < penultimo["RSI"] < antepenultimo["RSI"])
 
@@ -1431,9 +1432,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
         # Gate di entrata coerente con prob_fusa
         P_ENTER = 0.55 if (breakout_valido or pump_flag) else 0.58
+        # leggero allentamento per SELL, per non mascherare short “ovvi”
+        if segnale == "SELL":
+            P_ENTER = 0.53 if (breakout_valido or pump_flag) else 0.56
+
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+
 
         # TP/SL proporzionale alla probabilità fusa
         ATR_MIN_FRAC = 0.004
