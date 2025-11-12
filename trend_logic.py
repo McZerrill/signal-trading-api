@@ -1103,6 +1103,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if cond_base:
         if sistema in ("DB","TRI") and pattern_buy_override:
             segnale = "BUY"
+            logging.info(
+                f"[TREND-DECISION] {symbol} -> {segnale} | "
+                f"RSI={rsi:.2f} MACD={macd:.5f}/{macd_signal:.5f} "
+                f"EMA7={ema7:.6f} EMA25={ema25:.6f} EMA99={ema99:.6f} "
+                f"punteggio={punteggio_trend} "
+                f"note={' ; '.join(note[-3:])}"
+            )
+
             note.append("✅ BUY per Pattern override" + (" (Double Bottom)" if sistema=="DB" else " (Ascending Triangle)"))
         elif sistema == "EMA":
             durata_trend = candele_reali_up
@@ -1125,6 +1133,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                         note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
                     else:
                         segnale = "BUY"
+                        logging.info(
+                            f"[TREND-DECISION] {symbol} -> {segnale} | "
+                            f"RSI={rsi:.2f} MACD={macd:.5f}/{macd_signal:.5f} "
+                            f"EMA7={ema7:.6f} EMA25={ema25:.6f} EMA99={ema99:.6f} "
+                            f"punteggio={punteggio_trend} "
+                            f"note={' ; '.join(note[-3:])}"
+                        )
+
                         note.append("✅ BUY confermato")
 
 
@@ -1139,6 +1155,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
                 if punteggio_trend >= SOGLIA_PUNTEGGIO + 1 and durata_trend <= 12:
                     segnale = "BUY"
+                    logging.info(
+                        f"[TREND-DECISION] {symbol} -> {segnale} | "
+                        f"RSI={rsi:.2f} MACD={macd:.5f}/{macd_signal:.5f} "
+                        f"EMA7={ema7:.6f} EMA25={ema25:.6f} EMA99={ema99:.6f} "
+                        f"punteggio={punteggio_trend} "
+                        f"note={' ; '.join(note[-3:])}"
+                    )
+
                     note.append("✅ BUY confermato Moderato")
                 else:
                     note.append("🤔 Segnale↑ Debole")
