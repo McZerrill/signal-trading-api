@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+    from fastapi import APIRouter
 from datetime import datetime, timezone as dt_timezone
 import time
 import requests
@@ -173,6 +173,19 @@ def analyze(symbol: str):
             df_15m, spread, df_1m, symbol=symbol
         )
 
+        # --- DEBUG: esito grezzo 15m ---
+        try:
+            _u15 = hist.iloc[-1]
+            logging.debug(
+                f"[DBG-15m] {symbol} segnale={segnale} | "
+                f"ema7={float(_u15['EMA_7']):.6f} ema25={float(_u15['EMA_25']):.6f} ema99={float(_u15['EMA_99']):.6f} | "
+                f"rsi={float(_u15['RSI']):.2f} macd={float(_u15['MACD']):.5f} sig={float(_u15['MACD_SIGNAL']):.5f} | "
+                f"distEMA={float(distanza_ema):.6f} tp={float(tp):.6f} sl={float(sl):.6f}"
+            )
+        except Exception as _e_dbg:
+            logging.debug(f"[DBG-15m] {symbol} (estrazione tecnici fallita: {_e_dbg})")
+
+
         note = note15.split("\n") if note15 else []
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
@@ -249,7 +262,20 @@ def analyze(symbol: str):
         # 1h: ok usare ancora analizza_trend come conferma "soft"
         segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread, symbol=symbol)
 
-        logging.debug(f"[1h] {symbol} – Segnale: {segnale_1h}")
+        # --- DEBUG: stato 1h prima della conferma EMA ---
+        try:
+            _u1h = hist_1h.iloc[-1]
+            _e7h, _e25h, _e99h = float(_u1h['EMA_7']), float(_u1h['EMA_25']), float(_u1h['EMA_99'])
+            _rsi1h = float(_u1h['RSI'])
+            _macd1h, _sig1h = float(_u1h['MACD']), float(_u1h['MACD_SIGNAL'])
+            logging.debug(
+                f"[DBG-1h] {symbol} segnale_1h={segnale_1h} | "
+                f"ema7={_e7h:.6f} ema25={_e25h:.6f} ema99={_e99h:.6f} | "
+                f"rsi={_rsi1h:.2f} macd={_macd1h:.5f} sig={_sig1h:.5f}"
+            )
+        except Exception as _e_dbg1h:
+            logging.debug(f"[DBG-1h] {symbol} (estrazione tecnici fallita: {_e_dbg1h})")
+
 
         # 1d: controllo RIGOROSO solo su EMA (niente recupero/RSI/MACD)
         try:
@@ -369,6 +395,17 @@ def analyze(symbol: str):
         except Exception as e2:
             logging.warning(f"⚠️ Fallito anche il recupero prezzo fallback: {e2}")
             close = 0.0
+
+        # --- DEBUG: payload in uscita /analyze ---
+        try:
+            logging.info(
+                f"[RETURN] {symbol} -> segnale={segnale} prezzo={close:.6f} "
+                f"tp={float(tp):.6f} sl={float(sl):.6f} spread={spread:.4f}% | "
+                f"note={(note15 or '').replace(chr(10),' | ')[:220]}"
+            )
+        except Exception:
+            pass
+
 
         return SignalResponse(
             symbol=symbol,
@@ -653,6 +690,15 @@ def hot_assets():
 
             if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
                 segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
+
+                # --- DEBUG: scelta segnale hotassets ---
+                logging.debug(
+                    f"[HOT] {symbol} segnale={segnale} | "
+                    f"trend_buy={trend_buy} trend_sell={trend_sell} pre_buy={presegnale_buy} pre_sell={presegnale_sell} | "
+                    f"ema7={float(ema7):.6f} ema25={float(ema25):.6f} ema99={float(ema99):.6f} "
+                    f"rsi={float(rsi):.2f} macd={float(macd):.5f} sig={float(macd_signal):.5f}"
+                )
+                
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
                 risultati.append({
                     "symbol": symbol,
