@@ -622,16 +622,20 @@ def hot_assets():
             recenti_rialzo = all(df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] > df["EMA_99"].iloc[-i] for i in range(1, 4))
             recenti_ribasso = all(df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] < df["EMA_99"].iloc[-i] for i in range(1, 4))
 
-            trend_buy = recenti_rialzo and rsi > 50 and macd > macd_signal
-            trend_sell = recenti_ribasso and rsi < 50 and macd < macd_signal
+            # richiedi coerenza di regime: BUY solo se 25>99, SELL solo se 25<99
+            trend_buy = recenti_rialzo and (ema25 > ema99) and rsi > 50 and macd > macd_signal
+            trend_sell = recenti_ribasso and (ema25 < ema99) and rsi < 50 and macd < macd_signal
+
+
 
             # MACD deve essere davvero sopra il signal (niente tolleranza)
             macd_ok = macd > macd_signal
 
+            # consenti i pre-segnali solo a favore del regime principale
             presegnale_buy = (
                 df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2]
                 and ema7 > ema25
-                and ema25 < ema99
+                and ema25 > ema99          # ← non più < ema99
                 and distanza_relativa < 0.015
                 and rsi > 50
                 and macd_ok
@@ -640,10 +644,10 @@ def hot_assets():
             presegnale_sell = (
                 df["EMA_7"].iloc[-2] > df["EMA_25"].iloc[-2]
                 and ema7 < ema25
-                and ema25 > ema99
+                and ema25 < ema99          # ← non più > ema99
                 and distanza_relativa < 0.015
                 and rsi < 50
-                and (macd < macd_signal)
+                and (macd < macd_signal or abs(macd - macd_signal) < 0.01)
             )
 
 
