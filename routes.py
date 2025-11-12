@@ -1,4 +1,4 @@
-    from fastapi import APIRouter
+from fastapi import APIRouter
 from datetime import datetime, timezone as dt_timezone
 import time
 import requests
@@ -218,13 +218,18 @@ def analyze(symbol: str):
                 )
 
             # altrimenti ritorna lo stato della simulazione attiva
+            _tipo = posizione.get("tipo", "")
+            _tipo_label = "📈 Long" if _tipo == "BUY" else ("📉 Short" if _tipo == "SELL" else "—")
+            _commento_attivo = (
+                f"\u23f3 Simulazione già attiva su {symbol} — {_tipo_label} @ {posizione['entry']}$\n"
+                f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
+            )
+            
+            # altrimenti ritorna lo stato della simulazione attiva
             return SignalResponse(
                 symbol=symbol,
                 segnale="HOLD",
-                commento=(
-                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
-                    f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
-                ),
+                commento=_commento_attivo,
                 prezzo=posizione["entry"],
                 take_profit=posizione["tp"],
                 stop_loss=posizione["sl"],
@@ -319,9 +324,10 @@ def analyze(symbol: str):
                     rsi_1h    = float(ultimo_1h['RSI'])
 
                     if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
-                        note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con SELL")
+                        note.append("ℹ️ 1h non confermato, MACD/RSI coerenti (⬇️)")
                     elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
-                        note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con BUY")
+                        note.append("ℹ️ 1h non confermato, MACD/RSI coerenti (⬆️)")
+
                     else:
                         note.append(f"⚠️ {segnale} non confermato su 1h")
 
@@ -345,7 +351,9 @@ def analyze(symbol: str):
                 if ok_daily:
                     note.append("📅 1d✓")
                 else:
-                    note.append(f"⚠️ Daily in conflitto ({daily_state})")
+                    _daily_icon = "⬆️" if daily_state == "BUY" else ("⬇️" if daily_state == "SELL" else "•")
+                    note.append(f"⚠️ Daily in conflitto ({_daily_icon})")
+
 
             logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
             
