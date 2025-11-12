@@ -399,37 +399,41 @@ def analyze(symbol: str):
         )
 
     except Exception as e:
-        logging.error(f"❌ Errore durante /analyze per {symbol}: {e}")
+        # Stacktrace completo
+        logging.exception(f"❌ Errore durante /analyze per {symbol}")
+
+        # Valori sicuri se alcune variabili non sono state ancora definite
+        _safe_segnale = locals().get("segnale", "HOLD")
+        _safe_tp      = float(locals().get("tp", 0.0) or 0.0)
+        _safe_sl      = float(locals().get("sl", 0.0) or 0.0)
+        _safe_spread  = float(locals().get("spread", 0.0) or 0.0)
+        _safe_note15  = (locals().get("note15", "") or "").replace("\n", " | ")
+
+        # Prova a recuperare un prezzo di fallback per non lasciare 0.0 se evitabile
         try:
-            df_15m = get_binance_df(symbol, "15m", 50)
-            close = round(df_15m.iloc[-1]["close"], 6)
+            df_15m_fb = get_binance_df(symbol, "15m", 50)
+            close_fb = round(float(df_15m_fb.iloc[-1]["close"]), 6) if not df_15m_fb.empty else 0.0
         except Exception as e2:
-            logging.warning(f"⚠️ Fallito anche il recupero prezzo fallback: {e2}")
-            close = 0.0
+            logging.warning(f"⚠️ Fallito anche il recupero prezzo fallback per {symbol}: {e2}")
+            close_fb = 0.0
 
-        # DEBUG sicuro: usa locals().get per evitare NameError su variabili non assegnate
-        try:
-            _s  = locals().get("segnale", "HOLD")
-            _tp = float(locals().get("tp", 0.0) or 0.0)
-            _sl = float(locals().get("sl", 0.0) or 0.0)
-            _sp = float(locals().get("spread", 0.0) or 0.0)
-            _n  = (locals().get("note15") or "")
-            logging.info(
-                f"[RETURN] {symbol} -> segnale={_s} prezzo={close:.6f} "
-                f"tp={_tp:.6f} sl={_sl:.6f} spread={_sp:.4f}% | "
-                f"note={_n.replace(chr(10), ' | ')[:220]}"
-            )
+        # Log di ritorno robusto (non usa variabili non inizializzate)
+        logging.info(
+            f"[RETURN] {symbol} -> segnale={_safe_segnale} "
+            f"prezzo={close_fb:.6f} tp={_safe_tp:.6f} sl={_safe_sl:.6f} "
+            f"spread={_safe_spread:.4f}% | note={_safe_note15[:220]}"
+        )
 
-
+        # Risposta sicura verso il client
         return SignalResponse(
             symbol=symbol,
             segnale="HOLD",
             commento=(
                 f"Errore durante l'analisi di {symbol}.\n"
-                f"Tentativo di recupero prezzo: {'Riuscito' if close > 0 else 'Fallito'}\n"
+                f"Tentativo di recupero prezzo: {'Riuscito' if close_fb > 0 else 'Fallito'}\n"
                 f"Errore originale: {e}"
             ),
-            prezzo=close,
+            prezzo=close_fb,
             take_profit=0.0,
             stop_loss=0.0,
             rsi=0.0,
@@ -440,11 +444,10 @@ def analyze(symbol: str):
             ema25=0.0,
             ema99=0.0,
             timeframe="",
-            spread=0.0,
+            spread=_safe_spread,
             motivo="Errore interno",
             chiusa_da_backend=False
         )
-
         # <-- PAUSA -->
 
 # ===== Avvio scanner Top Movers (evita doppio avvio) =====
