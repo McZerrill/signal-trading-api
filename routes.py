@@ -602,21 +602,59 @@ def hot_assets():
                 continue
 
 
-            df["EMA_7"] = df["close"].ewm(span=7).mean()
+            df["EMA_7"]  = df["close"].ewm(span=7).mean()
             df["EMA_25"] = df["close"].ewm(span=25).mean()
             df["EMA_99"] = df["close"].ewm(span=99).mean()
             df["RSI"] = calcola_rsi(df["close"])
             df["MACD"], df["MACD_SIGNAL"] = calcola_macd(df["close"])
             df["ATR"] = calcola_atr(df)
 
-            ema7 = df["EMA_7"].iloc[-1]
-            ema25 = df["EMA_25"].iloc[-1]
-            ema99 = df["EMA_99"].iloc[-1]
-            rsi = df["RSI"].iloc[-1]
-            macd = df["MACD"].iloc[-1]
-            macd_signal = df["MACD_SIGNAL"].iloc[-1]
-            atr = df["ATR"].iloc[-1]
-            prezzo = df["close"].iloc[-1]
+            # --- Sanity: ordine, tipi, NaN ---
+            try:
+                if not df.index.is_monotonic_increasing:
+                    df = df.sort_index()
+
+                # forza numerici (evita oggetti/stringhe)
+                cols_num = ["open","high","low","close","EMA_7","EMA_25","EMA_99","RSI","MACD","MACD_SIGNAL","ATR"]
+                for c in cols_num:
+                    if c in df.columns:
+                        df[c] = pd.to_numeric(df[c], errors="coerce")
+                df = df.dropna(subset=["close","EMA_7","EMA_25","EMA_99"])
+            except Exception as _e_sanity:
+                logging.debug(f"[HOT-CHECK] {symbol} sanity guard exception: {_e_sanity}")
+
+            # --- Letture finali + slope per diagnosi ---
+            ema7 = float(df["EMA_7"].iloc[-1])
+            ema25 = float(df["EMA_25"].iloc[-1])
+            ema99 = float(df["EMA_99"].iloc[-1])
+            rsi = float(df["RSI"].iloc[-1])
+            macd = float(df["MACD"].iloc[-1])
+            macd_signal = float(df["MACD_SIGNAL"].iloc[-1])
+            atr = float(df["ATR"].iloc[-1]) if not pd.isna(df["ATR"].iloc[-1]) else 0.0
+            prezzo = float(df["close"].iloc[-1])
+
+            # slope su 3 candele (se disponibili)
+            def _slope(series, k=3):
+                try:
+                    return float(series.iloc[-1] - series.iloc[-1-k])
+                except Exception:
+                    return float("nan")
+
+            slope7  = _slope(df["EMA_7"], 3)
+            slope25 = _slope(df["EMA_25"], 3)
+            slopeRSI = _slope(df["RSI"], 2)
+
+            try:
+                ts_tail = list(df.index.astype(str)[-3:])
+                logging.debug(
+                    f"[HOT-CHECK] {symbol} ts_tail={ts_tail} "
+                    f"e7={ema7:.6f} e25={ema25:.6f} e99={ema99:.6f} "
+                    f"rsi={rsi:.2f} macd={macd:.5f}/{macd_signal:.5f} atr={atr:.6f} "
+                    f"slope(e7,3)={slope7:.6f} slope(e25,3)={slope25:.6f} slope(RSI,2)={slopeRSI:.2f}"
+                )
+            except Exception:
+                pass
+
 
             if prezzo <= 0 or pd.isna(atr) or atr < atr_minimo:
                 _filtro_log["atr"] += 1
@@ -753,20 +791,45 @@ def hot_assets():
 
 
             
-            if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
-                segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
+            # --- Gating dinamico "strict" per evitare contro-trend ---
+            macd_gap = float(macd - macd_signal)
 
-                # --- DEBUG: scelta segnale hotassets (motivo chiaro) ---
+            prezzo_sopra_ema7 = prezzo >= ema7
+            prezzo_sotto_ema7 = prezzo <= ema7
+            ema7_slope_up     = (slope7  if not pd.isna(slope7)  else 0.0) > 0
+            ema25_slope_up    = (slope25 if not pd.isna(slope25) else 0.0) > 0
+            ema7_slope_down   = (slope7  if not pd.isna(slope7)  else 0.0) < 0
+            ema25_slope_down  = (slope25 if not pd.isna(slope25) else 0.0) < 0
+
+            strict_buy_ok  = (
+                (trend_buy or presegnale_buy)
+                and prezzo_sopra_ema7
+                and ema7_slope_up and ema25_slope_up
+                and macd_gap >  macd_signal_threshold
+                and rsi > 50.0
+            )
+
+            strict_sell_ok = (
+                (trend_sell or presegnale_sell)
+                and prezzo_sotto_ema7
+                and ema7_slope_down and ema25_slope_down
+                and macd_gap < -macd_signal_threshold
+                and rsi < 50.0
+            )
+
+            if strict_buy_ok or strict_sell_ok:
+                segnale = "BUY" if strict_buy_ok else "SELL"
                 reason = (
-                    "trend_buy" if trend_buy else
-                    ("presegnale_buy" if presegnale_buy else
-                     ("trend_sell" if trend_sell else "presegnale_sell"))
+                    "trend_buy" if (strict_buy_ok and trend_buy) else
+                    ("presegnale_buy" if (strict_buy_ok and not trend_buy) else
+                     ("trend_sell" if (strict_sell_ok and trend_sell) else "presegnale_sell"))
                 )
+
                 logging.info(
                     f"[HOT-DECISION] {symbol} -> {segnale} via {reason} "
-                    f"(ema7={float(ema7):.6f} ema25={float(ema25):.6f} ema99={float(ema99):.6f} "
-                    f"rsi={float(rsi):.2f} macd={float(macd):.5f} sig={float(macd_signal):.5f} "
-                    f"d_rel={float(distanza_relativa):.5f})"
+                    f"(ema7={ema7:.6f} ema25={ema25:.6f} ema99={ema99:.6f} "
+                    f"rsi={rsi:.2f} macd={macd:.5f} sig={macd_signal:.5f} gap={macd_gap:.5f} "
+                    f"s7={slope7:.6f} s25={slope25:.6f} d_rel={distanza_relativa:.5f})"
                 )
 
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
