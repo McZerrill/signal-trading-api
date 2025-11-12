@@ -698,18 +698,71 @@ def hot_assets():
                 and (macd < macd_signal or abs(macd - macd_signal) < 0.01)
             )
 
+            # --- TRACE dettagliato: perché finisce in BUY/SELL negli hot ---
+            try:
+                tb = {  # scomposizione di trend_buy
+                    "recenti_rialzo(7>25>99,ultime3)": recenti_rialzo,
+                    "ema25>ema99": bool(ema25 > ema99),
+                    "rsi>50": bool(rsi > 50),
+                    "macd>signal": bool(macd > macd_signal),
+                }
+                ts = {  # scomposizione di trend_sell
+                    "recenti_ribasso(7<25<99,ultime3)": recenti_ribasso,
+                    "ema25<ema99": bool(ema25 < ema99),
+                    "rsi<50": bool(rsi < 50),
+                    "macd<signal": bool(macd < macd_signal),
+                }
+                pb = {  # scomposizione di presegnale_buy
+                    "cross7up25(now)": bool(ema7 > ema25),
+                    "cross7up25(prev<)": bool(df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2]),
+                    "ema25>ema99": bool(ema25 > ema99),
+                    "dist<1.5%": bool(distanza_relativa < 0.015),
+                    "rsi>50": bool(rsi > 50),
+                    "macd>signal": bool(macd > macd_signal),
+                }
+                ps = {  # scomposizione di presegnale_sell
+                    "cross7down25(now)": bool(ema7 < ema25),
+                    "cross7down25(prev>)": bool(df["EMA_7"].iloc[-2] > df["EMA_25"].iloc[-2]),
+                    "ema25<ema99": bool(ema25 < ema99),
+                    "dist<1.5%": bool(distanza_relativa < 0.015),
+                    "rsi<50": bool(rsi < 50),
+                    "macd<=signal": bool((macd < macd_signal) or abs(macd - macd_signal) < 0.01),
+                }
 
-            if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
-                segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
+                def _true_keys(d):  # mostra solo i sotto-requisiti veri
+                    return ",".join([k for k, v in d.items() if v])
 
-                # --- DEBUG: scelta segnale hotassets ---
                 logging.debug(
-                    f"[HOT] {symbol} segnale={segnale} | "
-                    f"trend_buy={trend_buy} trend_sell={trend_sell} pre_buy={presegnale_buy} pre_sell={presegnale_sell} | "
+                    f"[HOT-TRACE] {symbol} "
+                    f"trend_buy={trend_buy} [{_true_keys(tb)}] | "
+                    f"trend_sell={trend_sell} [{_true_keys(ts)}] | "
+                    f"pre_buy={presegnale_buy} [{_true_keys(pb)}] | "
+                    f"pre_sell={presegnale_sell} [{_true_keys(ps)}] | "
+                    f"d_rel={float(distanza_relativa):.5f} atr={float(atr):.6f} "
                     f"ema7={float(ema7):.6f} ema25={float(ema25):.6f} ema99={float(ema99):.6f} "
                     f"rsi={float(rsi):.2f} macd={float(macd):.5f} sig={float(macd_signal):.5f}"
                 )
-                
+            except Exception as _e_hot_trace:
+                logging.debug(f"[HOT-TRACE] {symbol} (trace fallito: {_e_hot_trace})")
+
+
+            
+            if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
+                segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
+
+                # --- DEBUG: scelta segnale hotassets (motivo chiaro) ---
+                reason = (
+                    "trend_buy" if trend_buy else
+                    ("presegnale_buy" if presegnale_buy else
+                     ("trend_sell" if trend_sell else "presegnale_sell"))
+                )
+                logging.info(
+                    f"[HOT-DECISION] {symbol} -> {segnale} via {reason} "
+                    f"(ema7={float(ema7):.6f} ema25={float(ema25):.6f} ema99={float(ema99):.6f} "
+                    f"rsi={float(rsi):.2f} macd={float(macd):.5f} sig={float(macd_signal):.5f} "
+                    f"d_rel={float(distanza_relativa):.5f})"
+                )
+
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
                 risultati.append({
                     "symbol": symbol,
@@ -722,6 +775,7 @@ def hot_assets():
                     "prezzo": round(prezzo, 4),
                     "candele_trend": candele_trend
                 })
+
         except Exception:
             continue
 
