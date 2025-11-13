@@ -362,6 +362,10 @@ def analyze(symbol: str):
 
         # quello che inviamo al frontend
         prezzo_out = prezzo_live if prezzo_live > 0 else close
+        logging.debug(
+            f"[RETURN] {symbol} → segnale={segnale}, prezzo_live={prezzo_live}, "
+            f"close15m={close}, prezzo_out={prezzo_out}"
+        )
 
         logging.debug(f"[OUT] {symbol} segnale={segnale} prezzo_out={prezzo_out} spread={spread:.4f}")
 
