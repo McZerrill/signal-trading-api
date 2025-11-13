@@ -789,47 +789,22 @@ def hot_assets():
             except Exception as _e_hot_trace:
                 logging.debug(f"[HOT-TRACE] {symbol} (trace fallito: {_e_hot_trace})")
 
+            # --- Decisione finale come prima (senza strict gating aggiuntivo) ---
+            if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
+                segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
 
-            
-            # --- Gating dinamico "strict" per evitare contro-trend ---
-            macd_gap = float(macd - macd_signal)
-
-            prezzo_sopra_ema7 = prezzo >= ema7
-            prezzo_sotto_ema7 = prezzo <= ema7
-            ema7_slope_up     = (slope7  if not pd.isna(slope7)  else 0.0) > 0
-            ema25_slope_up    = (slope25 if not pd.isna(slope25) else 0.0) > 0
-            ema7_slope_down   = (slope7  if not pd.isna(slope7)  else 0.0) < 0
-            ema25_slope_down  = (slope25 if not pd.isna(slope25) else 0.0) < 0
-
-            strict_buy_ok  = (
-                (trend_buy or presegnale_buy)
-                and prezzo_sopra_ema7
-                and ema7_slope_up and ema25_slope_up
-                and macd_gap >  macd_signal_threshold
-                and rsi > 50.0
-            )
-
-            strict_sell_ok = (
-                (trend_sell or presegnale_sell)
-                and prezzo_sotto_ema7
-                and ema7_slope_down and ema25_slope_down
-                and macd_gap < -macd_signal_threshold
-                and rsi < 50.0
-            )
-
-            if strict_buy_ok or strict_sell_ok:
-                segnale = "BUY" if strict_buy_ok else "SELL"
+                # motivo leggibile nei log
                 reason = (
-                    "trend_buy" if (strict_buy_ok and trend_buy) else
-                    ("presegnale_buy" if (strict_buy_ok and not trend_buy) else
-                     ("trend_sell" if (strict_sell_ok and trend_sell) else "presegnale_sell"))
+                    "trend_buy" if (segnale == "BUY" and trend_buy) else
+                    ("presegnale_buy" if (segnale == "BUY" and not trend_buy) else
+                     ("trend_sell" if (segnale == "SELL" and trend_sell) else "presegnale_sell"))
                 )
 
                 logging.info(
                     f"[HOT-DECISION] {symbol} -> {segnale} via {reason} "
-                    f"(ema7={ema7:.6f} ema25={ema25:.6f} ema99={ema99:.6f} "
-                    f"rsi={rsi:.2f} macd={macd:.5f} sig={macd_signal:.5f} gap={macd_gap:.5f} "
-                    f"s7={slope7:.6f} s25={slope25:.6f} d_rel={distanza_relativa:.5f})"
+                    f"(ema7={float(ema7):.6f} ema25={float(ema25):.6f} ema99={float(ema99):.6f} "
+                    f"rsi={float(rsi):.2f} macd={float(macd):.5f} sig={float(macd_signal):.5f} "
+                    f"d_rel={float(distanza_relativa):.5f})"
                 )
 
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
