@@ -196,6 +196,12 @@ def analyze(symbol: str):
                 f"{posizione['tipo']} @ {posizione['entry']}$"
             )
 
+            # prezzo live dal book usato per lo spread; fallback = entry
+            try:
+                prezzo_live = round((book["bid"] + book["ask"]) / 2, 4)
+            except Exception:
+                prezzo_live = float(posizione["entry"])
+
             # se l’analisi ha “annullato” il segnale → marca la simulazione e restituisci HOLD annotato
             if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
                 with _pos_lock:
@@ -207,7 +213,7 @@ def analyze(symbol: str):
                     symbol=symbol,
                     segnale="HOLD",
                     commento=note15,
-                    prezzo=posizione["entry"],
+                    prezzo=prezzo_live,
                     take_profit=posizione["tp"],
                     stop_loss=posizione["sl"],
                     rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
@@ -225,13 +231,12 @@ def analyze(symbol: str):
                 f"\u23f3 Simulazione già attiva su {symbol} — {_tipo_label} @ {posizione['entry']}$\n"
                 f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
             )
-            
-            # altrimenti ritorna lo stato della simulazione attiva
+
             return SignalResponse(
                 symbol=symbol,
                 segnale="HOLD",
                 commento=_commento_attivo,
-                prezzo=posizione["entry"],
+                prezzo=prezzo_live,
                 take_profit=posizione["tp"],
                 stop_loss=posizione["sl"],
                 rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
@@ -241,6 +246,7 @@ def analyze(symbol: str):
                 motivo=motivo_attuale,
                 chiusa_da_backend=posizione.get("chiusa_da_backend", False)
             )
+
 
         # 4) Estrai sempre i tecnici più recenti (anche se HOLD)
         try:
