@@ -6,17 +6,12 @@ import logging
 import pandas as pd
 # Thread di monitoraggio attivo ogni 5 secondi
 import threading
-from binance_api import get_binance_df, get_best_symbols, get_bid_ask, get_symbol_tick_step
+from binance_api import get_binance_df, get_best_symbols, get_bid_ask
 from trend_logic import analizza_trend, conta_candele_trend
 from indicators import calcola_rsi, calcola_macd, calcola_atr
 from models import SignalResponse
-# Patch canale: difesa trailing al bordo con momentum debole
-from trend_patches_all import channel_defense_adjust
-# Rilevamento canale 15m per la patch
-from patterns import detect_price_channel
 
 from top_mover_scanner import start_top_mover_scanner
-
 
 logging.basicConfig(
     filename="log.txt",
@@ -94,11 +89,9 @@ def analyze(symbol: str):
 
                         if trigger:
                             prezzo_notifica = close_tmp if close_tmp > 0 else round(float(u["close"]), 6)
-                            # direzione coerente: candela verde -> BUY, candela rossa -> SELL
-                            segnale_pump = "BUY" if float(u["close"]) >= float(u["open"]) else "SELL"
                             return SignalResponse(
                                 symbol=symbol,
-                                segnale=segnale_pump,
+                                segnale="BUY",
                                 commento="🚀 Listing/Vertical pump rilevato • ⚠️ Spread elevato: operazione ad altissimo rischio",
                                 prezzo=prezzo_notifica,
                                 take_profit=0.0,
@@ -170,23 +163,7 @@ def analyze(symbol: str):
         df_1d  = get_binance_df(symbol, "1d", 300)
         df_1m  = get_binance_df(symbol, "1m", 100)
 
-        segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
-            df_15m, spread, df_1m, symbol=symbol
-        )
-
-        # --- DEBUG: esito grezzo 15m ---
-        try:
-            _u15 = hist.iloc[-1]
-            logging.debug(
-                f"[DBG-15m] {symbol} segnale={segnale} | "
-                f"ema7={float(_u15['EMA_7']):.6f} ema25={float(_u15['EMA_25']):.6f} ema99={float(_u15['EMA_99']):.6f} | "
-                f"rsi={float(_u15['RSI']):.2f} macd={float(_u15['MACD']):.5f} sig={float(_u15['MACD_SIGNAL']):.5f} | "
-                f"distEMA={float(distanza_ema):.6f} tp={float(tp):.6f} sl={float(sl):.6f}"
-            )
-        except Exception as _e_dbg:
-            logging.debug(f"[DBG-15m] {symbol} (estrazione tecnici fallita: {_e_dbg})")
-
-
+        segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread, df_1m)
         note = note15.split("\n") if note15 else []
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
@@ -195,12 +172,6 @@ def analyze(symbol: str):
                 f"⏳ Simulazione già attiva su {symbol} – tipo: "
                 f"{posizione['tipo']} @ {posizione['entry']}$"
             )
-
-            # prezzo live dal book usato per lo spread; fallback = entry
-            try:
-                prezzo_live = round((book["bid"] + book["ask"]) / 2, 4)
-            except Exception:
-                prezzo_live = float(posizione["entry"])
 
             # se l’analisi ha “annullato” il segnale → marca la simulazione e restituisci HOLD annotato
             if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
@@ -213,7 +184,7 @@ def analyze(symbol: str):
                     symbol=symbol,
                     segnale="HOLD",
                     commento=note15,
-                    prezzo=prezzo_live,
+                    prezzo=posizione["entry"],
                     take_profit=posizione["tp"],
                     stop_loss=posizione["sl"],
                     rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
@@ -225,18 +196,14 @@ def analyze(symbol: str):
                 )
 
             # altrimenti ritorna lo stato della simulazione attiva
-            _tipo = posizione.get("tipo", "")
-            _tipo_label = "📈 Long" if _tipo == "BUY" else ("📉 Short" if _tipo == "SELL" else "—")
-            _commento_attivo = (
-                f"\u23f3 Simulazione già attiva su {symbol} — {_tipo_label} @ {posizione['entry']}$\n"
-                f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
-            )
-
             return SignalResponse(
                 symbol=symbol,
                 segnale="HOLD",
-                commento=_commento_attivo,
-                prezzo=prezzo_live,
+                commento=(
+                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
+                    f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
+                ),
+                prezzo=posizione["entry"],
                 take_profit=posizione["tp"],
                 stop_loss=posizione["sl"],
                 rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
@@ -246,7 +213,6 @@ def analyze(symbol: str):
                 motivo=motivo_attuale,
                 chiusa_da_backend=posizione.get("chiusa_da_backend", False)
             )
-
 
         # 4) Estrai sempre i tecnici più recenti (anche se HOLD)
         try:
@@ -266,28 +232,11 @@ def analyze(symbol: str):
         # 5) Logging timeframe e analisi di conferma
         logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
         logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
-        logging.debug(
-            f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, "
-            f"supporto={(0.0 if supporto is None else float(supporto)):.6f}"
-        )
+        logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
 
         # 1h: ok usare ancora analizza_trend come conferma "soft"
-        segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread, symbol=symbol)
-
-        # --- DEBUG: stato 1h prima della conferma EMA ---
-        try:
-            _u1h = hist_1h.iloc[-1]
-            _e7h, _e25h, _e99h = float(_u1h['EMA_7']), float(_u1h['EMA_25']), float(_u1h['EMA_99'])
-            _rsi1h = float(_u1h['RSI'])
-            _macd1h, _sig1h = float(_u1h['MACD']), float(_u1h['MACD_SIGNAL'])
-            logging.debug(
-                f"[DBG-1h] {symbol} segnale_1h={segnale_1h} | "
-                f"ema7={_e7h:.6f} ema25={_e25h:.6f} ema99={_e99h:.6f} | "
-                f"rsi={_rsi1h:.2f} macd={_macd1h:.5f} sig={_sig1h:.5f}"
-            )
-        except Exception as _e_dbg1h:
-            logging.debug(f"[DBG-1h] {symbol} (estrazione tecnici fallita: {_e_dbg1h})")
-
+        segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread)
+        logging.debug(f"[1h] {symbol} – Segnale: {segnale_1h}")
 
         # 1d: controllo RIGOROSO solo su EMA (niente recupero/RSI/MACD)
         try:
@@ -331,14 +280,11 @@ def analyze(symbol: str):
                     rsi_1h    = float(ultimo_1h['RSI'])
 
                     if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
-                        note.append("ℹ️ 1h non confermato, MACD/RSI coerenti (⬇️)")
+                        note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con SELL")
                     elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
-                        note.append("ℹ️ 1h non confermato, MACD/RSI coerenti (⬆️)")
-
+                        note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con BUY")
                     else:
-                        _dir = "rialzo (⬆️)" if segnale == "BUY" else ("ribasso (⬇️)" if segnale == "SELL" else "neutro")
-                        note.append(f"⚠️ Direzione non confermata su 1h: {_dir}")
-
+                        note.append(f"⚠️ {segnale} non confermato su 1h")
 
                     trend_1h = conta_candele_trend(hist_1h, rialzista=(segnale == "BUY"))
                     if trend_1h < 2:
@@ -360,14 +306,9 @@ def analyze(symbol: str):
                 if ok_daily:
                     note.append("📅 1d✓")
                 else:
-                    _daily_icon = "⬆️" if daily_state == "BUY" else ("⬇️" if daily_state == "SELL" else "•")
-                    note.append(f"⚠️ Daily in conflitto ({_daily_icon})")
-
+                    note.append(f"⚠️ Daily in conflitto ({daily_state})")
 
             logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
-            
-            tick_size, step_size = get_symbol_tick_step(symbol)
-
             with _pos_lock:
                 posizioni_attive[symbol] = {
                     "tipo": segnale,
@@ -375,8 +316,6 @@ def analyze(symbol: str):
                     "tp": tp,
                     "sl": sl,
                     "spread": spread,
-                    "tick_size": float(tick_size),
-                    "step_size": float(step_size),
                     "chiusa_da_backend": False,
                     "motivo": " | ".join(note)
                 }
@@ -405,41 +344,23 @@ def analyze(symbol: str):
         )
 
     except Exception as e:
-        # Stacktrace completo
-        logging.exception(f"❌ Errore durante /analyze per {symbol}")
-
-        # Valori sicuri se alcune variabili non sono state ancora definite
-        _safe_segnale = locals().get("segnale", "HOLD")
-        _safe_tp      = float(locals().get("tp", 0.0) or 0.0)
-        _safe_sl      = float(locals().get("sl", 0.0) or 0.0)
-        _safe_spread  = float(locals().get("spread", 0.0) or 0.0)
-        _safe_note15  = (locals().get("note15", "") or "").replace("\n", " | ")
-
-        # Prova a recuperare un prezzo di fallback per non lasciare 0.0 se evitabile
+        logging.error(f"❌ Errore durante /analyze per {symbol}: {e}")
         try:
-            df_15m_fb = get_binance_df(symbol, "15m", 50)
-            close_fb = round(float(df_15m_fb.iloc[-1]["close"]), 6) if not df_15m_fb.empty else 0.0
+            df_15m = get_binance_df(symbol, "15m", 50)
+            close = round(df_15m.iloc[-1]["close"], 6)
         except Exception as e2:
-            logging.warning(f"⚠️ Fallito anche il recupero prezzo fallback per {symbol}: {e2}")
-            close_fb = 0.0
+            logging.warning(f"⚠️ Fallito anche il recupero prezzo fallback: {e2}")
+            close = 0.0
 
-        # Log di ritorno robusto (non usa variabili non inizializzate)
-        logging.info(
-            f"[RETURN] {symbol} -> segnale={_safe_segnale} "
-            f"prezzo={close_fb:.6f} tp={_safe_tp:.6f} sl={_safe_sl:.6f} "
-            f"spread={_safe_spread:.4f}% | note={_safe_note15[:220]}"
-        )
-
-        # Risposta sicura verso il client
         return SignalResponse(
             symbol=symbol,
             segnale="HOLD",
             commento=(
                 f"Errore durante l'analisi di {symbol}.\n"
-                f"Tentativo di recupero prezzo: {'Riuscito' if close_fb > 0 else 'Fallito'}\n"
+                f"Tentativo di recupero prezzo: {'Riuscito' if close > 0 else 'Fallito'}\n"
                 f"Errore originale: {e}"
             ),
-            prezzo=close_fb,
+            prezzo=close,
             take_profit=0.0,
             stop_loss=0.0,
             rsi=0.0,
@@ -450,10 +371,11 @@ def analyze(symbol: str):
             ema25=0.0,
             ema99=0.0,
             timeframe="",
-            spread=_safe_spread,
+            spread=0.0,
             motivo="Errore interno",
             chiusa_da_backend=False
         )
+
         # <-- PAUSA -->
 
 # ===== Avvio scanner Top Movers (evita doppio avvio) =====
@@ -608,59 +530,21 @@ def hot_assets():
                 continue
 
 
-            df["EMA_7"]  = df["close"].ewm(span=7).mean()
+            df["EMA_7"] = df["close"].ewm(span=7).mean()
             df["EMA_25"] = df["close"].ewm(span=25).mean()
             df["EMA_99"] = df["close"].ewm(span=99).mean()
             df["RSI"] = calcola_rsi(df["close"])
             df["MACD"], df["MACD_SIGNAL"] = calcola_macd(df["close"])
             df["ATR"] = calcola_atr(df)
 
-            # --- Sanity: ordine, tipi, NaN ---
-            try:
-                if not df.index.is_monotonic_increasing:
-                    df = df.sort_index()
-
-                # forza numerici (evita oggetti/stringhe)
-                cols_num = ["open","high","low","close","EMA_7","EMA_25","EMA_99","RSI","MACD","MACD_SIGNAL","ATR"]
-                for c in cols_num:
-                    if c in df.columns:
-                        df[c] = pd.to_numeric(df[c], errors="coerce")
-                df = df.dropna(subset=["close","EMA_7","EMA_25","EMA_99"])
-            except Exception as _e_sanity:
-                logging.debug(f"[HOT-CHECK] {symbol} sanity guard exception: {_e_sanity}")
-
-            # --- Letture finali + slope per diagnosi ---
-            ema7 = float(df["EMA_7"].iloc[-1])
-            ema25 = float(df["EMA_25"].iloc[-1])
-            ema99 = float(df["EMA_99"].iloc[-1])
-            rsi = float(df["RSI"].iloc[-1])
-            macd = float(df["MACD"].iloc[-1])
-            macd_signal = float(df["MACD_SIGNAL"].iloc[-1])
-            atr = float(df["ATR"].iloc[-1]) if not pd.isna(df["ATR"].iloc[-1]) else 0.0
-            prezzo = float(df["close"].iloc[-1])
-
-            # slope su 3 candele (se disponibili)
-            def _slope(series, k=3):
-                try:
-                    return float(series.iloc[-1] - series.iloc[-1-k])
-                except Exception:
-                    return float("nan")
-
-            slope7  = _slope(df["EMA_7"], 3)
-            slope25 = _slope(df["EMA_25"], 3)
-            slopeRSI = _slope(df["RSI"], 2)
-
-            try:
-                ts_tail = list(df.index.astype(str)[-3:])
-                logging.debug(
-                    f"[HOT-CHECK] {symbol} ts_tail={ts_tail} "
-                    f"e7={ema7:.6f} e25={ema25:.6f} e99={ema99:.6f} "
-                    f"rsi={rsi:.2f} macd={macd:.5f}/{macd_signal:.5f} atr={atr:.6f} "
-                    f"slope(e7,3)={slope7:.6f} slope(e25,3)={slope25:.6f} slope(RSI,2)={slopeRSI:.2f}"
-                )
-            except Exception:
-                pass
-
+            ema7 = df["EMA_7"].iloc[-1]
+            ema25 = df["EMA_25"].iloc[-1]
+            ema99 = df["EMA_99"].iloc[-1]
+            rsi = df["RSI"].iloc[-1]
+            macd = df["MACD"].iloc[-1]
+            macd_signal = df["MACD_SIGNAL"].iloc[-1]
+            atr = df["ATR"].iloc[-1]
+            prezzo = df["close"].iloc[-1]
 
             if prezzo <= 0 or pd.isna(atr) or atr < atr_minimo:
                 _filtro_log["atr"] += 1
@@ -720,20 +604,16 @@ def hot_assets():
             recenti_rialzo = all(df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] > df["EMA_99"].iloc[-i] for i in range(1, 4))
             recenti_ribasso = all(df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] < df["EMA_99"].iloc[-i] for i in range(1, 4))
 
-            # richiedi coerenza di regime: BUY solo se 25>99, SELL solo se 25<99
-            trend_buy = recenti_rialzo and (ema25 > ema99) and rsi > 50 and macd > macd_signal
-            trend_sell = recenti_ribasso and (ema25 < ema99) and rsi < 50 and macd < macd_signal
+            trend_buy = recenti_rialzo and rsi > 50 and macd > macd_signal
+            trend_sell = recenti_ribasso and rsi < 50 and macd < macd_signal
 
+            # Permissivo per presegnali: MACD > signal o vicino
+            macd_ok = macd > macd_signal or abs(macd - macd_signal) < 0.01
 
-
-            # MACD deve essere davvero sopra il signal (niente tolleranza)
-            macd_ok = macd > macd_signal
-
-            # consenti i pre-segnali solo a favore del regime principale
             presegnale_buy = (
                 df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2]
                 and ema7 > ema25
-                and ema25 > ema99          # ← non più < ema99
+                and ema25 < ema99
                 and distanza_relativa < 0.015
                 and rsi > 50
                 and macd_ok
@@ -742,77 +622,14 @@ def hot_assets():
             presegnale_sell = (
                 df["EMA_7"].iloc[-2] > df["EMA_25"].iloc[-2]
                 and ema7 < ema25
-                and ema25 < ema99          # ← non più > ema99
+                and ema25 > ema99
                 and distanza_relativa < 0.015
                 and rsi < 50
                 and (macd < macd_signal or abs(macd - macd_signal) < 0.01)
             )
 
-            # --- TRACE dettagliato: perché finisce in BUY/SELL negli hot ---
-            try:
-                tb = {  # scomposizione di trend_buy
-                    "recenti_rialzo(7>25>99,ultime3)": recenti_rialzo,
-                    "ema25>ema99": bool(ema25 > ema99),
-                    "rsi>50": bool(rsi > 50),
-                    "macd>signal": bool(macd > macd_signal),
-                }
-                ts = {  # scomposizione di trend_sell
-                    "recenti_ribasso(7<25<99,ultime3)": recenti_ribasso,
-                    "ema25<ema99": bool(ema25 < ema99),
-                    "rsi<50": bool(rsi < 50),
-                    "macd<signal": bool(macd < macd_signal),
-                }
-                pb = {  # scomposizione di presegnale_buy
-                    "cross7up25(now)": bool(ema7 > ema25),
-                    "cross7up25(prev<)": bool(df["EMA_7"].iloc[-2] < df["EMA_25"].iloc[-2]),
-                    "ema25>ema99": bool(ema25 > ema99),
-                    "dist<1.5%": bool(distanza_relativa < 0.015),
-                    "rsi>50": bool(rsi > 50),
-                    "macd>signal": bool(macd > macd_signal),
-                }
-                ps = {  # scomposizione di presegnale_sell
-                    "cross7down25(now)": bool(ema7 < ema25),
-                    "cross7down25(prev>)": bool(df["EMA_7"].iloc[-2] > df["EMA_25"].iloc[-2]),
-                    "ema25<ema99": bool(ema25 < ema99),
-                    "dist<1.5%": bool(distanza_relativa < 0.015),
-                    "rsi<50": bool(rsi < 50),
-                    "macd<=signal": bool((macd < macd_signal) or abs(macd - macd_signal) < 0.01),
-                }
-
-                def _true_keys(d):  # mostra solo i sotto-requisiti veri
-                    return ",".join([k for k, v in d.items() if v])
-
-                logging.debug(
-                    f"[HOT-TRACE] {symbol} "
-                    f"trend_buy={trend_buy} [{_true_keys(tb)}] | "
-                    f"trend_sell={trend_sell} [{_true_keys(ts)}] | "
-                    f"pre_buy={presegnale_buy} [{_true_keys(pb)}] | "
-                    f"pre_sell={presegnale_sell} [{_true_keys(ps)}] | "
-                    f"d_rel={float(distanza_relativa):.5f} atr={float(atr):.6f} "
-                    f"ema7={float(ema7):.6f} ema25={float(ema25):.6f} ema99={float(ema99):.6f} "
-                    f"rsi={float(rsi):.2f} macd={float(macd):.5f} sig={float(macd_signal):.5f}"
-                )
-            except Exception as _e_hot_trace:
-                logging.debug(f"[HOT-TRACE] {symbol} (trace fallito: {_e_hot_trace})")
-
-            # --- Decisione finale come prima (senza strict gating aggiuntivo) ---
             if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
                 segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
-
-                # motivo leggibile nei log
-                reason = (
-                    "trend_buy" if (segnale == "BUY" and trend_buy) else
-                    ("presegnale_buy" if (segnale == "BUY" and not trend_buy) else
-                     ("trend_sell" if (segnale == "SELL" and trend_sell) else "presegnale_sell"))
-                )
-
-                logging.info(
-                    f"[HOT-DECISION] {symbol} -> {segnale} via {reason} "
-                    f"(ema7={float(ema7):.6f} ema25={float(ema25):.6f} ema99={float(ema99):.6f} "
-                    f"rsi={float(rsi):.2f} macd={float(macd):.5f} sig={float(macd_signal):.5f} "
-                    f"d_rel={float(distanza_relativa):.5f})"
-                )
-
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
                 risultati.append({
                     "symbol": symbol,
@@ -825,7 +642,6 @@ def hot_assets():
                     "prezzo": round(prezzo, 4),
                     "candele_trend": candele_trend
                 })
-
         except Exception:
             continue
 
@@ -889,45 +705,6 @@ def verifica_posizioni_attive():
                 ema7  = float(df["EMA_7"].iloc[-1])
                 ema25 = float(df["EMA_25"].iloc[-1])
                 dist_ema = abs(ema7 - ema25)
-
-                # --- Indicatori minimi per la patch (RSI/MACD hist) ---
-                try:
-                    # calcolo veloce solo sulle ultime barre necessarie
-                    df["RSI"] = calcola_rsi(df["close"])
-                    _macd, _macd_sig = calcola_macd(df["close"])
-                    macd_hist_15m = float(_macd.iloc[-1] - _macd_sig.iloc[-1])
-                    rsi_15m = float(df["RSI"].iloc[-1])
-                except Exception:
-                    macd_hist_15m, rsi_15m = None, None
-
-                # --- Canale 15m per patch (parametri allineati a trend_logic) ---
-                try:
-                    chan_15 = detect_price_channel(
-                        df, lookback=200, min_touches_side=2,
-                        parallel_tolerance=0.20, touch_tol_mult_atr=0.55,
-                        min_confidence=0.55, require_volume_for_breakout=True,
-                        breakout_vol_mult=1.30
-                    )
-                except Exception:
-                    chan_15 = {}
-
-                # --- Applica difesa canale: inietta eventuale 'trailing_tp_step' e nota ---
-                try:
-                    indicators = {
-                        "last_price": float(df["close"].iloc[-1]),
-                        "rsi_15m": rsi_15m,
-                        "macd_hist_15m": macd_hist_15m,
-                    }
-                    with _pos_lock:
-                        sim.setdefault("note_log", [])
-                        new_sim = channel_defense_adjust(sim, indicators=indicators, ch15=chan_15, log=sim["note_log"])
-                        if new_sim is not sim:
-                            posizioni_attive[symbol] = new_sim
-                            sim = new_sim
-                except Exception:
-                    pass
-
-
 
                 in_range = (EMA_DIST_MIN_PERC * c) <= dist_ema <= (EMA_DIST_MAX_PERC * c)
                 trend_ok = (
@@ -996,29 +773,16 @@ def verifica_posizioni_attive():
                         sim.setdefault("tp_esteso", 1)
                     if tipo == "BUY":
                         nuovo_tp = round(entry + distanza_entry * TP_TRAIL_FACTOR, 6)
-                        # extra stretta se la patch ha impostato trailing_tp_step (es. 0.003 = 0.3% prezzo)
-                        extra = float(sim.get("trailing_tp_step", 0.0) or 0.0)
-                        cause = ""
-                        if extra > 0:
-                            nuovo_tp = max(nuovo_tp, round(tp + float(df["close"].iloc[-1]) * extra, 6))
-                            cause = " (channel defense)"
                         if nuovo_tp > tp:
                             with _pos_lock:
                                 sim["tp"] = nuovo_tp
-                                sim["motivo"] = f"📈 TP aggiornato (trend 15m){cause}"
-
+                                sim["motivo"] = "📈 TP aggiornato (trend 15m)"
                     else:
                         nuovo_tp = round(entry - distanza_entry * TP_TRAIL_FACTOR, 6)
-                        extra = float(sim.get("trailing_tp_step", 0.0) or 0.0)
-                        cause = ""
-                        if extra > 0:
-                            nuovo_tp = min(nuovo_tp, round(tp - float(df["close"].iloc[-1]) * extra, 6))
-                            cause = " (channel defense)"
                         if nuovo_tp < tp:
                             with _pos_lock:
                                 sim["tp"] = nuovo_tp
-                                sim["motivo"] = f"📈 TP aggiornato (trend 15m){cause}"
-
+                                sim["motivo"] = "📈 TP aggiornato (trend 15m)"
 
                 # ===== messaggio di stato =====
                 if not trend_ok:
