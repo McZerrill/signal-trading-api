@@ -190,7 +190,11 @@ def analyze(symbol: str):
         if symbol in posizioni_attive:
             posizione = posizioni_attive[symbol]
 
-            prezzo_live = close  # 🔥 prezzo aggiornato dal 15m
+            # 🔥 Prezzo live reale dal book ticker (non il close!)
+            book = get_bid_ask(symbol)
+            bid = book.get("bid", 0)
+            ask = book.get("ask", 0)
+            prezzo_live = round((bid + ask) / 2, 6) if bid and ask else close
 
             logging.info(
                 f"⏳ Simulazione attiva su {symbol} – tipo: "
@@ -209,13 +213,13 @@ def analyze(symbol: str):
                     symbol=symbol,
                     segnale="HOLD",
                     commento=note15,
-                    prezzo=prezzo_live,         # ✅ prezzo aggiornato
+                    prezzo=prezzo_live,
                     take_profit=posizione["tp"],
                     stop_loss=posizione["sl"],
                     rsi=rsi, macd=macd, macd_signal=macd_signal, atr=atr,
                     ema7=ema7, ema25=ema25, ema99=ema99,
                     timeframe="15m",
-                    spread=spread,
+                    spread=book.get("spread", spread),
                     motivo=note15,
                     chiusa_da_backend=True
                 )
@@ -228,13 +232,13 @@ def analyze(symbol: str):
                     f"⏳ Simulazione attiva: {posizione['tipo']} @ {posizione['entry']}$\n"
                     f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
                 ),
-                prezzo=prezzo_live,        # ✅ sempre live
+                prezzo=prezzo_live,
                 take_profit=posizione["tp"],
                 stop_loss=posizione["sl"],
                 rsi=rsi, macd=macd, macd_signal=macd_signal, atr=atr,
                 ema7=ema7, ema25=ema25, ema99=ema99,
                 timeframe="15m",
-                spread=spread,
+                spread=book.get("spread", spread),
                 motivo=posizione.get("motivo", ""),
                 chiusa_da_backend=posizione.get("chiusa_da_backend", False)
             )
@@ -480,7 +484,7 @@ MODALITA_TEST = True
 def hot_assets():
     logging.debug(f"🔥 /hotassets chiamato - delta={time.time() - _hot_cache['time']:.1f}s")
     now = time.time()
-    if (now - _hot_cache["time"]) < 180:
+    if (now - _hot_cache["time"]) < 30:
         logging.debug(f"🟡 /hotassets → cache usata (età {now - _hot_cache['time']:.1f}s)")
         return _hot_cache["data"]
 
