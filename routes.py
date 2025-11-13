@@ -216,7 +216,7 @@ def analyze(symbol: str):
                 f"⏳ Simulazione attiva su {symbol} – tipo: "
                 f"{posizione['tipo']} @ {posizione['entry']}$ (live={prezzo_corrente})"
             )
-
+            logging.debug(f"[OUT-ACTIVE] {symbol} → prezzo_out={prezzo_corrente}")
             # Caso annullamento
             if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
                 with _pos_lock:
@@ -362,6 +362,8 @@ def analyze(symbol: str):
 
         # quello che inviamo al frontend
         prezzo_out = prezzo_live if prezzo_live > 0 else close
+
+        logging.debug(f"[OUT] {symbol} segnale={segnale} prezzo_out={prezzo_out} spread={spread:.4f}")
 
         return SignalResponse(
             symbol=symbol,
