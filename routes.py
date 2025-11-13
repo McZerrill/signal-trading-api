@@ -37,6 +37,7 @@ def read_root():
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     logging.debug(f"📩 Richiesta /analyze per {symbol.upper()}")
+    logging.debug(f"🔍 /analyze chiamato per {symbol} - {time.time()}")
 
     try:
         symbol = symbol.upper()
@@ -408,7 +409,7 @@ _ensure_scanner()
 
 @router.get("/price")
 def get_price(symbol: str):
-    
+    logging.debug(f"🔄 /price chiamato per {symbol} - timestamp={time.time()}")
     start = time.time()
     symbol = symbol.upper()
 
@@ -428,6 +429,7 @@ def get_price(symbol: str):
         elapsed = round(time.time() - start, 3)
         with _pos_lock:
             pos = posizioni_attive.get(symbol, {})       # <-- lookup una sola volta
+        logging.debug(f"📤 /price risposta per {symbol} in {elapsed}s - prezzo={prezzo}")
 
         return {
             "symbol": symbol,
@@ -466,8 +468,10 @@ MODALITA_TEST = True
 
 @router.get("/hotassets")
 def hot_assets():
+    logging.debug(f"🔥 /hotassets chiamato - delta={time.time() - _hot_cache['time']:.1f}s")
     now = time.time()
     if (now - _hot_cache["time"]) < 180:
+        logging.debug(f"🟡 /hotassets → cache usata (età {now - _hot_cache['time']:.1f}s)")
         return _hot_cache["data"]
 
     symbols = get_best_symbols(limit=120)
@@ -647,6 +651,7 @@ def hot_assets():
 
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
+    logging.debug(f"🆕 /hotassets ricalcolato → {len(risultati)} risultati salvati in cache")
     return risultati
 
 
@@ -666,6 +671,7 @@ TP_TRAIL_FACTOR        = 1.20     # TP = entry + (prezzo-entry)*1.20  (BUY); vic
 
 def verifica_posizioni_attive():
     while True:
+        logging.debug("🕒 Monitor 15m → ciclo iniziato")
         time.sleep(CHECK_INTERVAL_SEC)
 
         with _pos_lock:
