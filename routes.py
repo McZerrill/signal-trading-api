@@ -217,6 +217,7 @@ def analyze(symbol: str):
                 f"{posizione['tipo']} @ {posizione['entry']}$ (live={prezzo_corrente})"
             )
             logging.debug(f"[OUT-ACTIVE] {symbol} → prezzo_out={prezzo_corrente}")
+            
             # Caso annullamento
             if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
                 with _pos_lock:
@@ -229,7 +230,7 @@ def analyze(symbol: str):
                     symbol=symbol,
                     segnale="HOLD",
                     commento=note15,
-                    prezzo=prezzo_corrente,
+                    prezzo=prezzo_corrente,   # 👈 LIVE
                     take_profit=posizione["tp"],
                     stop_loss=posizione["sl"],
                     rsi=rsi, macd=macd, macd_signal=macd_signal, atr=atr,
@@ -248,7 +249,7 @@ def analyze(symbol: str):
                     f"⏳ Simulazione attiva: {posizione['tipo']} @ {posizione['entry']}$\n"
                     f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
                 ),
-                prezzo=prezzo_corrente,
+                prezzo=prezzo_corrente,      # 👈 LIVE
                 take_profit=posizione["tp"],
                 stop_loss=posizione["sl"],
                 rsi=rsi, macd=macd, macd_signal=macd_signal, atr=atr,
@@ -258,7 +259,6 @@ def analyze(symbol: str):
                 motivo=posizione.get("motivo", ""),
                 chiusa_da_backend=posizione.get("chiusa_da_backend", False)
             )
-
 
         # 5) Logging timeframe e analisi di conferma
         logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
