@@ -167,53 +167,7 @@ def analyze(symbol: str):
         segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread, df_1m)
         note = note15.split("\n") if note15 else []
 
-        # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
-        if posizione:
-            logging.info(
-                f"⏳ Simulazione già attiva su {symbol} – tipo: "
-                f"{posizione['tipo']} @ {posizione['entry']}$"
-            )
-
-            # se l’analisi ha “annullato” il segnale → marca la simulazione e restituisci HOLD annotato
-            if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
-                with _pos_lock:
-                    posizione["tipo"] = "HOLD"
-                    posizione["esito"] = "Annullata"
-                    posizione["chiusa_da_backend"] = True
-                    posizione["motivo"] = note15
-                return SignalResponse(
-                    symbol=symbol,
-                    segnale="HOLD",
-                    commento=note15,
-                    prezzo=posizione["entry"],
-                    take_profit=posizione["tp"],
-                    stop_loss=posizione["sl"],
-                    rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
-                    ema7=0.0, ema25=0.0, ema99=0.0,
-                    timeframe="15m",
-                    spread=posizione.get("spread", 0.0),
-                    motivo=note15,
-                    chiusa_da_backend=True
-                )
-
-            # altrimenti ritorna lo stato della simulazione attiva
-            return SignalResponse(
-                symbol=symbol,
-                segnale="HOLD",
-                commento=(
-                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
-                    f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
-                ),
-                prezzo=posizione["entry"],
-                take_profit=posizione["tp"],
-                stop_loss=posizione["sl"],
-                rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
-                ema7=0.0, ema25=0.0, ema99=0.0,
-                timeframe="15m",
-                spread=posizione.get("spread", 0.0),
-                motivo=motivo_attuale,
-                chiusa_da_backend=posizione.get("chiusa_da_backend", False)
-            )
+        
 
         # 4) Estrai sempre i tecnici più recenti (anche se HOLD)
         try:
@@ -229,6 +183,62 @@ def analyze(symbol: str):
         except Exception as e:
             logging.warning(f"⚠️ Errore nell’estrazione dei dati tecnici: {e}")
             close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
+
+
+
+        # 5) Gestione simulazione già attiva — con prezzo live
+        if symbol in posizioni_attive:
+            posizione = posizioni_attive[symbol]
+
+            prezzo_live = close  # 🔥 prezzo aggiornato dal 15m
+
+            logging.info(
+                f"⏳ Simulazione attiva su {symbol} – tipo: "
+                f"{posizione['tipo']} @ {posizione['entry']}$ (live={prezzo_live})"
+            )
+
+            # Caso annullamento
+            if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
+                with _pos_lock:
+                    posizione["tipo"] = "HOLD"
+                    posizione["esito"] = "Annullata"
+                    posizione["chiusa_da_backend"] = True
+                    posizione["motivo"] = note15
+
+                return SignalResponse(
+                    symbol=symbol,
+                    segnale="HOLD",
+                    commento=note15,
+                    prezzo=prezzo_live,         # ✅ prezzo aggiornato
+                    take_profit=posizione["tp"],
+                    stop_loss=posizione["sl"],
+                    rsi=rsi, macd=macd, macd_signal=macd_signal, atr=atr,
+                    ema7=ema7, ema25=ema25, ema99=ema99,
+                    timeframe="15m",
+                    spread=spread,
+                    motivo=note15,
+                    chiusa_da_backend=True
+                )
+
+            # Stato simulazione attiva
+            return SignalResponse(
+                symbol=symbol,
+                segnale="HOLD",
+                commento=(
+                    f"⏳ Simulazione attiva: {posizione['tipo']} @ {posizione['entry']}$\n"
+                    f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
+                ),
+                prezzo=prezzo_live,        # ✅ sempre live
+                take_profit=posizione["tp"],
+                stop_loss=posizione["sl"],
+                rsi=rsi, macd=macd, macd_signal=macd_signal, atr=atr,
+                ema7=ema7, ema25=ema25, ema99=ema99,
+                timeframe="15m",
+                spread=spread,
+                motivo=posizione.get("motivo", ""),
+                chiusa_da_backend=posizione.get("chiusa_da_backend", False)
+            )
+
 
         # 5) Logging timeframe e analisi di conferma
         logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
