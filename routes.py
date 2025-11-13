@@ -45,10 +45,29 @@ def analyze(symbol: str):
             posizione = posizioni_attive.get(symbol)
             motivo_attuale = (posizione or {}).get("motivo", "")
 
-        # 1) Spread PRIMA (early return se eccessivo)
-        book = get_bid_ask(symbol)
-        spread = book["spread"]
+        # 1) Spread + prezzo LIVE (stessa logica di /price)
+        prezzo_live = 0.0
+        try:
+            url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
+            response = requests.get(url, timeout=3)
+            data_b = response.json()
+
+            bid = float(data_b["bidPrice"])
+            ask = float(data_b["askPrice"])
+            if bid <= 0 or ask <= 0:
+                raise ValueError(f"Prezzo non valido: bid={bid}, ask={ask}")
+
+            spread = (ask - bid) / ((ask + bid) / 2) * 100
+            prezzo_live = round((bid + ask) / 2, 6)
+        except Exception as e:
+            logging.warning(f"⚠️ Errore bookTicker per {symbol}: {e}")
+            # fallback: usa ancora get_bid_ask per lo spread
+            book = get_bid_ask(symbol)
+            spread = book["spread"]
+
         logging.debug(f"[SPREAD] {symbol} – Spread attuale: {spread:.4f}%")
+
+        
         if spread > 5.0:
             try:
                 df_15m_tmp = get_binance_df(symbol, "15m", 50)
@@ -186,19 +205,16 @@ def analyze(symbol: str):
 
 
 
-        # 5) Gestione simulazione già attiva — con prezzo live
+        # 5) Gestione simulazione già attiva — con prezzo live reale
         if symbol in posizioni_attive:
             posizione = posizioni_attive[symbol]
 
-            # 🔥 Prezzo live reale dal book ticker (non il close!)
-            book = get_bid_ask(symbol)
-            bid = book.get("bid", 0)
-            ask = book.get("ask", 0)
-            prezzo_live = round((bid + ask) / 2, 6) if bid and ask else close
+            # Usa il prezzo LIVE dal bookTicker, se disponibile; altrimenti fallback sul close 15m
+            prezzo_corrente = prezzo_live if prezzo_live > 0 else close
 
             logging.info(
                 f"⏳ Simulazione attiva su {symbol} – tipo: "
-                f"{posizione['tipo']} @ {posizione['entry']}$ (live={prezzo_live})"
+                f"{posizione['tipo']} @ {posizione['entry']}$ (live={prezzo_corrente})"
             )
 
             # Caso annullamento
@@ -213,13 +229,13 @@ def analyze(symbol: str):
                     symbol=symbol,
                     segnale="HOLD",
                     commento=note15,
-                    prezzo=prezzo_live,
+                    prezzo=prezzo_corrente,
                     take_profit=posizione["tp"],
                     stop_loss=posizione["sl"],
                     rsi=rsi, macd=macd, macd_signal=macd_signal, atr=atr,
                     ema7=ema7, ema25=ema25, ema99=ema99,
                     timeframe="15m",
-                    spread=book.get("spread", spread),
+                    spread=spread,
                     motivo=note15,
                     chiusa_da_backend=True
                 )
@@ -232,13 +248,13 @@ def analyze(symbol: str):
                     f"⏳ Simulazione attiva: {posizione['tipo']} @ {posizione['entry']}$\n"
                     f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
                 ),
-                prezzo=prezzo_live,
+                prezzo=prezzo_corrente,
                 take_profit=posizione["tp"],
                 stop_loss=posizione["sl"],
                 rsi=rsi, macd=macd, macd_signal=macd_signal, atr=atr,
                 ema7=ema7, ema25=ema25, ema99=ema99,
                 timeframe="15m",
-                spread=book.get("spread", spread),
+                spread=spread,
                 motivo=posizione.get("motivo", ""),
                 chiusa_da_backend=posizione.get("chiusa_da_backend", False)
             )
@@ -338,11 +354,20 @@ def analyze(symbol: str):
 
         commento = "\n".join(note) if note else "Nessuna nota"
 
+        # 🔥 prezzo live reale (non solo close 15m)
+        book = get_bid_ask(symbol)
+        bid = book.get("bid", 0)
+        ask = book.get("ask", 0)
+        prezzo_live = round((bid + ask) / 2, 6) if bid and ask else close
+
+        # quello che inviamo al frontend
+        prezzo_out = prezzo_live if prezzo_live > 0 else close
+
         return SignalResponse(
             symbol=symbol,
             segnale=segnale,
             commento=commento,
-            prezzo=close,
+            prezzo=prezzo_out,      # <-- ORA È LIVE
             take_profit=tp,
             stop_loss=sl,
             rsi=rsi,
@@ -357,6 +382,7 @@ def analyze(symbol: str):
             motivo=" | ".join(note),
             chiusa_da_backend=False
         )
+
 
     except Exception as e:
         logging.error(f"❌ Errore durante /analyze per {symbol}: {e}")
