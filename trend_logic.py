@@ -11,33 +11,20 @@ from indicators import (
     calcola_supporto,
     calcola_ema,
 )
-
 import logging
-
-from trend_patches_all import (
-    compute_ema_slopes,
-    post_fusion_pipeline,
-    hysteresis_adjust,
-    channel_defense_adjust,
-)
-from binance_api import get_symbol_tick_step
-
 
 # -----------------------------------------------------------------------------
 # Costanti di configurazione
 # -----------------------------------------------------------------------------
 MODALITA_TEST = True
-# Mostrare note tecniche [STRUCT]/[FLAT] nell'output? (di default NO)
-SHOW_TECH_NOTES = False
-
-SOGLIA_PUNTEGGIO = 1
+SOGLIA_PUNTEGGIO = 2
 DISATTIVA_CHECK_EMA_1M = True
-SOLO_BUY = False
+SOLO_BUY = True
 
 
 # --- Override BUY da pattern strutturali ---
-CONF_MIN_PATTERN = 0.55        # confidenza minima del pattern per l'override
-VOL_MULT_TRIANGLE = 1.20       # volume > 1.3x media per override triangolo
+CONF_MIN_PATTERN = 0.60        # confidenza minima del pattern per l'override
+VOL_MULT_TRIANGLE = 1.30       # volume > 1.3x media per override triangolo
 PATTERN_SOFT_BOOST_DB  = 0.03  # +3% * conf su prob_fusa se doppio minimo
 PATTERN_SOFT_BOOST_TRI = 0.02  # +2% * conf su prob_fusa se triangolo
 
@@ -50,26 +37,26 @@ _PARAMS_TEST = {
     "volume_basso": 0.7,
     "volume_molto_basso": 0.4,
 
-    "atr_minimo": 0.0002,
+    "atr_minimo": 0.0003,
     "atr_buono": 0.001,
     "atr_basso": 0.0005,
     "atr_troppo_basso": 0.0001,
     "atr_troppo_alto": 0.01,
 
-    "distanza_minima": 0.0006,
-    "distanza_bassa": 0.00025,
-    "distanza_media": 0.0007,
+    "distanza_minima": 0.0008,
+    "distanza_bassa": 0.0003,
+    "distanza_media": 0.0008,
     "distanza_alta": 0.0015,
 
-    "macd_rsi_range": (44, 56),
-    "macd_signal_threshold": 0.0001,  # assoluta
+    "macd_rsi_range": (45, 55),
+    "macd_signal_threshold": 0.00015,  # assoluta
     "macd_gap_forte": 0.0005,
     "macd_gap_debole": 0.0002,
-    "macd_gap_rel_forte": 0.0007,  
+    "macd_gap_rel_forte": 0.0006,  
     "macd_gap_rel_debole": 0.00025,
 
-    "rsi_buy_forte": 50,
-    "rsi_buy_debole": 48,
+    "rsi_buy_forte": 52,
+    "rsi_buy_debole": 50,
     "rsi_sell_forte": 42,
     "rsi_sell_debole": 46,
 
@@ -547,8 +534,7 @@ def calcola_probabilita_successo(
     tp=None,
     sl=None,
     escursione_media=None,
-    supporto=None,
-    resistenza=None,
+    supporto=None
 ):
     punteggio = 0
 
@@ -656,12 +642,6 @@ def calcola_probabilita_successo(
                 if distanza_supporto < 0.005:
                     punteggio -= 5
 
-            # (NUOVO) solo BUY: resistenza vicina
-            if segnale == "BUY" and resistenza is not None:
-                distanza_resistenza = _frac_of_close(abs(resistenza - close), close)
-                if distanza_resistenza < 0.005:
-                    punteggio -= 5
-
             # e. Rischio/Rendimento sfavorevole
             if tp and sl:
                 rischio = abs(close - sl)
@@ -682,28 +662,15 @@ def calcola_probabilita_successo(
 # -----------------------------------------------------------------------------
 # Funzione principale: analizza_trend
 # -----------------------------------------------------------------------------
-def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None, sistema: str = "EMA", symbol: str | None = None):
+def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None, sistema: str = "EMA"):
 
     logging.debug("🔍 Inizio analisi trend")
-
-    tick_size, step_size = (0.0001, 0.0001)
-    try:
-        if symbol:
-            tick_size, step_size = get_symbol_tick_step(symbol)
-    except Exception as e:
-        logging.warning(f"[TICK] Fallback 0.0001 per {symbol}: {e}")
-    logging.debug(f"[TICK] {symbol} tick_size={tick_size} step_size={step_size}")
-
-
-    
     hist = hist.copy()  
     if "volume" not in hist.columns:
         hist["volume"] = 0.0
 
     pump_flag = False
     pump_msg  = None
-   
-    
     if len(hist) < 22:
         try:
             ultimo = hist.iloc[-1]
@@ -756,9 +723,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     except Exception as e:
         logging.error(f"❌ Errore nell'accesso ai dati finali: {e}")
         return "HOLD", hist, 0.0, "Errore su iloc finali", 0.0, 0.0, 0.0
-
-    # Valuta il dump solo quando hai i dati dell’ultima candela
-    is_dump = bool(pump_flag and (float(ultimo["close"]) < float(ultimo["open"])))
 
 
     volume_attuale = hist["volume"].iloc[-1]
@@ -847,34 +811,26 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # ------------------------------------------------------------------
     # Breakout
     # ------------------------------------------------------------------
-    breakout_up_valid = False
-    breakout_down_valid = False
+    breakout_valido = False
     corpo_candela = abs(ultimo["close"] - ultimo["open"])
 
     if close > massimo_20 and volume_attuale > volume_medio * 1.5:
         note.append("💥 Breakout↑ con Volume Alto")
         if corpo_candela > atr:
             note.append("🚀 Spike↑ con Breakout")
-            breakout_up_valid = True
+            breakout_valido = True
     elif close < minimo_20 and volume_attuale > volume_medio * 1.5:
         note.append("💥 Breakout↓ con Volume Alto")
         if corpo_candela > atr:
             note.append("🚨 Spike↓ con Breakout")
-            breakout_down_valid = True
+            breakout_valido = True
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout? Vol↓")
 
-    # ✅ Promuovi il quick pump/dump a breakout nella direzione della candela
-    if pump_flag and not (breakout_up_valid or breakout_down_valid):
-        if float(ultimo["close"]) >= float(ultimo["open"]):
-            breakout_up_valid = True
-        else:
-            breakout_down_valid = True
+    # ✅ Promuovi il quick pump a breakout
+    if pump_flag and not breakout_valido:
+        breakout_valido = True
         punteggio_trend += 1
-
-    # mantieni il booleano aggregato usato nel resto del codice
-    breakout_valido = breakout_up_valid or breakout_down_valid
-
 
     # ------------------------------------------------------------------
     # Rilevamento Pump Verticale
@@ -929,9 +885,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     # --- Canale di prezzo (15m + validazione 1h) ---
     # ------------------------------------------------------------------
     channel_prob_adj = 0.0   # verrà applicato più avanti, dopo il calcolo di prob_fusa
-    gate_buy_canale  = False  # blocca BUY contro canale 1h discendente forte
-    gate_sell_canale = False  # blocca SELL contro canale 1h ascendente forte
-
+    gate_buy_canale  = False  # opzionale: blocca BUY contro canale 1h discendente forte
 
     try:
         chan_15 = detect_price_channel(
@@ -973,36 +927,22 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             strong_1h = c1h >= 0.65
 
             if t1h == "ascending" and strong_1h:
-                # 1h forte rialzista → piccolo boost neutro; per SELL valuteremo un gate
-                channel_prob_adj = channel_prob_adj + 0.02 * c1h
-                # Se stai cercando una SELL contro un 1h↑ forte (e non è breakout down né pump) → gate
-                if (segnale == "SELL"
-                    and not (chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "down")
-                    and not pump_flag):
-                    gate_sell_canale = True
-
+                channel_prob_adj = +0.02 * c1h  # piccolo boost per BUY coerenti
             elif t1h == "descending" and strong_1h:
-                # 1h forte ribassista → piccolo malus neutro; per BUY valuti già il gate
-                channel_prob_adj = channel_prob_adj - 0.02 * c1h
-                if (segnale == "BUY"
-                    and not (chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "up")
-                    and not pump_flag):
-                    gate_buy_canale = True
-
+                channel_prob_adj = -0.02 * c1h  # malus su BUY
+                if SOLO_BUY and not (chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "up") and not pump_flag:
+                    gate_buy_canale = True      # opzionale: blocca BUY contro-trend 1h
 
         # Notifica compatta su un rigo (icona, freccia, %, 1 parola operativa)
         # di default usiamo la sintesi 15m
         riga_canale = sintetizza_canale(chan_15, solo_buy=SOLO_BUY)
 
-        
-        # Simmetria: se 1h è ascendente forte e stai guardando SELL
-        if chan_1h.get("found") and chan_1h.get("type") == "ascending" and float(chan_1h.get("confidence",0)) >= 0.65:
+        # se 1h è discendente forte, forziamo l’operatività a una parola più prudente
+        if chan_1h.get("found") and chan_1h.get("type") == "descending" and float(chan_1h.get("confidence",0)) >= 0.65:
             freccia = {"ascending":"↑","descending":"↓","sideways":"↔︎"}.get(chan_15.get("type",""), "•")
             conf15  = int(round(float(chan_15.get("confidence",0)*100)))
-            # Se stai operando SELL, suggerisci prudenza
-            op_word = "Evita"  # prudenza contro 1h↑ forte
+            op_word = "Evita" if SOLO_BUY else "Vendi"
             riga_canale = f"🛤️ Canale {freccia} {conf15}% • {op_word}"
-
 
         if riga_canale:
             note.append(riga_canale)
@@ -1079,11 +1019,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         cond_base = False
         pattern_buy_override = False
 
-    # consenti operatività se c’è breakout o dump anche con distanza bassa
-    if not (distanza_ok or breakout_valido or pump_flag):
+    # Se distanza EMA insufficiente, disattiva tutto
+    if not distanza_ok and not pump_flag:
         cond_base = False
         pattern_buy_override = False
-
 
 
     # ------------------------------------------------------------------
@@ -1103,14 +1042,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if cond_base:
         if sistema in ("DB","TRI") and pattern_buy_override:
             segnale = "BUY"
-            logging.info(
-                f"[TREND-DECISION] {symbol} -> {segnale} | "
-                f"RSI={rsi:.2f} MACD={macd:.5f}/{macd_signal:.5f} "
-                f"EMA7={ema7:.6f} EMA25={ema25:.6f} EMA99={ema99:.6f} "
-                f"punteggio={punteggio_trend} "
-                f"note={' ; '.join(note[-3:])}"
-            )
-
             note.append("✅ BUY per Pattern override" + (" (Double Bottom)" if sistema=="DB" else " (Ascending Triangle)"))
         elif sistema == "EMA":
             durata_trend = candele_reali_up
@@ -1123,56 +1054,30 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 and punteggio_trend >= SOGLIA_PUNTEGGIO
                 and rsi_in_crescita
             ):
-                # Richiedi coerenza dinamica: EMA25 deve essere in salita
-                if ema25 <= penultimo["EMA_25"]:
-                    note.append("⚠️ EMA25 non ancora in salita → prudenza BUY")
+                # consenti anche trend lunghi se breakout/pump
+                LIM_MATURITA = 10
+                if durata_trend >= LIM_MATURITA and not (breakout_valido or pump_flag):
+                    note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
                 else:
-                    # consenti anche trend lunghi se breakout/pump
-                    LIM_MATURITA = 10
-                    if durata_trend >= LIM_MATURITA and not (breakout_valido or pump_flag):
-                        note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
-                    else:
-                        segnale = "BUY"
-                        logging.info(
-                            f"[TREND-DECISION] {symbol} -> {segnale} | "
-                            f"RSI={rsi:.2f} MACD={macd:.5f}/{macd_signal:.5f} "
-                            f"EMA7={ema7:.6f} EMA25={ema25:.6f} EMA99={ema99:.6f} "
-                            f"punteggio={punteggio_trend} "
-                            f"note={' ; '.join(note[-3:])}"
-                        )
-
-                        note.append("✅ BUY confermato")
-
+                    segnale = "BUY"
+                    note.append("✅ BUY confermato")
 
             elif (
                 rsi >= _p("rsi_buy_debole")
                 and macd_buy_debole
                 and rsi_in_crescita
             ):
-                # Nota di prudenza se la EMA25 non sta salendo (non blocca il segnale)
-                if ema25 <= penultimo["EMA_25"]:
-                    note.append("⚠️ EMA25 non in salita → prudenza sul BUY moderato")
-
                 if punteggio_trend >= SOGLIA_PUNTEGGIO + 1 and durata_trend <= 12:
                     segnale = "BUY"
-                    logging.info(
-                        f"[TREND-DECISION] {symbol} -> {segnale} | "
-                        f"RSI={rsi:.2f} MACD={macd:.5f}/{macd_signal:.5f} "
-                        f"EMA7={ema7:.6f} EMA25={ema25:.6f} EMA99={ema99:.6f} "
-                        f"punteggio={punteggio_trend} "
-                        f"note={' ; '.join(note[-3:])}"
-                    )
-
                     note.append("✅ BUY confermato Moderato")
                 else:
                     note.append("🤔 Segnale↑ Debole")
 
 
-
     # ------------------------------------------------------------------
     # SELL logic (con RSI in calo integrato)
     # ------------------------------------------------------------------
-    if not SOLO_BUY and (trend_down or recupero_sell or breakout_down_valid or is_dump) and (distanza_ok or is_dump or breakout_down_valid):
+    if not SOLO_BUY and (trend_down or recupero_sell) and distanza_ok:
         durata_trend = candele_reali_down
         rsi_in_calo = (rsi < penultimo["RSI"] < antepenultimo["RSI"])
 
@@ -1182,31 +1087,22 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             and punteggio_trend <= -SOGLIA_PUNTEGGIO
             and rsi_in_calo
         ):
-            # Richiedi coerenza dinamica: EMA25 deve essere in discesa
-            if ema25 >= penultimo["EMA_25"]:
-                note.append("⚠️ EMA25 non ancora in discesa → prudenza SELL")
-            elif durata_trend >= 15:
+            if durata_trend >= 15:
                 note.append(f"⛔ Trend↓ Maturo ({durata_trend} candele)")
             else:
                 segnale = "SELL"
                 note.append("✅ SELL confermato")
-
 
         elif (
             rsi <= _p("rsi_sell_debole")
             and macd_sell_debole
             and rsi_in_calo
         ):
-            # Nota di prudenza se la EMA25 non è ancora in discesa
-            if ema25 >= penultimo["EMA_25"]:
-                note.append("⚠️ EMA25 non in discesa → prudenza sul SELL moderato")
-
             if punteggio_trend <= -SOGLIA_PUNTEGGIO - 2 and durata_trend <= 10:
                 segnale = "SELL"
                 note.append("✅ SELL confermato Moderato")
             else:
                 note.append("🤔 Segnale↓ Debole")
-
 
     # ------------------------------------------------------------------
     # Nessun segnale valido
@@ -1287,8 +1183,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 distanza_ema=distanza_ema, atr=atr, close=close,
                 accelerazione=accelerazione, segnale=segnale,
                 hist=hist, tp=tp, sl=sl, supporto=supporto,
-                escursione_media=escursione_media,
-                resistenza=massimo_20
+                escursione_media=escursione_media
             )
             note.append(f"📊 Prob. successo stimata: {probabilita}%")
     except Exception as e:
@@ -1324,19 +1219,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             if f"✅ Pattern: {pattern}" not in note:
                 note.append(f"✅ Pattern: {pattern}")
 
-        # BOOST per pattern candlestick coerenti
+        # esempi di aggiustamenti leggeri (solo BUY perché i due pattern sono bullish)
         if segnale == "BUY":
             if pattern in ("Three White Soldiers", "🟩 Three White Soldiers"):
-                prob_fusa = min(1.0, prob_fusa + 0.03)
+                prob_fusa = min(1.0, prob_fusa + 0.03)   # +3% affidabilità
             elif pattern in ("Bullish Harami", "🤰 Bullish Harami"):
-                prob_fusa = min(1.0, prob_fusa + 0.02)
-
-        elif segnale == "SELL":
-            if pattern in ("🌠 Shooting Star", "🔃 Bearish Engulfing"):
-                prob_fusa = min(1.0, prob_fusa + 0.03)
-            elif pattern in ("Bearish Harami", "🤰 Bearish Harami (bear)"):
-                prob_fusa = min(1.0, prob_fusa + 0.02)
-
+                prob_fusa = min(1.0, prob_fusa + 0.02)   # +2% affidabilità
 
         # Soft boost su prob_fusa per canale trend
 
@@ -1344,126 +1232,28 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         CHANNEL_SOFT_BOOST_BO = 0.015  # extra se breakout del canale
 
         if chan_15.get('found'):
-            # Boost per BUY su canale rialzista o laterale
             if segnale == "BUY" and chan_15.get("type") in ("ascending", "sideways"):
                 prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST * chan_15["confidence"])
                 if chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "up":
                     prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST_BO * chan_15["confidence"])
 
-            # Boost speculare per SELL su canale discendente o laterale
-            elif segnale == "SELL" and chan_15.get("type") in ("descending", "sideways"):
-                prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST * chan_15["confidence"])
-                if chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "down":
-                    prob_fusa = min(1.0, prob_fusa + CHANNEL_SOFT_BOOST_BO * chan_15["confidence"])
-
         
 
-        # applica piccolo boost/malus dal multi-TF del canale (già lo fai sopra)
+        # applica piccolo boost/malus dal multi-TF del canale
         prob_fusa = max(0.0, min(1.0, prob_fusa + channel_prob_adj))
-
-        # 🎯 Adjust 1h dipendente dal segnale (micro spinta coerente)
-        if chan_1h.get("found"):
-            t1h = chan_1h.get("type", "")
-            c1h = float(chan_1h.get("confidence", 0.0))
-            adj = 0.0
-
-            if segnale == "BUY":
-                if t1h == "ascending":
-                    adj = +0.02 * c1h   # spinta a favore
-                elif t1h == "descending":
-                    adj = -0.02 * c1h   # freno
-            elif segnale == "SELL":
-                if t1h == "descending":
-                    adj = +0.02 * c1h   # spinta a favore
-                elif t1h == "ascending":
-                    adj = -0.02 * c1h   # freno
-
-            prob_fusa = max(0.0, min(1.0, prob_fusa + adj))
-
-        # --- PATCH opzionale: rifinitura post-fusione, separando i log tecnici ---
-        try:
-            ema_slopes = compute_ema_slopes(hist, lookback=6)
-            atr_pct    = _safe_div(atr, _safe_close(close))
-            vol_ratio  = _safe_div(volume_attuale, volume_medio) if volume_medio else 1.0
-
-            # Pattern strutturali 15m per la pipeline
-            patt_15m = None
-            if sistema == "DB" and p_db.get("found"):
-                patt_15m = {
-                    "found": True,
-                    "name": "double_bottom",
-                    "confidence": float(p_db.get("confidence", 0.0)),
-                    "neckline_confirmed": bool(p_db.get("neckline_confirmed") or p_db.get("neckline_breakout"))
-                }
-            elif sistema == "TRI" and p_tri.get("found"):
-                patt_15m = {
-                    "found": True,
-                    "name": "ascending_triangle",
-                    "confidence": float(p_tri.get("confidence", 0.0)),
-                    "breakout_confirmed": bool(p_tri.get("breakout_confirmed"))
-                }
-
-            patt_1h = None
-
-            # 🔧 usa un contenitore separato per i log tecnici
-            tech_log: list[str] = []
-
-            prob_fusa = post_fusion_pipeline(
-                prob_fusa=prob_fusa,
-                segnale=segnale,
-                chan_15=chan_15,
-                chan_1h=chan_1h,
-                patt_15m=patt_15m,
-                patt_1h=patt_1h,
-                atr_pct=atr_pct,
-                vol_ratio=vol_ratio,
-                ema_slopes=ema_slopes,
-                log=tech_log,       # 👈 ora usa tech_log, non note
-            )
-
-            # scrive i dettagli tecnici solo nel file di log
-            if tech_log:
-                logging.debug("[TECH] " + " | ".join(tech_log))
-
-            # se vuoi riattivarli in output, metti SHOW_TECH_NOTES = True in cima al file
-            if SHOW_TECH_NOTES:
-                note.extend(tech_log)
-
-        except Exception as _e_patch:
-            logging.debug(f"[PATCH] post_fusion_pipeline skipped: {_e_patch}")
-
-        # ✅ Gate 1h DOPO aver deciso il segnale (ora segnale è BUY/SELL reale)
-        if chan_1h.get("found") and not pump_flag:
-            t1h = chan_1h.get("type", "")
-            c1h = float(chan_1h.get("confidence", 0.0))
-            strong_1h = c1h >= 0.65
-
-            # Blocca BUY contro 1h discendente forte
-            if segnale == "BUY" and strong_1h and t1h == "descending":
-                note.append("⛔ Gate multi-TF: canale 1h discendente forte")
-                return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
-
-            # Blocca SELL contro 1h ascendente forte
-            if segnale == "SELL" and strong_1h and t1h == "ascending":
-                note.append("⛔ Gate multi-TF: canale 1h ascendente forte")
-                return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
-
-
+        if gate_buy_canale and segnale == "BUY" and not pump_flag:
+            note.append("⛔ Gate multi-TF: canale 1h discendente forte")
+            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
         # ... boost pattern, boost canale, eventuale boost pump ...
         note.append(f"🧪 Affidabilità: {round(prob_fusa*100)}%")
 
 
         # Gate di entrata coerente con prob_fusa
-        P_ENTER = 0.55 if (breakout_valido or pump_flag) else 0.58
-        # leggero allentamento per SELL, per non mascherare short “ovvi”
-        if segnale == "SELL":
-            P_ENTER = 0.53 if (breakout_valido or pump_flag) else 0.56
-
+        P_ENTER = 0.55 if (breakout_valido or pump_flag) else 0.62
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
-
 
         # TP/SL proporzionale alla probabilità fusa
         ATR_MIN_FRAC = 0.004
@@ -1471,8 +1261,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         SL_BASE, SL_SPAN = 1.00, 0.40  # SL = 1.0x..0.6x ATR
         RR_MIN = 1.2
         DELTA_MINIMO = 0.1
-        TICK = tick_size or 0.0001
-
+        TICK = 0.0001  # TODO: sostituire con tick_size reale del symbol (passalo da fuori se puoi)
 
         atr_eff = atr if atr and atr > 0 else close_s * ATR_MIN_FRAC
 
@@ -1604,19 +1393,4 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     note = list(dict.fromkeys(note))  # Elimina duplicati
     note.sort(key=priorita)
 
-    if segnale in ["BUY", "SELL"] and not any("✅" in n for n in note):
-        note.append("✅ Segnale operativo rilevato (condizioni minime)")
-
-    # --- Filtro di sicurezza: rimuove le note tecniche dall'output se disattivate ---
-    if not SHOW_TECH_NOTES:
-        note = [n for n in note if not (n.startswith("[STRUCT]") or n.startswith("[FLAT]"))]
-        
-    # 🔎 LOG DIAGNOSTICO FINALE
-    try:
-        _head = note[0] if note else "-"
-        logging.debug(f"[ANALISI-FINALE] {symbol or '?'} → segnale={segnale} | tp={tp:.6f} | sl={sl:.6f} | distEMA={distanza_ema:.6f}")
-        logging.debug(f"[ANALISI-FINALE] pump={pump_flag} breakout={breakout_valido} | first_note={_head}")
-    except Exception as _e_diag:
-        logging.debug(f"[ANALISI-FINALE] diag error: {_e_diag}")
-        
     return segnale, hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
