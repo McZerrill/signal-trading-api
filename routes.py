@@ -66,28 +66,42 @@ def analyze(symbol: str):
             posizione = posizioni_attive.get(symbol)
             motivo_attuale = (posizione or {}).get("motivo", "")
 
-        # 1) Spread + prezzo LIVE (stessa logica di /price, ma con fallback)
+        # ===== PREZZO LIVE + SPREAD SICURO =====
+        prezzo_live = 0.0
+        spread = 0.0
+
+        # 1) Primo tentativo: bookTicker Binance (più preciso)
         try:
             url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
-            response = requests.get(url, timeout=3)
-            data_b = response.json()
-
+            data_b = requests.get(url, timeout=2).json()
             bid = float(data_b["bidPrice"])
             ask = float(data_b["askPrice"])
-            if bid <= 0 or ask <= 0:
-                raise ValueError(f"Prezzo non valido: bid={bid}, ask={ask}")
-
-            spread = (ask - bid) / ((ask + bid) / 2) * 100
-            prezzo_live = round((bid + ask) / 2, 6)
-        except Exception as e:
-            logging.warning(f"⚠️ Errore bookTicker per {symbol}: {e}")
-            # fallback: usa get_bid_ask per spread e, se possibile, anche per il prezzo
-            book = get_bid_ask(symbol)
-            spread = book.get("spread", 0.0)
-            bid = book.get("bid", 0.0)
-            ask = book.get("ask", 0.0)
-            if bid and ask:
+            if bid > 0 and ask > 0:
                 prezzo_live = round((bid + ask) / 2, 6)
+                spread = (ask - bid) / ((ask + bid) / 2) * 100
+            else:
+                raise ValueError("Book zero")
+        except:
+            # 2) Secondo tentativo: get_bid_ask interno
+            try:
+                book = get_bid_ask(symbol)
+                bid = float(book.get("bid", 0))
+                ask = float(book.get("ask", 0))
+                spread = float(book.get("spread", 0.0))
+
+                if bid > 0 and ask > 0:
+                    prezzo_live = round((bid + ask) / 2, 6)
+                else:
+                    raise ValueError("Bid/ask zero")
+            except:
+                # 3) Fallback SICURO: close dell’ultima 1m, MAI 15m
+                try:
+                    df_1m = get_binance_df(symbol, "1m", 2)
+                    prezzo_live = round(float(df_1m["close"].iloc[-1]), 6)
+                except:
+                    prezzo_live = 0.0   # ultimo fallback
+        # ============================================
+
 
         logging.debug(f"[SPREAD] {symbol} – Spread attuale: {spread:.4f}%, prezzo_live={prezzo_live}")
 
@@ -393,7 +407,7 @@ def analyze(symbol: str):
         commento = "\n".join(note) if note else "Nessuna nota"
 
         # 🔥 prezzo di uscita: sempre LIVE se disponibile, altrimenti close 15m
-        prezzo_out = prezzo_live if prezzo_live > 0 else close
+        prezzo_out = prezzo_live
 
         logging.debug(
             f"📤 /analyze OUT {symbol} "
@@ -572,18 +586,29 @@ def hot_assets():
             if df.empty:
                 continue
 
-            # ===== PREZZO LIVE DAL BOOK =====
+            # ===== PREZZO LIVE AFFIDABILE =====
             try:
                 book = get_bid_ask(symbol)
                 bid = float(book.get("bid", 0) or 0)
                 ask = float(book.get("ask", 0) or 0)
+
                 if bid > 0 and ask > 0:
                     prezzo_live = round((bid + ask) / 2, 6)
                 else:
-                    prezzo_live = round(float(df["close"].iloc[-1]), 6)
+                    # fallback SICURO su 1m (non 15m)
+                    try:
+                        df_1m = get_binance_df(symbol, "1m", 2)
+                        prezzo_live = round(float(df_1m["close"].iloc[-1]), 6)
+                    except:
+                        prezzo_live = round(float(df["close"].iloc[-1]), 6)  # ultimissimo fallback
             except Exception:
-                prezzo_live = round(float(df["close"].iloc[-1]), 6)
+                try:
+                    df_1m = get_binance_df(symbol, "1m", 2)
+                    prezzo_live = round(float(df_1m["close"].iloc[-1]), 6)
+                except:
+                    prezzo_live = round(float(df["close"].iloc[-1]), 6)
             # ====================================
+
 
             # --- Fast-path per LISTING PUMP anche con storico corto (<40 barre) ---
             if len(df) >= 2 and len(df) < 40:
