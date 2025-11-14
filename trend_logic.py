@@ -19,7 +19,12 @@ import logging
 MODALITA_TEST = True
 SOGLIA_PUNTEGGIO = 2
 DISATTIVA_CHECK_EMA_1M = True
-SOLO_BUY = True
+SOLO_BUY = False  # ⬅️ (2) SELL abilitati per i test
+
+# -------------------------------------------------------------------------
+# STRATEGIA GLOBALE DEL BACKEND (EMA / DB / TRI)
+# -------------------------------------------------------------------------
+STRATEGIA = "EMA"   # ⬅️ (1) Cambia qui: "EMA", "DB" oppure "TRI"
 
 
 # --- Override BUY da pattern strutturali ---
@@ -37,7 +42,7 @@ _PARAMS_TEST = {
     "volume_basso": 0.7,
     "volume_molto_basso": 0.4,
 
-    "atr_minimo": 0.0003,
+    "atr_minimo": 0.0005,       # ⬅️ (9) ATR minimo più realistico in test
     "atr_buono": 0.001,
     "atr_basso": 0.0005,
     "atr_troppo_basso": 0.0001,
@@ -112,7 +117,7 @@ def _resample_ohlcv(df: pd.DataFrame, rule: str = "1H") -> pd.DataFrame:
     _df = _df.dropna(subset=["open","high","low","close"])
 
     out = (
-        _df.resample(rule, label="right", closed="right")
+        _df.resample(rule, label="left", closed="left")  # ⬅️ (12) Allineamento stile Binance/TV
            .agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum"})
            .dropna()
     )
@@ -210,13 +215,33 @@ def trend_score_description(score: int) -> str:
 
 
 def pattern_contrario(segnale: str, pattern: str) -> bool:
-    return (
-        segnale == "BUY"
-        and pattern
-        and any(p in pattern for p in ["Shooting Star", "Bearish Engulfing"])
-    ) or (
-        segnale == "SELL" and pattern and "Hammer" in pattern
-    )
+    """(10+11) Pattern candela contrario alla direzione del segnale."""
+    if not pattern:
+        return False
+
+    # Normalizza (togli emoji, lascia le parole chiave)
+    # In pratica: lavoriamo per "substring" sui nomi noti.
+    bearish_keys = [
+        "Shooting Star",
+        "Bearish Engulfing",
+        "Evening Star",
+        "Dark Cloud",
+        "Hanging Man",
+        "Bearish Harami",
+    ]
+    bullish_keys = [
+        "Hammer",
+        "Bullish Engulfing",
+        "Bullish Harami",
+        "Three White Soldiers",
+    ]
+
+    if segnale == "BUY":
+        return any(k in pattern for k in bearish_keys)
+    if segnale == "SELL":
+        return any(k in pattern for k in bullish_keys)
+    return False
+
 
 def sintetizza_canale(chan: dict, solo_buy: bool = True) -> str:
     """
@@ -681,12 +706,18 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             range_c = ultimo["high"] - ultimo["low"]
             body_frac = _safe_div(corpo, max(range_c, 1e-9))
             range_rel = _frac_of_close(range_c, close_s)
-            vol_ok = (volume_attuale >= _p("volume_soglia")) if not MODALITA_TEST else (volume_attuale > 0)
+
+            # (7) Quick pump meno aggressivo in test: serve volume decente e range più ampio
+            vol_ok = (
+                volume_attuale >= _p("volume_soglia")
+                if not MODALITA_TEST
+                else volume_attuale >= _p("volume_soglia") * 0.5
+            )
 
             cond_quick_pump = (
                 (ultimo["close"] > ultimo["open"])
                 and (body_frac >= 0.85)
-                and (range_rel >= 0.02)
+                and (range_rel >= 0.04)  # prima 0.02 → più selettivo
                 and vol_ok
             )
 
@@ -706,7 +737,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     hist = enrich_indicators(hist)
 
-    sistema = (sistema or "EMA").upper()
+    # (1) Strategia globale: ignora eventuale parametro esterno
+    sistema = (STRATEGIA or "EMA").upper()
     if sistema not in {"EMA", "DB", "TRI"}:
         sistema = "EMA"
 
@@ -745,7 +777,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if pd.isna(escursione_media) or escursione_media <= 0:
         escursione_media = max(
             (hist["high"] - hist["low"]).tail(3).mean(),
-            atr,          # <-- era float(atr) if pd.notna(atr) else 0.0
+            atr,
             1e-9,
         )
 
@@ -791,7 +823,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         note.append("⚠️ ATR Basso: poco volatile")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-    # ⬇️ aggiungi `and not pump_flag` anche qui
     if volume_attuale < _p("volume_soglia") and not MODALITA_TEST and not pump_flag:
         note.append(f"⚠️ Volume Basso: {volume_attuale:.0f} < soglia minima {_p('volume_soglia')}")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
@@ -860,8 +891,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         wick_ratio = _safe_div(upper_wick + lower_wick, max(range_candela, 1e-9))
         body_frac  = _safe_div(corpo_candela,           max(range_candela, 1e-9))
 
-        atr_eff = atr if atr > 0 else max(escursione_media, close_s * 0.003) #ultima aggiunta
-        cond_range = range_candela > RANGE_ATR * atr_eff #ultima aggiunta
+        atr_eff = atr if atr > 0 else max(escursione_media, close_s * 0.003)
+        cond_range = range_candela > RANGE_ATR * atr_eff
       
         cond_corpo    = corpo_candela > BODY_MULT * max(corpo_ref, 1e-9)
         cond_volume   = volume_attuale > VOL_MULT * max(volume_ref, 1e-9)
@@ -927,9 +958,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             strong_1h = c1h >= 0.65
 
             if t1h == "ascending" and strong_1h:
-                channel_prob_adj = +0.02 * c1h  # piccolo boost per BUY coerenti
+                channel_prob_adj = +0.01 * c1h  # ⬅️ (6) effetto più morbido
             elif t1h == "descending" and strong_1h:
-                channel_prob_adj = -0.02 * c1h  # malus su BUY
+                channel_prob_adj = -0.01 * c1h  # ⬅️ (6) effetto più morbido
                 if SOLO_BUY and not (chan_15.get("breakout_confirmed") and chan_15.get("breakout_side") == "up") and not pump_flag:
                     gate_buy_canale = True      # opzionale: blocca BUY contro-trend 1h
 
@@ -981,13 +1012,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     
 
-    # Gating robusto (usato sia per mostrare la nota sia per l'override)
+    # (7+B) Gating robusto pattern + contesto tecnico
     pattern_db_ok = (
         p_db.get("found")
         and p_db.get("confidence", 0) >= CONF_MIN_PATTERN
         and _pattern_recent(p_db, max_age=40)
         and p_db.get("neckline_confirmed", p_db.get("neckline_breakout", False))
         and (macd_gap > 0) and (rsi > 50)
+        and (trend_up or recupero_buy or breakout_valido or pump_flag)
     )
 
     pattern_tri_ok = (
@@ -996,6 +1028,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         and _pattern_recent(p_tri, max_age=40)
         and p_tri.get("breakout_confirmed", False)
         and (volume_attuale > volume_medio * VOL_MULT_TRIANGLE)
+        and (trend_up or recupero_buy or breakout_valido or pump_flag)
     )
 
 
@@ -1104,15 +1137,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             else:
                 note.append("🤔 Segnale↓ Debole")
 
-    # ------------------------------------------------------------------
-    # Nessun segnale valido
-    # ------------------------------------------------------------------
-    #if segnale == "HOLD" and not any([trend_up, trend_down]):
-        #note.append("🔎 Nessun segnale valido rilevato: condizioni insufficienti")
 
-
-    # Pattern V rapido
-    if sistema == "EMA" and segnale == "HOLD" and rileva_pattern_v(hist):
+    # Pattern V rapido → solo se il trend è coerente (5)
+    if (
+        sistema == "EMA"
+        and segnale == "HOLD"
+        and (trend_up or recupero_buy)
+        and rsi > 45
+        and rileva_pattern_v(hist)
+    ):
         segnale = "BUY"
         tp = round(close + atr * 1.5, 4)
         sl = round(close - atr, 4)
@@ -1157,6 +1190,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     soglia_macd = _p("macd_signal_threshold")
     if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < soglia_macd:
         note.append(f"⚠️ RSI ({rsi:.1f}) e MACD neutri (gap={macd_gap:.5f}): probabilità ridotta")
+        note.append("⛔ Segnale annullato per RSI/MACD neutri")  # (8)
+        return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
         
 
     # Controllo facoltativo EMA 1m
@@ -1245,12 +1280,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             note.append("⛔ Gate multi-TF: canale 1h discendente forte")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
-        # ... boost pattern, boost canale, eventuale boost pump ...
         note.append(f"🧪 Affidabilità: {round(prob_fusa*100)}%")
 
 
-        # Gate di entrata coerente con prob_fusa
-        P_ENTER = 0.55 if (breakout_valido or pump_flag) else 0.62
+        # (3) Gate di entrata coerente con prob_fusa
+        P_ENTER = 0.45 if (breakout_valido or pump_flag) else 0.50
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
@@ -1307,7 +1341,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         # (timeframe 15m => 0.25h per candela)
         T_TARGET_MIN_H = 0.7          # evita target troppo vicino
         T_TARGET_MAX_H = 6.0          # oltre è poco efficiente
-        T_HARD_CAP_H   = 12.0         # veto se troppo lungo
+        T_HARD_CAP_H   = 12.0         # oltre è poco efficiente ma NON blocchiamo più il segnale
         MAX_TP_SPAN_ATR = 3.0         # non allargare TP oltre 3x ATR
 
         distanza_tp = abs(tp_raw - close)
@@ -1335,10 +1369,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             else:
                 note.append("⚠️ TP non ridotto: RR sarebbe < minimo")
 
-        # Se ancora troppo lento, veto hard
+        # Se ancora molto lungo, segnala solo warning, ma NON annulla il segnale
         if ore_max > T_HARD_CAP_H:
-            note.append(f"⛔ Tempo TP lungo: {ore_min}–{ore_max}h (cap {T_HARD_CAP_H}h)")
-            return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+            note.append(f"⚠️ Tempo TP lungo: {ore_min}–{ore_max}h (cap {T_HARD_CAP_H}h)")
 
         # Se troppo veloce, allarga TP (entro un limite) preservando RR
         if ore_min < T_TARGET_MIN_H:
