@@ -28,7 +28,7 @@ STRATEGIA = "EMA"   # ⬅️ (1) Cambia qui: "EMA", "DB" oppure "TRI"
 
 
 # --- Override BUY da pattern strutturali ---
-CONF_MIN_PATTERN = 0.60        # confidenza minima del pattern per l'override
+CONF_MIN_PATTERN = 0.45        # confidenza minima del pattern per l'override
 VOL_MULT_TRIANGLE = 1.30       # volume > 1.3x media per override triangolo
 PATTERN_SOFT_BOOST_DB  = 0.03  # +3% * conf su prob_fusa se doppio minimo
 PATTERN_SOFT_BOOST_TRI = 0.02  # +2% * conf su prob_fusa se triangolo
@@ -1290,7 +1290,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
         # TP/SL proporzionale alla probabilità fusa
-        ATR_MIN_FRAC = 0.004
+        ATR_MIN_FRAC = 0.003
         TP_BASE, TP_SPAN = 0.8, 0.8     # TP = 0.8x..0.8x ATR
         SL_BASE, SL_SPAN = 2.0, 0.40  # SL = 2.0x..0.4x ATR
         RR_MIN = 1.2
