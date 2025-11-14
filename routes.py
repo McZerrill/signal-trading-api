@@ -550,7 +550,10 @@ MODALITA_TEST = True
 def hot_assets():
     logging.debug(f"🔥 /hotassets chiamato - delta={time.time() - _hot_cache['time']:.1f}s")
     now = time.time()
-    if (now - _hot_cache["time"]) < 30:
+
+    # TTL cache accorciato a 5s per avere stato quasi real-time in ALL
+    HOT_TTL_SEC = 5.0
+    if (now - _hot_cache["time"]) < HOT_TTL_SEC:
         logging.debug(f"🟡 /hotassets → cache usata (età {now - _hot_cache['time']:.1f}s)")
         return _hot_cache["data"]
 
@@ -606,6 +609,7 @@ def hot_assets():
                     trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
                     risultati.append({
                         "symbol": symbol,
+                        "tipo": "HOLD",                      # asset caldo in osservazione
                         "segnali": 1,
                         "trend": trend_pump,
                         "rsi": None,
@@ -669,6 +673,7 @@ def hot_assets():
                 candele_trend = conta_candele_trend(df, rialzista=(trend_pump == "BUY"))
                 risultati.append({
                     "symbol": symbol,
+                    "tipo": "HOLD",
                     "segnali": 1,
                     "trend": trend_pump,
                     "rsi": round(float(rsi), 2),
@@ -730,13 +735,14 @@ def hot_assets():
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
                 risultati.append({
                     "symbol": symbol,
+                    "tipo": "HOLD",
                     "segnali": 1,
-                    "trend": segnale,
+                    "trend": segnale,                    # direzione del movimento
                     "rsi": round(float(rsi), 2),
                     "ema7": round(float(ema7), 2),
                     "ema25": round(float(ema25), 2),
                     "ema99": round(float(ema99), 2),
-                    "prezzo": prezzo_live,
+                    "prezzo": prezzo_live,               # quasi-live dal book
                     "candele_trend": candele_trend
                 })
         except Exception:
