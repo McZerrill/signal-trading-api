@@ -30,6 +30,22 @@ utc = dt_timezone.utc
 posizioni_attive = {}
 _pos_lock = threading.Lock()
 
+# Limite massimo di simulazioni contemporanee
+MAX_SIM_ATTIVE = 10
+
+def _conta_sim_attive() -> int:
+    """
+    Conta quante simulazioni sono ancora aperte.
+    Se usi il flag 'chiusa_da_backend', consideriamo attive solo quelle con False.
+    Se non c'è il flag, contiamo tutto.
+    """
+    return sum(
+        1
+        for v in posizioni_attive.values()
+        if not v.get("chiusa_da_backend", False)
+    )
+
+
 @router.get("/")
 def read_root():
     return {"status": "API Segnali di Borsa attiva"}
@@ -867,8 +883,20 @@ monitor_thread.start()
 
     
 @router.get("/simulazioni_attive")
-def simulazioni_attive():
+def get_simulazioni_attive():
+    """
+    Ritorna SOLO le simulazioni ancora aperte.
+    Le chiuse rimangono in memoria solo per la sessione corrente,
+    ma NON vengono esposte all'app.
+    """
     with _pos_lock:
-        return dict(posizioni_attive)
+        aperte = {
+            sym: dati
+            for sym, dati in posizioni_attive.items()
+            if not dati.get("chiusa_da_backend", False)
+        }
+        logging.debug(f"[SIM] /simulazioni_attive → {len(aperte)} aperte")
+        return aperte
+
 
 __all__ = ["router"]
