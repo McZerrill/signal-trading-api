@@ -36,14 +36,15 @@ MAX_SIM_ATTIVE = 10
 def _conta_sim_attive() -> int:
     """
     Conta quante simulazioni sono ancora aperte.
-    Se usi il flag 'chiusa_da_backend', consideriamo attive solo quelle con False.
-    Se non c'è il flag, contiamo tutto.
+    (usa il lock per evitare race con il thread di monitoraggio)
     """
-    return sum(
-        1
-        for v in posizioni_attive.values()
-        if not v.get("chiusa_da_backend", False)
-    )
+    with _pos_lock:
+        return sum(
+            1
+            for v in posizioni_attive.values()
+            if not v.get("chiusa_da_backend", False)
+        )
+
 
 
 @router.get("/")
@@ -343,29 +344,48 @@ def analyze(symbol: str):
 
 
 
-        # 7) Note 1d e possibile apertura simulazione
+        # 7) Note 1d e possibile apertura simulazione (con limite max 10)
         if segnale in ["BUY", "SELL"]:
-            if daily_state == "NA":
-                note.append("📅 1d - Check fallito")  # dati non disponibili / check fallito
-            else:
-                ok_daily = (segnale == "BUY" and daily_state == "BUY") or \
-                   (segnale == "SELL" and daily_state == "SELL")
-                if ok_daily:
-                    note.append("📅 1d✓")
-                else:
-                    note.append(f"⚠️ Daily in conflitto ({daily_state})")
-
-            logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
+            # 7.1 – controlla se ESISTE già una simulazione aperta per questo symbol
             with _pos_lock:
-                posizioni_attive[symbol] = {
-                    "tipo": segnale,
-                    "entry": close,
-                    "tp": tp,
-                    "sl": sl,
-                    "spread": spread,
-                    "chiusa_da_backend": False,
-                    "motivo": " | ".join(note)
-                }
+                sim_esistente = posizioni_attive.get(symbol)
+            gia_attiva = bool(sim_esistente and not sim_esistente.get("chiusa_da_backend", False))
+
+            # 7.2 – se NON esiste già e siamo oltre il limite → non aprire nuove simulazioni
+            if not gia_attiva:
+                sim_attive = _conta_sim_attive()
+                if sim_attive >= MAX_SIM_ATTIVE:
+                    note.append(f"⛔ Limite massimo di simulazioni attive raggiunto ({MAX_SIM_ATTIVE}).")
+                    note.append("Nuovo segnale non avviato: chiudi una simulazione esistente per liberare spazio.")
+                    # NON apriamo nuova simulazione: il segnale verso l'app diventa HOLD
+                    segnale = "HOLD"
+
+            # Se dopo il controllo il segnale è ancora BUY/SELL, possiamo aprire/aggiornare la simulazione
+            if segnale in ["BUY", "SELL"]:
+                if daily_state == "NA":
+                    note.append("📅 1d - Check fallito")  # dati non disponibili / check fallito
+                else:
+                    ok_daily = (segnale == "BUY" and daily_state == "BUY") or \
+                               (segnale == "SELL" and daily_state == "SELL")
+                    if ok_daily:
+                        note.append("📅 1d✓")
+                    else:
+                        note.append(f"⚠️ Daily in conflitto ({daily_state})")
+
+                logging.info(
+                    f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – "
+                    f"TP: {tp}, SL: {sl}, spread: {spread:.2f}%"
+                )
+                with _pos_lock:
+                    posizioni_attive[symbol] = {
+                        "tipo": segnale,
+                        "entry": close,
+                        "tp": tp,
+                        "sl": sl,
+                        "spread": spread,
+                        "chiusa_da_backend": False,
+                        "motivo": " | ".join(note)
+                    }
 
 
         commento = "\n".join(note) if note else "Nessuna nota"
@@ -897,6 +917,20 @@ def get_simulazioni_attive():
         }
         logging.debug(f"[SIM] /simulazioni_attive → {len(aperte)} aperte")
         return aperte
+
+@router.post("/reset_simulazioni")
+def reset_simulazioni():
+    """
+    Cancella TUTTE le simulazioni dal server.
+    Da chiamare quando:
+      - l'utente chiude l'app
+      - l'utente disattiva il tracking / la scheda SIM
+    """
+    with _pos_lock:
+        posizioni_attive.clear()
+
+    logging.info("♻️ Reset completo delle simulazioni attive richiesto dal client")
+    return {"status": "ok", "msg": "Tutte le simulazioni sono state cancellate"}
 
 
 __all__ = ["router"]
