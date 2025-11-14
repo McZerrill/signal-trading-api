@@ -46,8 +46,18 @@ def analyze(symbol: str):
 
         # 1) Spread PRIMA (early return se eccessivo)
         book = get_bid_ask(symbol)
+        bid = float(book.get("bid", 0.0))
+        ask = float(book.get("ask", 0.0))
         spread = book["spread"]
-        logging.debug(f"[SPREAD] {symbol} – Spread attuale: {spread:.4f}%")
+
+        # Prezzo live (mid tra bid e ask) per allineare l'app a Binance
+        prezzo_live = round(((bid + ask) / 2), 6) if bid > 0 and ask > 0 else 0.0
+
+        logging.debug(
+            f"[SPREAD] {symbol} – Spread attuale: {spread:.4f}% | "
+            f"bid={bid:.6f} ask={ask:.6f} mid={prezzo_live:.6f}"
+        )
+        
         if spread > 5.0:
             try:
                 df_15m_tmp = get_binance_df(symbol, "15m", 50)
@@ -229,6 +239,12 @@ def analyze(symbol: str):
             logging.warning(f"⚠️ Errore nell’estrazione dei dati tecnici: {e}")
             close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
 
+        # Prezzo da esporre all'app:
+        # – se disponibile, usa il mid live bid/ask
+        # – altrimenti fallback al close 15m
+        prezzo_output = round(prezzo_live, 4) if "prezzo_live" in locals() and prezzo_live > 0 else close
+
+
         # 5) Logging timeframe e analisi di conferma
         logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
         logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
@@ -327,7 +343,7 @@ def analyze(symbol: str):
             symbol=symbol,
             segnale=segnale,
             commento=commento,
-            prezzo=close,
+            prezzo=prezzo_output,
             take_profit=tp,
             stop_loss=sl,
             rsi=rsi,
