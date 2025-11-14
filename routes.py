@@ -271,44 +271,67 @@ def analyze(symbol: str):
             daily_state = "NA"  # neutro
 
 
-        # 6) Conferma 1h
-        # Prima: conferma "strutturale" solo-EMA su 1h (più aderente a quello che vedi sul grafico)
+        # 6) Conferma / descrizione 1h
+        # ---------------------------------------------
         try:
             e7h  = float(hist_1h["EMA_7"].iloc[-1])
             e25h = float(hist_1h["EMA_25"].iloc[-1])
             e99h = float(hist_1h["EMA_99"].iloc[-1])
-            ema_confirm = (segnale == "BUY"  and e7h > e25h > e99h) or \
-                  (segnale == "SELL" and e7h < e25h < e99h)
+
+            trend_up_1h   = e7h > e25h > e99h
+            trend_down_1h = e7h < e25h < e99h
         except Exception as e:
             logging.warning(f"⚠️ Errore EMA 1h: {e}")
-            ema_confirm = False
+            trend_up_1h = trend_down_1h = False
 
-        if ema_confirm:
-            note.append("🧭 1h✓ (EMA)")
-        else:
-            # Se le EMA non confermano, usa la conferma 'soft' con analizza_trend su 1h
-            if segnale != segnale_1h:
-                logging.info(f"🧭 {symbol} – 1h NON conferma {segnale} (1h = {segnale_1h})")
-                try:
-                    ultimo_1h = hist_1h.iloc[-1]
-                    macd_1h   = float(ultimo_1h['MACD'])
-                    signal_1h = float(ultimo_1h['MACD_SIGNAL'])
-                    rsi_1h    = float(ultimo_1h['RSI'])
+        # Caso BUY/SELL → vera conferma multi-timeframe
+        if segnale in ("BUY", "SELL"):
+            ema_confirm = (
+                (segnale == "BUY"  and trend_up_1h) or
+                (segnale == "SELL" and trend_down_1h)
+            )
 
-                    if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
-                        note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con SELL")
-                    elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
-                        note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con BUY")
-                    else:
-                        note.append(f"⚠️ {segnale} non confermato su 1h")
-
-                    trend_1h = conta_candele_trend(hist_1h, rialzista=(segnale == "BUY"))
-                    if trend_1h < 2:
-                        note.append(f"⚠️ Trend su 1h debole ({trend_1h} candele)")
-                except Exception as e:
-                    logging.warning(f"⚠️ Errore dati 1h: {e}")
+            if ema_confirm:
+                note.append("🧭 1h✓ (EMA)")
             else:
-                note.append("🧭 1h✓")
+                # Se le EMA non confermano, usa la conferma 'soft' con analizza_trend su 1h
+                if segnale != segnale_1h:
+                    logging.info(f"🧭 {symbol} – 1h NON conferma {segnale} (1h = {segnale_1h})")
+                    try:
+                        ultimo_1h = hist_1h.iloc[-1]
+                        macd_1h   = float(ultimo_1h['MACD'])
+                        signal_1h = float(ultimo_1h['MACD_SIGNAL'])
+                        rsi_1h    = float(ultimo_1h['RSI'])
+
+                        if segnale == "SELL" and macd_1h < 0 and (macd_1h - signal_1h) < 0.005 and rsi_1h < 45:
+                            note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con SELL")
+                        elif segnale == "BUY" and macd_1h > 0 and (macd_1h - signal_1h) > -0.005 and rsi_1h > 50:
+                            note.append("ℹ️ 1h non confermato, ma MACD/RSI coerenti con BUY")
+                        else:
+                            note.append(f"⚠️ {segnale} non confermato su 1h")
+
+                        # qui il conteggio è coerente col tipo di segnale
+                        trend_1h = conta_candele_trend(hist_1h, rialzista=(segnale == "BUY"))
+                        if trend_1h < 2:
+                            note.append(f"⚠️ Trend su 1h debole ({trend_1h} candele)")
+                    except Exception as e:
+                        logging.warning(f"⚠️ Errore dati 1h: {e}")
+                else:
+                    note.append("🧭 1h✓")
+
+        # Caso HOLD → non chiediamo "conferma", ma descriviamo onestamente l'1h
+        else:  # segnale == "HOLD"
+            try:
+                if trend_up_1h:
+                    c_up = conta_candele_trend(hist_1h, rialzista=True)
+                    note.append(f"📡 1h rialzista ({c_up} candele)")
+                elif trend_down_1h:
+                    c_down = conta_candele_trend(hist_1h, rialzista=False)
+                    note.append(f"📡 1h ribassista ({c_down} candele)")
+                else:
+                    note.append("📡 1h laterale / incerto")
+            except Exception as e:
+                logging.warning(f"⚠️ Errore descrizione trend 1h: {e}")
 
 
 
