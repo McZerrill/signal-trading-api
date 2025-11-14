@@ -30,23 +30,6 @@ utc = dt_timezone.utc
 posizioni_attive = {}
 _pos_lock = threading.Lock()
 
-# Limite massimo di simulazioni contemporanee
-MAX_SIM_ATTIVE = 10
-
-def _conta_sim_attive() -> int:
-    """
-    Conta quante simulazioni sono ancora aperte.
-    (usa il lock per evitare race con il thread di monitoraggio)
-    """
-    with _pos_lock:
-        return sum(
-            1
-            for v in posizioni_attive.values()
-            if not v.get("chiusa_da_backend", False)
-        )
-
-
-
 @router.get("/")
 def read_root():
     return {"status": "API Segnali di Borsa attiva"}
@@ -54,58 +37,17 @@ def read_root():
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
     logging.debug(f"📩 Richiesta /analyze per {symbol.upper()}")
-    logging.debug(f"🔍 /analyze chiamato per {symbol} - {time.time()}")
-
-    symbol = symbol.upper()
-    prezzo_live = 0.0
-    spread = 0.0
 
     try:
-        # Stato corrente simulazione (se esiste)
+        symbol = symbol.upper()
         with _pos_lock:
             posizione = posizioni_attive.get(symbol)
             motivo_attuale = (posizione or {}).get("motivo", "")
 
-        # ===== PREZZO LIVE + SPREAD SICURO =====
-        prezzo_live = 0.0
-        spread = 0.0
-
-        # 1) Primo tentativo: bookTicker Binance (più preciso)
-        try:
-            url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
-            data_b = requests.get(url, timeout=2).json()
-            bid = float(data_b["bidPrice"])
-            ask = float(data_b["askPrice"])
-            if bid > 0 and ask > 0:
-                prezzo_live = round((bid + ask) / 2, 6)
-                spread = (ask - bid) / ((ask + bid) / 2) * 100
-            else:
-                raise ValueError("Book zero")
-        except:
-            # 2) Secondo tentativo: get_bid_ask interno
-            try:
-                book = get_bid_ask(symbol)
-                bid = float(book.get("bid", 0))
-                ask = float(book.get("ask", 0))
-                spread = float(book.get("spread", 0.0))
-
-                if bid > 0 and ask > 0:
-                    prezzo_live = round((bid + ask) / 2, 6)
-                else:
-                    raise ValueError("Bid/ask zero")
-            except:
-                # 3) Fallback SICURO: close dell’ultima 1m, MAI 15m
-                try:
-                    df_1m = get_binance_df(symbol, "1m", 2)
-                    prezzo_live = round(float(df_1m["close"].iloc[-1]), 6)
-                except:
-                    prezzo_live = 0.0   # ultimo fallback
-        # ============================================
-
-
-        logging.debug(f"[SPREAD] {symbol} – Spread attuale: {spread:.4f}%, prezzo_live={prezzo_live}")
-
-        # 1.b) Gestione spread alto > 5% (+ eventuale listing pump)
+        # 1) Spread PRIMA (early return se eccessivo)
+        book = get_bid_ask(symbol)
+        spread = book["spread"]
+        logging.debug(f"[SPREAD] {symbol} – Spread attuale: {spread:.4f}%")
         if spread > 5.0:
             try:
                 df_15m_tmp = get_binance_df(symbol, "15m", 50)
@@ -115,6 +57,7 @@ def analyze(symbol: str):
                 if not df_15m_tmp.empty:
                     close_tmp = round(float(df_15m_tmp.iloc[-1]["close"]), 6)
 
+                
                 # --- eccezione: listing pump rilevato -> notifica comunque con warning ---
                 try:
                     n = len(df_15m_tmp)
@@ -145,9 +88,7 @@ def analyze(symbol: str):
                         trigger = (n == 1 and COND_LISTING) or (n >= 2 and (COND_LISTING or (body_frac >= 0.70 and (COND_CORPO or COND_VOLUME))))
 
                         if trigger:
-                            prezzo_notifica = prezzo_live if prezzo_live > 0 else (
-                                close_tmp if close_tmp > 0 else round(float(u["close"]), 6)
-                            )
+                            prezzo_notifica = close_tmp if close_tmp > 0 else round(float(u["close"]), 6)
                             return SignalResponse(
                                 symbol=symbol,
                                 segnale="BUY",
@@ -165,15 +106,16 @@ def analyze(symbol: str):
                 except Exception:
                     pass
 
+
                 if df_15m_tmp.empty:
                     raise ValueError("DataFrame vuoto")
                 ultimo_tmp = df_15m_tmp.iloc[-1]
-                close_tmp = round(float(ultimo_tmp["close"]), 6)
+                close_tmp = round(ultimo_tmp["close"], 6)
             except Exception as e:
                 logging.warning(f"⚠️ Errore nel recupero del prezzo per {symbol} con spread alto: {e}")
                 close_tmp = 0.0  # fallback
 
-            if close_tmp == 0.0 and prezzo_live == 0.0:
+            if close_tmp == 0.0:
                 logging.warning(f"⛔ Nessun prezzo disponibile per {symbol} (spread alto), risposta ignorata")
                 return SignalResponse(
                     symbol=symbol,
@@ -195,13 +137,11 @@ def analyze(symbol: str):
                     chiusa_da_backend=False
                 )
 
-            # prezzo di output con spread alto (ma senza listing pump)
-            prezzo_out = prezzo_live if prezzo_live > 0 else close_tmp
             return SignalResponse(
                 symbol=symbol,
                 segnale="HOLD",
                 commento=f"Simulazione ignorata per {symbol} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
-                prezzo=prezzo_out,
+                prezzo=close_tmp,
                 take_profit=0.0,
                 stop_loss=0.0,
                 rsi=0.0,
@@ -226,75 +166,68 @@ def analyze(symbol: str):
         segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread, df_1m)
         note = note15.split("\n") if note15 else []
 
-        # 4) Estrai sempre i tecnici più recenti (anche se HOLD)
-        try:
-            ultimo = hist.iloc[-1]
-            close = round(float(ultimo['close']), 4)
-            rsi = round(float(ultimo['RSI']), 2)
-            ema7 = round(float(ultimo['EMA_7']), 2)
-            ema25 = round(float(ultimo['EMA_25']), 2)
-            ema99 = round(float(ultimo['EMA_99']), 2)
-            atr = round(float(ultimo['ATR']), 2)
-            macd = round(float(ultimo['MACD']), 4)
-            macd_signal = round(float(ultimo['MACD_SIGNAL']), 4)
-        except Exception as e:
-            logging.warning(f"⚠️ Errore nell’estrazione dei dati tecnici: {e}")
-            close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
-
-        # 5) Gestione simulazione già attiva — con prezzo live reale
-        if symbol in posizioni_attive:
-            posizione = posizioni_attive[symbol]
-
-            # Usa il prezzo LIVE già calcolato; altrimenti fallback sul close 15m
-            prezzo_corrente = prezzo_live if prezzo_live > 0 else close
-
+        # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
+        if posizione:
             logging.info(
-                f"⏳ Simulazione attiva su {symbol} – tipo: "
-                f"{posizione['tipo']} @ {posizione['entry']}$ (live={prezzo_corrente})"
+                f"⏳ Simulazione già attiva su {symbol} – tipo: "
+                f"{posizione['tipo']} @ {posizione['entry']}$"
             )
-            logging.debug(f"[OUT-ACTIVE] {symbol} → prezzo_out={prezzo_corrente}")
 
-            # Caso annullamento
+            # se l’analisi ha “annullato” il segnale → marca la simulazione e restituisci HOLD annotato
             if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
                 with _pos_lock:
                     posizione["tipo"] = "HOLD"
                     posizione["esito"] = "Annullata"
                     posizione["chiusa_da_backend"] = True
                     posizione["motivo"] = note15
-
                 return SignalResponse(
                     symbol=symbol,
                     segnale="HOLD",
                     commento=note15,
-                    prezzo=prezzo_corrente,
+                    prezzo=posizione["entry"],
                     take_profit=posizione["tp"],
                     stop_loss=posizione["sl"],
-                    rsi=rsi, macd=macd, macd_signal=macd_signal, atr=atr,
-                    ema7=ema7, ema25=ema25, ema99=ema99,
+                    rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
+                    ema7=0.0, ema25=0.0, ema99=0.0,
                     timeframe="15m",
-                    spread=spread,
+                    spread=posizione.get("spread", 0.0),
                     motivo=note15,
                     chiusa_da_backend=True
                 )
 
-            # Stato simulazione attiva
+            # altrimenti ritorna lo stato della simulazione attiva
             return SignalResponse(
                 symbol=symbol,
                 segnale="HOLD",
                 commento=(
-                    f"⏳ Simulazione attiva: {posizione['tipo']} @ {posizione['entry']}$\n"
+                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
                     f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
                 ),
-                prezzo=prezzo_corrente,
+                prezzo=posizione["entry"],
                 take_profit=posizione["tp"],
                 stop_loss=posizione["sl"],
-                rsi=rsi, macd=macd, macd_signal=macd_signal, atr=atr,
-                ema7=ema7, ema25=ema25, ema99=ema99,
+                rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
+                ema7=0.0, ema25=0.0, ema99=0.0,
                 timeframe="15m",
-                spread=spread,
-                motivo=posizione.get("motivo", ""),
+                spread=posizione.get("spread", 0.0),
+                motivo=motivo_attuale,
                 chiusa_da_backend=posizione.get("chiusa_da_backend", False)
             )
+
+        # 4) Estrai sempre i tecnici più recenti (anche se HOLD)
+        try:
+            ultimo = hist.iloc[-1]
+            close = round(ultimo['close'], 4)
+            rsi = round(ultimo['RSI'], 2)
+            ema7 = round(ultimo['EMA_7'], 2)
+            ema25 = round(ultimo['EMA_25'], 2)
+            ema99 = round(ultimo['EMA_99'], 2)
+            atr = round(ultimo['ATR'], 2)
+            macd = round(ultimo['MACD'], 4)
+            macd_signal = round(ultimo['MACD_SIGNAL'], 4)
+        except Exception as e:
+            logging.warning(f"⚠️ Errore nell’estrazione dei dati tecnici: {e}")
+            close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
 
         # 5) Logging timeframe e analisi di conferma
         logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
@@ -321,15 +254,15 @@ def analyze(symbol: str):
             logging.warning(f"[daily-check] impossibile validare 1D per {symbol}: {_err}")
             daily_state = "NA"  # neutro
 
+
         # 6) Conferma 1h
+        # Prima: conferma "strutturale" solo-EMA su 1h (più aderente a quello che vedi sul grafico)
         try:
             e7h  = float(hist_1h["EMA_7"].iloc[-1])
             e25h = float(hist_1h["EMA_25"].iloc[-1])
             e99h = float(hist_1h["EMA_99"].iloc[-1])
-            ema_confirm = (
-                (segnale == "BUY"  and e7h > e25h > e99h) or
-                (segnale == "SELL" and e7h < e25h < e99h)
-            )
+            ema_confirm = (segnale == "BUY"  and e7h > e25h > e99h) or \
+                  (segnale == "SELL" and e7h < e25h < e99h)
         except Exception as e:
             logging.warning(f"⚠️ Errore EMA 1h: {e}")
             ema_confirm = False
@@ -361,65 +294,40 @@ def analyze(symbol: str):
             else:
                 note.append("🧭 1h✓")
 
-        # 7) Note 1d e possibile apertura simulazione (con limite max 10)
+
+
+        # 7) Note 1d e possibile apertura simulazione
         if segnale in ["BUY", "SELL"]:
-            # 7.1 – controlla se ESISTE già una simulazione aperta per questo symbol
-            with _pos_lock:
-                sim_esistente = posizioni_attive.get(symbol)
-            gia_attiva = bool(sim_esistente and not sim_esistente.get("chiusa_da_backend", False))
-
-            # 7.2 – se NON esiste già e siamo oltre il limite → non aprire nuove simulazioni
-            if not gia_attiva:
-                sim_attive = _conta_sim_attive()
-                if sim_attive >= MAX_SIM_ATTIVE:
-                    note.append(f"⛔ Limite massimo di simulazioni attive raggiunto ({MAX_SIM_ATTIVE}).")
-                    note.append("Nuovo segnale non avviato: chiudi una simulazione esistente per liberare spazio.")
-                    # NON apriamo nuova simulazione: il segnale verso l'app diventa HOLD
-                    segnale = "HOLD"
-
-            # Se dopo il controllo il segnale è ancora BUY/SELL, possiamo aprire/aggiornare la simulazione
-            if segnale in ["BUY", "SELL"]:
-                if daily_state == "NA":
-                    note.append("📅 1d - Check fallito")  # dati non disponibili / check fallito
+            if daily_state == "NA":
+                note.append("📅 1d - Check fallito")  # dati non disponibili / check fallito
+            else:
+                ok_daily = (segnale == "BUY" and daily_state == "BUY") or \
+                   (segnale == "SELL" and daily_state == "SELL")
+                if ok_daily:
+                    note.append("📅 1d✓")
                 else:
-                    ok_daily = (segnale == "BUY" and daily_state == "BUY") or \
-                               (segnale == "SELL" and daily_state == "SELL")
-                    if ok_daily:
-                        note.append("📅 1d✓")
-                    else:
-                        note.append(f"⚠️ Daily in conflitto ({daily_state})")
+                    note.append(f"⚠️ Daily in conflitto ({daily_state})")
 
-                logging.info(
-                    f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – "
-                    f"TP: {tp}, SL: {sl}, spread: {spread:.2f}%"
-                )
-                with _pos_lock:
-                    posizioni_attive[symbol] = {
-                        "tipo": segnale,
-                        "entry": close,
-                        "tp": tp,
-                        "sl": sl,
-                        "spread": spread,
-                        "chiusa_da_backend": False,
-                        "motivo": " | ".join(note)
-                    }
+            logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
+            with _pos_lock:
+                posizioni_attive[symbol] = {
+                    "tipo": segnale,
+                    "entry": close,
+                    "tp": tp,
+                    "sl": sl,
+                    "spread": spread,
+                    "chiusa_da_backend": False,
+                    "motivo": " | ".join(note)
+                }
+
 
         commento = "\n".join(note) if note else "Nessuna nota"
-
-        # 🔥 prezzo di uscita: sempre LIVE se disponibile, altrimenti close 15m
-        prezzo_out = prezzo_live
-
-        logging.debug(
-            f"📤 /analyze OUT {symbol} "
-            f"segnale={segnale} prezzo_out={prezzo_out:.8f} "
-            f"spread={spread:.4f}% pos_attiva={symbol in posizioni_attive}"
-        )
 
         return SignalResponse(
             symbol=symbol,
             segnale=segnale,
             commento=commento,
-            prezzo=prezzo_out,      # <-- SEMPRE LIVE quando possibile
+            prezzo=close,
             take_profit=tp,
             stop_loss=sl,
             rsi=rsi,
@@ -439,12 +347,10 @@ def analyze(symbol: str):
         logging.error(f"❌ Errore durante /analyze per {symbol}: {e}")
         try:
             df_15m = get_binance_df(symbol, "15m", 50)
-            close = round(float(df_15m.iloc[-1]["close"]), 6)
+            close = round(df_15m.iloc[-1]["close"], 6)
         except Exception as e2:
             logging.warning(f"⚠️ Fallito anche il recupero prezzo fallback: {e2}")
             close = 0.0
-
-        prezzo_err = prezzo_live if prezzo_live > 0 else close
 
         return SignalResponse(
             symbol=symbol,
@@ -454,7 +360,7 @@ def analyze(symbol: str):
                 f"Tentativo di recupero prezzo: {'Riuscito' if close > 0 else 'Fallito'}\n"
                 f"Errore originale: {e}"
             ),
-            prezzo=prezzo_err,
+            prezzo=close,
             take_profit=0.0,
             stop_loss=0.0,
             rsi=0.0,
@@ -465,11 +371,10 @@ def analyze(symbol: str):
             ema25=0.0,
             ema99=0.0,
             timeframe="",
-            spread=spread,
+            spread=0.0,
             motivo="Errore interno",
             chiusa_da_backend=False
         )
-
 
         # <-- PAUSA -->
 
@@ -503,7 +408,7 @@ _ensure_scanner()
 
 @router.get("/price")
 def get_price(symbol: str):
-    logging.debug(f"🔄 /price chiamato per {symbol} - timestamp={time.time()}")
+    
     start = time.time()
     symbol = symbol.upper()
 
@@ -523,7 +428,6 @@ def get_price(symbol: str):
         elapsed = round(time.time() - start, 3)
         with _pos_lock:
             pos = posizioni_attive.get(symbol, {})       # <-- lookup una sola volta
-        logging.debug(f"📤 /price risposta per {symbol} in {elapsed}s - prezzo={prezzo}")
 
         return {
             "symbol": symbol,
@@ -562,13 +466,8 @@ MODALITA_TEST = True
 
 @router.get("/hotassets")
 def hot_assets():
-    logging.debug(f"🔥 /hotassets chiamato - delta={time.time() - _hot_cache['time']:.1f}s")
     now = time.time()
-
-    # TTL cache accorciato a 5s per avere stato quasi real-time in ALL
-    HOT_TTL_SEC = 5.0
-    if (now - _hot_cache["time"]) < HOT_TTL_SEC:
-        logging.debug(f"🟡 /hotassets → cache usata (età {now - _hot_cache['time']:.1f}s)")
+    if (now - _hot_cache["time"]) < 180:
         return _hot_cache["data"]
 
     symbols = get_best_symbols(limit=120)
@@ -583,33 +482,6 @@ def hot_assets():
     for symbol in symbols:
         try:
             df = get_binance_df(symbol, "15m", 100)
-            if df.empty:
-                continue
-
-            # ===== PREZZO LIVE AFFIDABILE =====
-            try:
-                book = get_bid_ask(symbol)
-                bid = float(book.get("bid", 0) or 0)
-                ask = float(book.get("ask", 0) or 0)
-
-                if bid > 0 and ask > 0:
-                    prezzo_live = round((bid + ask) / 2, 6)
-                else:
-                    # fallback SICURO su 1m (non 15m)
-                    try:
-                        df_1m = get_binance_df(symbol, "1m", 2)
-                        prezzo_live = round(float(df_1m["close"].iloc[-1]), 6)
-                    except:
-                        prezzo_live = round(float(df["close"].iloc[-1]), 6)  # ultimissimo fallback
-            except Exception:
-                try:
-                    df_1m = get_binance_df(symbol, "1m", 2)
-                    prezzo_live = round(float(df_1m["close"].iloc[-1]), 6)
-                except:
-                    prezzo_live = round(float(df["close"].iloc[-1]), 6)
-            # ====================================
-
-
             # --- Fast-path per LISTING PUMP anche con storico corto (<40 barre) ---
             if len(df) >= 2 and len(df) < 40:
                 ultimo = df.iloc[-1]
@@ -634,29 +506,29 @@ def hot_assets():
                     trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
                     risultati.append({
                         "symbol": symbol,
-                        "tipo": "HOLD",                      # asset caldo in osservazione
                         "segnali": 1,
                         "trend": trend_pump,
                         "rsi": None,
                         "ema7": 0.0, "ema25": 0.0, "ema99": 0.0,
-                        "prezzo": prezzo_live,
+                        "prezzo": round(float(ultimo["close"]), 4),
                         "candele_trend": 1,
                         "note": "🚀 Listing pump (storico corto)"
                     })
                     continue  # salta i filtri classici e marca come hot
 
-            if len(df) < 40:
+            if df.empty or len(df) < 40:
                 continue
 
             _filtro_log["totali"] += 1
 
-            prezzo_close = float(df["close"].iloc[-1])
+            prezzo = float(df["close"].iloc[-1])
             volume_quote_medio = float((df["volume"].tail(20) * df["close"].tail(20)).mean())
             soglia_quote = 50_000 if MODALITA_TEST else 250_000  # es.: 50k$/candela su 15m
 
             if pd.isna(volume_quote_medio) or volume_quote_medio < soglia_quote:
                 _filtro_log["volume_basso"] += 1
                 continue
+
 
             df["EMA_7"] = df["close"].ewm(span=7).mean()
             df["EMA_25"] = df["close"].ewm(span=25).mean()
@@ -672,8 +544,9 @@ def hot_assets():
             macd = df["MACD"].iloc[-1]
             macd_signal = df["MACD_SIGNAL"].iloc[-1]
             atr = df["ATR"].iloc[-1]
+            prezzo = df["close"].iloc[-1]
 
-            if prezzo_close <= 0 or pd.isna(atr) or atr < atr_minimo:
+            if prezzo <= 0 or pd.isna(atr) or atr < atr_minimo:
                 _filtro_log["atr"] += 1
                 continue
 
@@ -698,25 +571,25 @@ def hot_assets():
                 candele_trend = conta_candele_trend(df, rialzista=(trend_pump == "BUY"))
                 risultati.append({
                     "symbol": symbol,
-                    "tipo": "HOLD",
                     "segnali": 1,
                     "trend": trend_pump,
-                    "rsi": round(float(rsi), 2),
-                    "ema7": round(float(ema7), 2),
-                    "ema25": round(float(ema25), 2),
-                    "ema99": round(float(ema99), 2),
-                    "prezzo": prezzo_live,
+                    "rsi": round(rsi, 2),
+                    "ema7": round(ema7, 2),
+                    "ema25": round(ema25, 2),
+                    "ema99": round(ema99, 2),
+                    "prezzo": round(prezzo, 4),
                     "candele_trend": candele_trend
                 })
                 continue  # salta i filtri successivi: la coin è "hot" per pump
 
+
             distanza_relativa = abs(ema7 - ema99) / max(abs(ema99), 1e-9)
-            if distanza_relativa < distanza_minima and prezzo_close < 1000:
+            if distanza_relativa < distanza_minima and prezzo < 1000:
                 _filtro_log["ema_flat"] += 1
                 continue
 
             oscillazione = df["close"].diff().abs().tail(10).sum()
-            if oscillazione < 0.001 and prezzo_close < 50:
+            if oscillazione < 0.001 and prezzo < 50:
                 _filtro_log["prezzo_piattissimo"] += 1
                 continue
 
@@ -760,14 +633,13 @@ def hot_assets():
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
                 risultati.append({
                     "symbol": symbol,
-                    "tipo": "HOLD",
                     "segnali": 1,
-                    "trend": segnale,                    # direzione del movimento
-                    "rsi": round(float(rsi), 2),
-                    "ema7": round(float(ema7), 2),
-                    "ema25": round(float(ema25), 2),
-                    "ema99": round(float(ema99), 2),
-                    "prezzo": prezzo_live,               # quasi-live dal book
+                    "trend": segnale,
+                    "rsi": round(rsi, 2),
+                    "ema7": round(ema7, 2),
+                    "ema25": round(ema25, 2),
+                    "ema99": round(ema99, 2),
+                    "prezzo": round(prezzo, 4),
                     "candele_trend": candele_trend
                 })
         except Exception:
@@ -775,8 +647,8 @@ def hot_assets():
 
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
-    logging.debug(f"🆕 /hotassets ricalcolato → {len(risultati)} risultati salvati in cache")
     return risultati
+
 
 
 # ------------------------------------------------------------------
@@ -794,7 +666,6 @@ TP_TRAIL_FACTOR        = 1.20     # TP = entry + (prezzo-entry)*1.20  (BUY); vic
 
 def verifica_posizioni_attive():
     while True:
-        logging.debug("🕒 Monitor 15m → ciclo iniziato")
         time.sleep(CHECK_INTERVAL_SEC)
 
         with _pos_lock:
@@ -941,34 +812,8 @@ monitor_thread.start()
 
     
 @router.get("/simulazioni_attive")
-def get_simulazioni_attive():
-    """
-    Ritorna SOLO le simulazioni ancora aperte.
-    Le chiuse rimangono in memoria solo per la sessione corrente,
-    ma NON vengono esposte all'app.
-    """
+def simulazioni_attive():
     with _pos_lock:
-        aperte = {
-            sym: dati
-            for sym, dati in posizioni_attive.items()
-            if not dati.get("chiusa_da_backend", False)
-        }
-        logging.debug(f"[SIM] /simulazioni_attive → {len(aperte)} aperte")
-        return aperte
-
-@router.post("/reset_simulazioni")
-def reset_simulazioni():
-    """
-    Cancella TUTTE le simulazioni dal server.
-    Da chiamare quando:
-      - l'utente chiude l'app
-      - l'utente disattiva il tracking / la scheda SIM
-    """
-    with _pos_lock:
-        posizioni_attive.clear()
-
-    logging.info("♻️ Reset completo delle simulazioni attive richiesto dal client")
-    return {"status": "ok", "msg": "Tutte le simulazioni sono state cancellate"}
-
+        return dict(posizioni_attive)
 
 __all__ = ["router"]
