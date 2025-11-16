@@ -2,7 +2,8 @@ import pandas as pd
 from patterns import (
     detect_double_bottom,
     detect_ascending_triangle,
-    detect_price_channel,   
+    detect_price_channel,
+    detect_candlestick_patterns,
 )
 from indicators import (
     calcola_rsi,
@@ -355,10 +356,12 @@ def ema_in_movimento_coerente(hist_1m: pd.DataFrame, rialzista: bool = True, n_c
 
 
 def riconosci_pattern_candela(df: pd.DataFrame) -> str:
-    """Ritorna una stringa col pattern rilevato tra:
-       Hammer, Shooting Star, Bullish/Bearish Engulfing,
-       Three White Soldiers, Bullish Harami.
-       (Ritorna '' se nulla di significativo)
+    """Ritorna una stringa col pattern rilevato.
+
+    Ordine di priorità:
+      1) pattern 'classici' interni (Hammer, Engulfing, Soldiers, Harami)
+      2) se nulla, fallback sui pattern BUY da patterns.detect_candlestick_patterns
+         (Morning Star, Three White Soldiers, Piercing Line, Tweezer Bottom, Doji).
     """
     if len(df) < 3:
         return ""
@@ -370,48 +373,46 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     upper1 = h1 - max(o1, c1c)
     lower1 = min(o1, c1c) - l1
 
-    # ---- pattern classici (già presenti) ----
-    if body1_abs == 0:
-        return ""
+    # ---- pattern classici (tuo codice esistente) ----
+    if body1_abs != 0:
+        # Hammer
+        if body1 > 0 and lower1 >= 2 * body1_abs and upper1 <= body1_abs * 0.3:
+            return "🪓 Hammer"
+        # Shooting Star
+        if body1 < 0 and upper1 >= 2 * body1_abs and lower1 <= body1_abs * 0.3:
+            return "🌠 Shooting Star"
 
-    if body1 > 0 and lower1 >= 2 * body1_abs and upper1 <= body1_abs * 0.3:
-        return "🪓 Hammer"
-    if body1 < 0 and upper1 >= 2 * body1_abs and lower1 <= body1_abs * 0.3:
-        return "🌠 Shooting Star"
-    if len(df) >= 2:
-        o0, c0 = df["open"].iloc[-2], df["close"].iloc[-2]
-        if body1 > 0 and c1c > o0 and o1 < c0:
-            return "🔄 Bullish Engulfing"
-        if body1 < 0 and c1c < o0 and o1 > c0:
-            return "🔃 Bearish Engulfing"
+        if len(df) >= 2:
+            o0, c0 = df["open"].iloc[-2], df["close"].iloc[-2]
+            # Bullish Engulfing
+            if body1 > 0 and c1c > o0 and o1 < c0:
+                return "🔄 Bullish Engulfing"
+            # Bearish Engulfing
+            if body1 < 0 and c1c < o0 and o1 > c0:
+                return "🔃 Bearish Engulfing"
 
-    # ---- nuovi pattern ----
-    # 1) Three White Soldiers (ultime 3 verdi forti, progressione)
+    # Three White Soldiers (versione interna, come prima)
     if len(df) >= 4:
         a, b, c = df.iloc[-3], df.iloc[-2], df.iloc[-1]
-        def bull(c): return c["close"] > c["open"]
-        def body(c): return abs(c["close"] - c["open"])
-        def upper_wick(c): return c["high"] - max(c["open"], c["close"])
-        def lower_wick(c): return min(c["open"], c["close"]) - c["low"]
+        def bull(x): return x["close"] > x["open"]
+        def body(x): return abs(x["close"] - x["open"])
+        def upper_wick(x): return x["high"] - max(x["open"], x["close"])
+        def lower_wick(x): return min(x["open"], x["close"]) - x["low"]
 
         if bull(a) and bull(b) and bull(c):
-            # corpi in crescita e chiusure crescenti
             if (c["close"] > b["close"] > a["close"] and
                 body(b) >= 0.7 * body(a) and body(c) >= 0.7 * body(b)):
-                # opens entro il corpo precedente (classico requisito dei Soldiers)
                 cond_open = (b["open"]  >= min(a["open"], a["close"]) and b["open"]  <= max(a["open"], a["close"]) and
                              c["open"]  >= min(b["open"], b["close"]) and c["open"]  <= max(b["open"], b["close"]))
-                # shadow non eccessive
                 cond_wicks = (upper_wick(a) <= body(a) and lower_wick(a) <= body(a) and
                               upper_wick(b) <= body(b) and lower_wick(b) <= body(b) and
                               upper_wick(c) <= body(c) and lower_wick(c) <= body(c))
                 if cond_open and cond_wicks:
                     return "🟩 Three White Soldiers"
 
-    # 2) Bullish Harami (grossa rossa + piccola verde interamente contenuta)
-    if len(df) >= 2:
+    # Bullish Harami (come prima)
+    if len(df) >= 2 and body1_abs != 0:
         prev = df.iloc[-2]
-        # dimensioni relative del corpo rispetto alla media recente
         recent = (df["close"] - df["open"]).abs().iloc[-10:-2]
         avg_body = recent.mean() if len(recent) else (abs(prev["close"] - prev["open"]) or 1e-9)
 
@@ -425,7 +426,41 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
         if prev_red and (c1c > o1) and big_prev and small_now and dentro:
             return "🤰 Bullish Harami"
 
-    return ""
+    # ------------------------------------------------
+    # Fallback: pattern avanzati pro-BUY da patterns.py
+    # ------------------------------------------------
+    try:
+        atr_series = df["ATR"] if "ATR" in df.columns else None
+        vol_series = df["volume"] if "volume" in df.columns else None
+        patt_list = detect_candlestick_patterns(df, atr=atr_series, vol=vol_series)
+    except Exception as e:
+        logging.warning(f"⚠️ Errore detect_candlestick_patterns: {e}")
+        return ""
+
+    if not patt_list:
+        return ""
+
+    # preferisci pattern bull, poi il più confidente
+    bulls = [p for p in patt_list if p.get("direction") == "bull"]
+    candidates = bulls or patt_list
+    best = max(candidates, key=lambda p: p.get("confidence", 0.0))
+
+    name = best.get("name", "")
+    if not name:
+        return ""
+
+    # mapping semplice per icone (puoi ampliarlo se vuoi)
+    emoji_map = {
+        "Morning Star": "🌅",
+        "Three White Soldiers": "🟩",
+        "Piercing Line": "📈",
+        "Tweezer Bottom": "🧲",
+        "Dragonfly Doji": "🪰",
+        "Long-legged Doji": "🦵",
+    }
+    prefix = emoji_map.get(name, "✨")
+    return f"{prefix} {name}"
+
 
 
 def rileva_pattern_v(hist: pd.DataFrame) -> bool:
@@ -670,10 +705,17 @@ def calcola_probabilita_successo(
                 "Bullish Engulfing",
                 "Three White Soldiers",
                 "Bullish Harami",
+                "Morning Star",
+                "Piercing Line",
+                "Tweezer Bottom",
+                "Dragonfly Doji",
+                "Long-legged Doji",
             ]
             bearish_keys = [
                 "Shooting Star",
                 "Bearish Engulfing",
+                "Evening Star",       # se in futuro la aggiungi
+                "Dark Cloud Cover",   # idem
             ]
 
             is_bullish = any(k in patt for k in bullish_keys)
