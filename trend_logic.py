@@ -497,16 +497,19 @@ def calcola_punteggio_trend(
     elif rsi <= 45:
         punteggio -= 1
 
-    # 3. MACD
+    # 3. MACD (usiamo gap *relativo* sul prezzo, come nel resto della logica)
     macd_gap = macd - macd_signal
-    if macd_gap > 0.002:
+    gap_rel = _frac_of_close(macd_gap, close)
+
+    if gap_rel > _p("macd_gap_rel_forte"):
         punteggio += 2
-    elif macd_gap > 0:
+    elif gap_rel > _p("macd_gap_rel_debole"):
         punteggio += 1
-    elif macd_gap < -0.002:
+    elif gap_rel < -_p("macd_gap_rel_forte"):
         punteggio -= 2
-    elif macd_gap < 0:
+    elif gap_rel < -_p("macd_gap_rel_debole"):
         punteggio -= 1
+
 
     # 4. Volume
     if volume_attuale > volume_medio * _p("volume_alto"):
@@ -559,7 +562,10 @@ def calcola_probabilita_successo(
     tp=None,
     sl=None,
     escursione_media=None,
-    supporto=None
+    supporto=None,
+    pattern_candela=None,
+    pattern_db_ok=False,
+    pattern_tri_ok=False,
 ):
     punteggio = 0
 
@@ -603,22 +609,34 @@ def calcola_probabilita_successo(
     if breakout:
         punteggio += 10
 
+    # 5b. Pattern strutturali – uso SOLO degli OK passati da analizza_trend
+    if pattern_db_ok:
+        punteggio += 4
+    if pattern_tri_ok:
+        punteggio += 3
+
+    
     # 6. Accelerazione coerente
     soglia_acc = _p("accelerazione_minima")
     if segnale == "BUY" and accelerazione > soglia_acc:
         punteggio += 5
     elif segnale == "SELL" and accelerazione < -soglia_acc:
         punteggio += 5
+    elif abs(accelerazione) < soglia_acc * 0.5:
+        # accelerazione quasi piatta → neutra (nessun bonus/penalità)
+        pass
     else:
-        punteggio -= 5
+        # accelerazione moderatamente controtrend → piccola penalità
+        punteggio -= 3
 
     # 7. Trend attivo da almeno 3-4 candele
     if 3 <= candele_attive <= 7:
         punteggio += 10
     elif candele_attive < 3:
-        punteggio -= 5
+        punteggio -= 3
     elif candele_attive > 8:
-        punteggio -= 5
+        punteggio -= 3
+
 
     # 8. Distanza EMA significativa
     distanza_pct = _frac_of_close(distanza_ema, close)
@@ -639,7 +657,45 @@ def calcola_probabilita_successo(
         punteggio -= 10
 
     # ------------------------------------------
-    # 🔍 Estensioni avanzate (filtri ex-bloccanti)
+    # ------------------------------------------
+    # 11. Boost/malus per pattern candlestick
+    # (i pattern strutturali sono già conteggiati al punto 5b)
+    # ------------------------------------------
+    try:
+        if pattern_candela:
+            patt = pattern_candela
+
+            bullish_keys = [
+                "Hammer",
+                "Bullish Engulfing",
+                "Three White Soldiers",
+                "Bullish Harami",
+            ]
+            bearish_keys = [
+                "Shooting Star",
+                "Bearish Engulfing",
+            ]
+
+            is_bullish = any(k in patt for k in bullish_keys)
+            is_bearish = any(k in patt for k in bearish_keys)
+
+            # pattern a favore del segnale
+            if segnale == "BUY" and is_bullish:
+                punteggio += 3
+            if segnale == "SELL" and is_bearish:
+                punteggio += 3
+
+            # pattern contro il segnale (oltre a pattern_contrario che può già annullare)
+            if segnale == "BUY" and is_bearish:
+                punteggio -= 4
+            if segnale == "SELL" and is_bullish:
+                punteggio -= 4
+
+    except Exception as e:
+        logging.warning(f"⚠️ Errore contributo pattern in probabilità: {e}")
+
+    # ------------------------------------------
+    # 🔍 Penalità avanzate (NON bloccanti)
     # ------------------------------------------
     if hist is not None:
         try:
@@ -661,7 +717,7 @@ def calcola_probabilita_successo(
             elif segnale == "SELL" and close > open_attuale:
                 punteggio -= 3
 
-            # d. Supporto vicino (solo per SELL)
+            # d. Supporto vicino (solo SELL)
             if segnale == "SELL" and supporto is not None:
                 distanza_supporto = _frac_of_close(abs(close - supporto), close)
                 if distanza_supporto < 0.005:
@@ -1019,8 +1075,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         and _pattern_recent(p_db, max_age=40)
         and p_db.get("neckline_confirmed", p_db.get("neckline_breakout", False))
         and (macd_gap > 0) and (rsi > 50)
-        and (trend_up or recupero_buy or breakout_valido or pump_flag)
+        and (trend_up or recupero_buy)
     )
+
 
     pattern_tri_ok = (
         p_tri.get("found")
@@ -1028,8 +1085,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         and _pattern_recent(p_tri, max_age=40)
         and p_tri.get("breakout_confirmed", False)
         and (volume_attuale > volume_medio * VOL_MULT_TRIANGLE)
-        and (trend_up or recupero_buy or breakout_valido or pump_flag)
+        and (trend_up or recupero_buy)
     )
+
 
 
     # Mostra le note SOLO se il pattern supera i criteri
@@ -1181,17 +1239,19 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     
 
 
-    # Invalidation per pattern contrario o neutralità MACD/RSI
+    # Invalidation per pattern contrario
     if pattern_contrario(segnale, pattern):
         note.append(f"⚠️ Pattern contrario: inversione ({pattern})")
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
+    # RSI/MACD neutri → solo warning (la penalità è già gestita in calcola_probabilita_successo)
     low, high = _p("macd_rsi_range")
     soglia_macd = _p("macd_signal_threshold")
     if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < soglia_macd:
-        note.append(f"⚠️ RSI ({rsi:.1f}) e MACD neutri (gap={macd_gap:.5f}): probabilità ridotta")
-        note.append("⛔ Segnale annullato per RSI/MACD neutri")  # (8)
-        return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
+        note.append(
+            f"⚠️ RSI ({rsi:.1f}) e MACD neutri (gap={macd_gap:.5f}): probabilità ridotta"
+        )
+
         
 
     # Controllo facoltativo EMA 1m
@@ -1211,14 +1271,29 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         if segnale in ["BUY", "SELL"]:
             n_candele = candele_reali_up if segnale == "BUY" else candele_reali_down
             probabilita = calcola_probabilita_successo(
-                ema7=ema7, ema25=ema25, ema99=ema99, rsi=rsi,
-                macd=macd, macd_signal=macd_signal,
-                candele_attive=n_candele, breakout=breakout_valido,
-                volume_attuale=volume_attuale, volume_medio=volume_medio,
-                distanza_ema=distanza_ema, atr=atr, close=close,
-                accelerazione=accelerazione, segnale=segnale,
-                hist=hist, tp=tp, sl=sl, supporto=supporto,
-                escursione_media=escursione_media
+                ema7=ema7,
+                ema25=ema25,
+                ema99=ema99,
+                rsi=rsi,
+                macd=macd,
+                macd_signal=macd_signal,
+                candele_attive=n_candele,
+                breakout=breakout_valido,
+                volume_attuale=volume_attuale,
+                volume_medio=volume_medio,
+                distanza_ema=distanza_ema,
+                atr=atr,
+                close=close,
+                accelerazione=accelerazione,
+                segnale=segnale,
+                hist=hist,
+                tp=tp,
+                sl=sl,
+                supporto=supporto,
+                escursione_media=escursione_media,
+                pattern_candela=pattern,
+                pattern_db_ok=pattern_db_ok,
+                pattern_tri_ok=pattern_tri_ok,
             )
             note.append(f"📊 Prob. successo stimata: {probabilita}%")
     except Exception as e:
@@ -1239,12 +1314,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         if pump_flag:
             prob_fusa = min(1.0, prob_fusa + 0.06)
 
-        # --- BOOST soft dalla struttura (non crea segnali da solo) ---
-        if sistema == "DB" and p_db.get("found"):
+        # Boost soft solo se si sta realmente usando DB o TRI
+        if sistema == "DB" and pattern_db_ok:
             prob_fusa = min(1.0, prob_fusa + PATTERN_SOFT_BOOST_DB * p_db["confidence"])
-        if sistema == "TRI" and p_tri.get("found"):
+        if sistema == "TRI" and pattern_tri_ok:
             prob_fusa = min(1.0, prob_fusa + PATTERN_SOFT_BOOST_TRI * p_tri["confidence"])
-        # (niente boost pattern su EMA, per non contaminare le strategie)
 
 
 
@@ -1284,15 +1358,19 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
 
         # (3) Gate di entrata coerente con prob_fusa
-        P_ENTER = 0.45 if (breakout_valido or pump_flag) else 0.50
+        if breakout_valido or pump_flag:
+            P_ENTER = 0.45     # segnali forti
+        else:
+            P_ENTER = 0.52     # segnali normali più selettivi
+
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
         # TP/SL proporzionale alla probabilità fusa
         ATR_MIN_FRAC = 0.003
-        TP_BASE, TP_SPAN = 0.8, 0.8     # TP = 0.8x..0.8x ATR
-        SL_BASE, SL_SPAN = 2.0, 0.40  # SL = 2.0x..0.4x ATR
+        TP_BASE, TP_SPAN = 0.6, 0.6     # TP più vicino → meno fallimenti immediati
+        SL_BASE, SL_SPAN = 1.6, 0.35    # SL meno stretto → meno stop-loss immediati
         RR_MIN = 1.2
         DELTA_MINIMO = 0.1
         TICK = 0.0001  # TODO: sostituire con tick_size reale del symbol (passalo da fuori se puoi)
