@@ -26,6 +26,50 @@ logging.debug("🧪 LOG DI TEST DEBUG all'avvio")
 router = APIRouter()
 utc = dt_timezone.utc
 
+router = APIRouter()
+utc = dt_timezone.utc
+
+
+# ------------------------------------------------------------------
+# WHITELIST asset che devono comparire sempre in /hotassets
+# ------------------------------------------------------------------
+HOT_WHITELIST_BASE = {
+    "BCH","ATOM","QTUM","AVAX","APT","DOGE","ETH","AXS","TRX",
+    "XRP","SOL","A","MANA","LINK","DOT","BTC","NEAR","ETC","SAND",
+    "LTC","DASH","BNB","ZEC","ADA",
+}
+
+QUOTES = ("USDT", "USDC")
+
+
+def _augment_with_whitelist(symbols: list[str]) -> list[str]:
+    """
+    Garantisce che ogni asset base in HOT_WHITELIST_BASE
+    sia presente come simbolo completo (es. BTCUSDT/BTCUSDC).
+    Se uno dei due esiste già nei risultati del filtro, evita duplicati.
+    """
+    current = set(symbols)
+    base_present = {
+        s[:-4] if s.endswith("USDT") else (s[:-4] if s.endswith("USDC") else s)
+        for s in symbols
+    }
+
+    extra = []
+
+    for base in HOT_WHITELIST_BASE:
+        if base in base_present:
+            continue
+
+        for q in QUOTES:
+            full = f"{base}{q}"
+            if full not in current:
+                extra.append(full)
+                current.add(full)
+                break  # usa una sola coppia per non riempire troppo
+
+    return symbols + extra
+
+
 # Stato simulazioni attive
 posizioni_attive = {}
 _pos_lock = threading.Lock()
@@ -510,6 +554,8 @@ def hot_assets():
         return _hot_cache["data"]
 
     symbols = get_best_symbols(limit=120)
+    symbols = _augment_with_whitelist(symbols)
+
     risultati = []
 
     volume_soglia = 50 if MODALITA_TEST else 300
