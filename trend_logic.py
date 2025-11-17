@@ -20,7 +20,7 @@ import logging
 MODALITA_TEST = True
 SOGLIA_PUNTEGGIO = 2
 DISATTIVA_CHECK_EMA_1M = True
-SOLO_BUY = False  # ⬅️ (2) SELL abilitati per i test
+SOLO_BUY = True  
 
 # -------------------------------------------------------------------------
 # STRATEGIA GLOBALE DEL BACKEND (EMA / DB / TRI)
