@@ -1491,7 +1491,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
         # Se ancora molto lungo, segnala solo warning, ma NON annulla il segnale
         if ore_max > T_HARD_CAP_H:
-            note.append(f"⚠️ Tempo TP lungo: {ore_min}–{ore_max}h (cap {T_HARD_CAP_H}h)")
+            note.append(f"⚠️ TP lento: {ore_min}–{ore_max}h")
 
         # Se troppo veloce, allarga TP (entro un limite) preservando RR
         if ore_min < T_TARGET_MIN_H:
