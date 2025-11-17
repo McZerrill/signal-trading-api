@@ -13,6 +13,14 @@ from models import SignalResponse
 
 from top_mover_scanner import start_top_mover_scanner
 
+from pathlib import Path
+
+try:
+    CURRENT_COMMIT = Path(".current_commit").read_text().strip()
+except Exception:
+    CURRENT_COMMIT = "unknown"
+
+
 logging.basicConfig(
     filename="log.txt",
     level=logging.DEBUG,
@@ -76,7 +84,11 @@ _pos_lock = threading.Lock()
 
 @router.get("/")
 def read_root():
-    return {"status": "API Segnali di Borsa attiva"}
+    return {
+        "status": "API Segnali di Borsa attiva",
+        "commit": CURRENT_COMMIT
+    }
+
 
 @router.get("/analyze", response_model=SignalResponse)
 def analyze(symbol: str):
