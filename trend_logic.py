@@ -922,7 +922,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     if volume_attuale < _p("volume_soglia") and not MODALITA_TEST and not pump_flag:
-        note.append(f"⚠️ Volume Basso: {volume_attuale:.0f} < soglia minima {_p('volume_soglia')}")
+        note.append(f"⚠️ Vol↓ {volume_attuale:.0f} < min")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
     # ------------------------------------------------------------------
@@ -1532,7 +1532,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     if segnale not in ["BUY", "SELL"]:
         if not note:
-            note.append("ℹ️ Nessun criterio abbastanza forte per un segnale operativo")
+            note.append("ℹ️ Nessun criterio forte")
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
     # Ordina note: conferme → punteggi/tempi/eventi → warning → altro
