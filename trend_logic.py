@@ -932,7 +932,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         ema7, ema25, ema99, rsi, macd, macd_signal,
         volume_attuale, volume_medio, distanza_ema, atr, close,
     )
-    note.append(f"📊 Punteggio trend complessivo: {punteggio_trend}")
+    note.append(f"📊 Trend score: {punteggio_trend}")
     desc = trend_score_description(punteggio_trend)
     if desc:
         note.append(desc)
@@ -1291,7 +1291,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     soglia_macd = _p("macd_signal_threshold")
     if segnale in ["BUY", "SELL"] and low < rsi < high and abs(macd_gap) < soglia_macd:
         note.append(
-            f"⚠️ RSI ({rsi:.1f}) e MACD neutri (gap={macd_gap:.5f}): probabilità ridotta"
+            f"⚠️ RSI/MACD neutri → prob↓"
         )
 
         
@@ -1393,7 +1393,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         # applica piccolo boost/malus dal multi-TF del canale
         prob_fusa = max(0.0, min(1.0, prob_fusa + channel_prob_adj))
         if gate_buy_canale and segnale == "BUY" and not pump_flag:
-            note.append("⛔ Gate multi-TF: canale 1h discendente forte")
+            note.append("⛔ Gate TF1h: canale↓ forte")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
         note.append(f"🧪 Affidabilità: {round(prob_fusa*100)}%")
@@ -1406,7 +1406,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             P_ENTER = 0.52     # segnali normali più selettivi
 
         if prob_fusa < P_ENTER:
-            note.append(f"⏸️ Gate non superato: prob_fusa {prob_fusa:.2f} < {P_ENTER:.2f}")
+            note.append(f"⏸️ Gate KO ({prob_fusa:.2f})")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
         # TP/SL proporzionale alla probabilità fusa
@@ -1454,7 +1454,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             needed_tp = (close + (RR_MIN * risk)) if segnale == "BUY" else (close - (RR_MIN * risk))
             tp_raw = needed_tp
             if not rr_note_added:
-                note.append(f"ℹ️ TP riallineato per RR ≥ {RR_MIN}: reward/risk={_safe_div(abs(tp_raw - close), risk):.2f}")
+                note.append("ℹ️ TP adjusted (RR ≥ {:.1f})".format(RR_MIN))
                 rr_note_added = True
 
         # Stima tempi TP
@@ -1487,7 +1487,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 ore_min = round((distanza_tp / (range_medio * eff_max)) * 0.25, 2)
                 ore_max = round((distanza_tp / (range_medio * eff_min)) * 0.25, 2)
             else:
-                note.append("⚠️ TP non ridotto: RR sarebbe < minimo")
+                note.append("⚠️ TP fermo: RR basso")
 
         # Se ancora molto lungo, segnala solo warning, ma NON annulla il segnale
         if ore_max > T_HARD_CAP_H:
