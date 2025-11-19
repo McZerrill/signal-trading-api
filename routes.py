@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timezone as dt_timezone, timedelta
 import time
 import requests
 import logging
@@ -81,6 +81,48 @@ def _augment_with_whitelist(symbols: list[str]) -> list[str]:
 # Stato simulazioni attive
 posizioni_attive = {}
 _pos_lock = threading.Lock()
+
+# Quanto tempo tenere in memoria le simulazioni chiuse (in ore)
+CLEANUP_AGE_HOURS = 1
+
+
+def cleanup_posizioni_attive():
+    """
+    Rimuove da posizioni_attive tutte le simulazioni chiuse
+    da più di CLEANUP_AGE_HOURS.
+    """
+    now = datetime.now(dt_timezone.utc)
+    cutoff = now - timedelta(hours=CLEANUP_AGE_HOURS)
+
+    to_delete = []
+
+    with _pos_lock:
+        for symbol, pos in posizioni_attive.items():
+            # tieni solo quelle effettivamente chiuse da backend
+            if not pos.get("chiusa_da_backend", False):
+                continue
+
+            ora_chiusura = pos.get("ora_chiusura")
+            if not ora_chiusura:
+                continue
+
+            try:
+                dt = datetime.fromisoformat(ora_chiusura)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=dt_timezone.utc)
+            except Exception:
+                # se la data è strana, non rischiamo di cancellare
+                continue
+
+            if dt < cutoff:
+                to_delete.append(symbol)
+
+        # cancelliamo fuori dal ciclo principale
+        for symbol in to_delete:
+            posizioni_attive.pop(symbol, None)
+
+    if to_delete:
+        logging.info(f"🧹 Cleanup posizioni_attive: rimossi {len(to_delete)} simboli chiusi da oltre {CLEANUP_AGE_HOURS}h")
 
 @router.get("/")
 def read_root():
@@ -762,6 +804,8 @@ TP_TRAIL_FACTOR        = 1.20     # TP = entry + (prezzo-entry)*1.20  (BUY); vic
 
 
 def verifica_posizioni_attive():
+    counter = 0  # per chiamare il cleanup ogni N cicli
+    
     while True:
         time.sleep(CHECK_INTERVAL_SEC)
 
@@ -901,6 +945,16 @@ def verifica_posizioni_attive():
                     sim["motivo"] = f"❌ Errore monitor 15m: {e}"
                 logging.error(f"[ERRORE] {symbol}: {e}")
 
+        # --- fine loop sui simboli, qui siamo ancora dentro il while True ---
+
+        counter += 1
+        # ogni 10 cicli (10 * CHECK_INTERVAL_SEC) facciamo il cleanup
+        if counter >= 10:
+            try:
+                cleanup_posizioni_attive()
+            except Exception as e:
+                logging.error(f"❌ Errore nel cleanup_posizioni_attive: {e}")
+            counter = 0
 
 
 # Thread monitor
@@ -910,7 +964,17 @@ monitor_thread.start()
     
 @router.get("/simulazioni_attive")
 def simulazioni_attive():
+    """
+    Restituisce SOLO le simulazioni ancora aperte (non chiuse da backend).
+    Quelle chiuse restano in memoria max CLEANUP_AGE_HOURS e
+    vengono poi eliminate da cleanup_posizioni_attive().
+    """
     with _pos_lock:
-        return dict(posizioni_attive)
+        return {
+            symbol: data
+            for symbol, data in posizioni_attive.items()
+            if not data.get("chiusa_da_backend", False)
+        }
+
 
 __all__ = ["router"]
