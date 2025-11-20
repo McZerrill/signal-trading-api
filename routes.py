@@ -12,7 +12,7 @@ from indicators import calcola_rsi, calcola_macd, calcola_atr
 from models import SignalResponse
 
 from top_mover_scanner import start_top_mover_scanner
-
+import json
 from pathlib import Path
 
 try:
@@ -49,6 +49,7 @@ HOT_WHITELIST_BASE = {
 }
 
 QUOTES = ("USDT", "USDC")
+SIM_LOG_PATH = Path("simulazioni_chiuse_log.jsonl")
 
 
 def _augment_with_whitelist(symbols: list[str]) -> list[str]:
@@ -124,6 +125,32 @@ def cleanup_posizioni_attive():
 
     if to_delete:
         logging.info(f"🧹 Cleanup posizioni_attive: rimossi {len(to_delete)} simboli chiusi da oltre {CLEANUP_AGE_HOURS}h")
+
+def append_simulazione_chiusa(symbol: str, sim: dict):
+    """
+    Appende una simulazione chiusa in formato JSONL.
+    Ogni riga è un JSON indipendente -> facile da greppare/analizzare.
+    """
+    try:
+        record = {
+            "symbol": symbol,
+            "tipo": sim.get("tipo"),
+            "entry": float(sim.get("entry", 0.0)),
+            "tp": float(sim.get("tp", 0.0)),
+            "sl": float(sim.get("sl", 0.0)),
+            "prezzo_chiusura": float(sim.get("prezzo_chiusura", 0.0)),
+            "esito": sim.get("esito"),
+            "variazione_pct": float(sim.get("variazione_pct", 0.0)),
+            "motivo": sim.get("motivo"),
+            "ora_chiusura": sim.get("ora_chiusura"),
+            "chiusa_da_backend": bool(sim.get("chiusa_da_backend", False)),
+            "timestamp_log": datetime.now(tz=utc).isoformat(timespec="seconds"),
+        }
+        with SIM_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception as e:
+        logging.error(f"❌ Errore durante append_simulazione_chiusa per {symbol}: {e}")
+
 
 @router.get("/")
 def read_root():
@@ -895,6 +922,9 @@ def verifica_posizioni_attive():
                                 f"🔚 CLOSE {symbol} {tipo}: entry={entry:.6f} fill={fill_price:.6f} "
                                 f"tp={tp:.6f} sl={sl:.6f} esito={sim['esito']} var={sim['variazione_pct']:.3f}%"
                             )
+                            append_simulazione_chiusa(symbol, sim)
+
+                        
                         continue
 
                     # ===== retracement verso SL? =====
