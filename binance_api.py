@@ -113,3 +113,31 @@ def get_bid_ask(symbol: str) -> dict:
             "ask": 0.0,
             "spread": 0.0
         }
+def get_symbol_tick_step(symbol: str) -> dict:
+    """
+    Ritorna i valori reali di tickSize (prezzo) e stepSize (quantità)
+    per il simbolo su Binance, usando il client ufficiale.
+    """
+    try:
+        info = client.get_symbol_info(symbol)
+        if not info:
+            print(f"⚠️ Nessuna symbol_info per {symbol}")
+            return {"tickSize": 0.0, "stepSize": 0.0}
+
+        tick_size = 0.0
+        step_size = 0.0
+
+        for f in info.get("filters", []):
+            if f.get("filterType") == "PRICE_FILTER":
+                tick_size = float(f.get("tickSize", 0.0))
+            elif f.get("filterType") == "LOT_SIZE":
+                step_size = float(f.get("stepSize", 0.0))
+
+        return {
+            "tickSize": tick_size,
+            "stepSize": step_size,
+        }
+
+    except Exception as e:
+        print(f"❌ Errore get_symbol_tick_step per {symbol}: {e}")
+        return {"tickSize": 0.0, "stepSize": 0.0}
