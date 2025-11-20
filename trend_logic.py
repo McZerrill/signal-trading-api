@@ -355,8 +355,8 @@ def ema_in_movimento_coerente(hist_1m: pd.DataFrame, rialzista: bool = True, n_c
     )
 
 
-def riconosci_pattern_candela(df: pd.DataFrame) -> str:
-    """Ritorna una stringa col pattern rilevato.
+def riconosci_pattern_candela(df: pd.DataFrame) -> tuple[str, float]:
+    """Ritorna (pattern_stringa, confidenza 0..1).
 
     Ordine di priorità:
       1) pattern 'classici' interni (Hammer, Engulfing, Soldiers, Harami)
@@ -364,7 +364,7 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
          (Morning Star, Three White Soldiers, Piercing Line, Tweezer Bottom, Doji).
     """
     if len(df) < 3:
-        return ""
+        return "", 0.0
 
     c1 = df.iloc[-1]
     o1, h1, l1, c1c = c1["open"], c1["high"], c1["low"], c1["close"]
@@ -373,27 +373,28 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
     upper1 = h1 - max(o1, c1c)
     lower1 = min(o1, c1c) - l1
 
-    # ---- pattern classici (tuo codice esistente) ----
+    # ---- pattern classici (tuo codice esistente, con conf fisse) ----
     if body1_abs != 0:
         # Hammer
         if body1 > 0 and lower1 >= 2 * body1_abs and upper1 <= body1_abs * 0.3:
-            return "🪓 Hammer"
+            return "🪓 Hammer", 0.58
         # Shooting Star
         if body1 < 0 and upper1 >= 2 * body1_abs and lower1 <= body1_abs * 0.3:
-            return "🌠 Shooting Star"
+            return "🌠 Shooting Star", 0.58
 
         if len(df) >= 2:
             o0, c0 = df["open"].iloc[-2], df["close"].iloc[-2]
             # Bullish Engulfing
             if body1 > 0 and c1c > o0 and o1 < c0:
-                return "🔄 Bullish Engulfing"
+                return "🔄 Bullish Engulfing", 0.62
             # Bearish Engulfing
             if body1 < 0 and c1c < o0 and o1 > c0:
-                return "🔃 Bearish Engulfing"
+                return "🔃 Bearish Engulfing", 0.62
 
     # Three White Soldiers (versione interna, come prima)
     if len(df) >= 4:
         a, b, c = df.iloc[-3], df.iloc[-2], df.iloc[-1]
+
         def bull(x): return x["close"] > x["open"]
         def body(x): return abs(x["close"] - x["open"])
         def upper_wick(x): return x["high"] - max(x["open"], x["close"])
@@ -402,13 +403,19 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
         if bull(a) and bull(b) and bull(c):
             if (c["close"] > b["close"] > a["close"] and
                 body(b) >= 0.7 * body(a) and body(c) >= 0.7 * body(b)):
-                cond_open = (b["open"]  >= min(a["open"], a["close"]) and b["open"]  <= max(a["open"], a["close"]) and
-                             c["open"]  >= min(b["open"], b["close"]) and c["open"]  <= max(b["open"], b["close"]))
-                cond_wicks = (upper_wick(a) <= body(a) and lower_wick(a) <= body(a) and
-                              upper_wick(b) <= body(b) and lower_wick(b) <= body(b) and
-                              upper_wick(c) <= body(c) and lower_wick(c) <= body(c))
+                cond_open = (
+                    b["open"] >= min(a["open"], a["close"]) and
+                    b["open"] <= max(a["open"], a["close"]) and
+                    c["open"] >= min(b["open"], b["close"]) and
+                    c["open"] <= max(b["open"], b["close"])
+                )
+                cond_wicks = (
+                    upper_wick(a) <= body(a) and lower_wick(a) <= body(a) and
+                    upper_wick(b) <= body(b) and lower_wick(b) <= body(b) and
+                    upper_wick(c) <= body(c) and lower_wick(c) <= body(c)
+                )
                 if cond_open and cond_wicks:
-                    return "🟩 Three White Soldiers"
+                    return "🟩 Three White Soldiers", 0.62
 
     # Bullish Harami (come prima)
     if len(df) >= 2 and body1_abs != 0:
@@ -424,7 +431,7 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
                   max(o1, c1c) <= max(prev["open"], prev["close"]))
 
         if prev_red and (c1c > o1) and big_prev and small_now and dentro:
-            return "🤰 Bullish Harami"
+            return "🤰 Bullish Harami", 0.56
 
     # ------------------------------------------------
     # Fallback: pattern avanzati pro-BUY da patterns.py
@@ -435,10 +442,10 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
         patt_list = detect_candlestick_patterns(df, atr=atr_series, vol=vol_series)
     except Exception as e:
         logging.warning(f"⚠️ Errore detect_candlestick_patterns: {e}")
-        return ""
+        return "", 0.0
 
     if not patt_list:
-        return ""
+        return "", 0.0
 
     # preferisci pattern bull, poi il più confidente
     bulls = [p for p in patt_list if p.get("direction") == "bull"]
@@ -447,7 +454,9 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
 
     name = best.get("name", "")
     if not name:
-        return ""
+        return "", 0.0
+
+    conf = float(best.get("confidence", 0.0) or 0.0)
 
     # mapping semplice per icone (puoi ampliarlo se vuoi)
     emoji_map = {
@@ -459,7 +468,7 @@ def riconosci_pattern_candela(df: pd.DataFrame) -> str:
         "Long-legged Doji": "🦵",
     }
     prefix = emoji_map.get(name, "✨")
-    return f"{prefix} {name}"
+    return f"{prefix} {name}", conf
 
 
 
@@ -599,6 +608,7 @@ def calcola_probabilita_successo(
     escursione_media=None,
     supporto=None,
     pattern_candela=None,
+    pattern_confidenza: float = 0.0,
     pattern_db_ok=False,
     pattern_tri_ok=False,
 ):
@@ -692,12 +702,11 @@ def calcola_probabilita_successo(
         punteggio -= 10
 
     # ------------------------------------------
-    # ------------------------------------------
-    # 11. Boost/malus per pattern candlestick
+    # 11. Boost proporzionale per pattern candlestick
     # (i pattern strutturali sono già conteggiati al punto 5b)
     # ------------------------------------------
     try:
-        if pattern_candela:
+        if pattern_candela and pattern_confidenza and pattern_confidenza > 0:
             patt = pattern_candela
 
             bullish_keys = [
@@ -721,20 +730,26 @@ def calcola_probabilita_successo(
             is_bullish = any(k in patt for k in bullish_keys)
             is_bearish = any(k in patt for k in bearish_keys)
 
-            # pattern a favore del segnale
-            if segnale == "BUY" and is_bullish:
-                punteggio += 3
-            if segnale == "SELL" and is_bearish:
-                punteggio += 3
+            # boost massimo +4 punti, scalato sulla confidenza (0..1)
+            # conf 0.40 → +1.6
+            # conf 0.50 → +2.0
+            # conf 0.60 → +2.4
+            # conf 0.70 → +2.8
+            # conf 0.80 → +3.2
+            # conf 0.90 → +3.6
+            # conf 1.00 → +4.0
+            base_boost = min(4.0, 4.0 * float(pattern_confidenza))
 
-            # pattern contro il segnale (oltre a pattern_contrario che può già annullare)
-            if segnale == "BUY" and is_bearish:
-                punteggio -= 4
-            if segnale == "SELL" and is_bullish:
-                punteggio -= 4
+            # Applica il boost SOLO se la direzione del pattern è coerente col segnale
+            if segnale == "BUY" and is_bullish:
+                punteggio += base_boost
+            elif segnale == "SELL" and is_bearish:
+                punteggio += base_boost
+            # Se non riconosciamo la direzione o è neutro → nessun effetto
 
     except Exception as e:
         logging.warning(f"⚠️ Errore contributo pattern in probabilità: {e}")
+
 
     # ------------------------------------------
     # 🔍 Penalità avanzate (NON bloccanti)
@@ -1251,8 +1266,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         sl = round(close - atr, 4)
         note.append("📈 Pattern V: BUY da inversione rapida")
 
-    # Se segnale BUY/SELL aggiungi meta info
-    pattern = riconosci_pattern_candela(hist)
+    # Se segnale BUY/SELL aggiungi meta info + pattern con percentuale
+    pattern, pattern_conf = riconosci_pattern_candela(hist)
+
     if segnale in ["BUY", "SELL"]:
         n_candele = candele_reali_up if segnale == "BUY" else candele_reali_down
         dist_level = valuta_distanza(distanza_ema, close)
@@ -1264,7 +1280,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             note.append("↘️ Recupero 7<25 (99 sotto)")
 
         if pattern:
-            note.append(f"✅ Pattern: {pattern}")
+            pct = int(round(pattern_conf * 100)) if pattern_conf > 0 else 0
+            if pct > 0:
+                note.append(f"✅ Pattern: {pattern} ({pct}%)")
+            else:
+                note.append(f"✅ Pattern: {pattern}")
+
     else:
         if not (trend_up or trend_down):
             note.append("🔍 Nessun segnale: trend indeciso")
@@ -1334,9 +1355,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
                 supporto=supporto,
                 escursione_media=escursione_media,
                 pattern_candela=pattern,
+                pattern_confidenza=pattern_conf,
                 pattern_db_ok=pattern_db_ok,
                 pattern_tri_ok=pattern_tri_ok,
             )
+
             note.append(f"📊 Prob. successo stimata: {probabilita}%")
     except Exception as e:
         logging.warning(f"⚠️ Errore calcolo probabilità successo: {e}")
@@ -1363,12 +1386,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             prob_fusa = min(1.0, prob_fusa + PATTERN_SOFT_BOOST_TRI * p_tri["confidence"])
 
 
-
-        # --- BOOST/MALUS da pattern candlestick (opzionale) ---
-        if pattern:
-            # aggiungi la nota solo se non già presente
-            if f"✅ Pattern: {pattern}" not in note:
-                note.append(f"✅ Pattern: {pattern}")
 
         # esempi di aggiustamenti leggeri (solo BUY perché i due pattern sono bullish)
         if segnale == "BUY":
