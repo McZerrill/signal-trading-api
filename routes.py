@@ -29,6 +29,7 @@ logging.basicConfig(
     force=True
 )
 logging.debug("🧪 LOG DI TEST DEBUG all'avvio")
+logging.warning("🚀 BACKEND RIAVVIATO — routes.py ricaricato")
 
 
 router = APIRouter()
@@ -805,156 +806,157 @@ TP_TRAIL_FACTOR        = 1.20     # TP = entry + (prezzo-entry)*1.20  (BUY); vic
 
 def verifica_posizioni_attive():
     counter = 0  # per chiamare il cleanup ogni N cicli
-    
+
+    # ===== PROTEZIONE MASTER LOOP =====
     while True:
-        time.sleep(CHECK_INTERVAL_SEC)
+        try:
+            time.sleep(CHECK_INTERVAL_SEC)
 
-        with _pos_lock:
-            _keys_snapshot = list(posizioni_attive.keys())
-
-        for symbol in _keys_snapshot:
             with _pos_lock:
-                sim = posizioni_attive.get(symbol)
-            if sim is None or sim.get("esito") in ("Profitto", "Perdita"):
-                continue
+                _keys_snapshot = list(posizioni_attive.keys())
 
-            tipo = sim["tipo"]            # "BUY" | "SELL"
-            try:
-                # ===== prezzi live bid/ask =====
-                book      = get_bid_ask(symbol)
-                entry     = float(sim["entry"])
-                tp        = float(sim["tp"])
-                sl        = float(sim["sl"])
-
-                # prezzo live usato solo per progress/stato
-                prezzo_live = float(book["ask"] if tipo == "BUY" else book["bid"])
-                distanza_entry = abs(prezzo_live - entry)
-                progresso = abs(prezzo_live - entry) / abs(tp - entry) if tp != entry else 0.0
-
-                # ===== ultima candela timeframe trend =====
-                df = get_binance_df(symbol, TIMEFRAME_TREND, limit=CANDLE_LIMIT)
-                if df.empty:
-                    sim["motivo"] = f"⚠️ Dati insufficienti ({TIMEFRAME_TREND})"
+            for symbol in _keys_snapshot:
+                with _pos_lock:
+                    sim = posizioni_attive.get(symbol)
+                if sim is None or sim.get("esito") in ("Profitto", "Perdita"):
                     continue
 
-                last = df.iloc[-1]
-                o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
+                tipo = sim["tipo"]            # "BUY" | "SELL"
+                try:
+                    # ===== prezzi live bid/ask =====
+                    book      = get_bid_ask(symbol)
+                    entry     = float(sim["entry"])
+                    tp        = float(sim["tp"])
+                    sl        = float(sim["sl"])
 
-                # ===== EMA per stato/trailing =====
-                df["EMA_7"]  = df["close"].ewm(span=7).mean()
-                df["EMA_25"] = df["close"].ewm(span=25).mean()
-                ema7  = float(df["EMA_7"].iloc[-1])
-                ema25 = float(df["EMA_25"].iloc[-1])
-                dist_ema = abs(ema7 - ema25)
+                    # prezzo live usato solo per progress/stato
+                    prezzo_live = float(book["ask"] if tipo == "BUY" else book["bid"])
+                    distanza_entry = abs(prezzo_live - entry)
+                    progresso = abs(prezzo_live - entry) / abs(tp - entry) if tp != entry else 0.0
 
-                in_range = (EMA_DIST_MIN_PERC * c) <= dist_ema <= (EMA_DIST_MAX_PERC * c)
-                trend_ok = (
-                    (tipo == "BUY"  and c >= ema7 and ema7 > ema25 and in_range) or
-                    (tipo == "SELL" and c <= ema7 and ema7 < ema25 and in_range)
-                )
-
-                # ===== verifiche TP/SL su candela corrente (fill al livello, non a mercato) =====
-                # tolleranza tick (se disponibile)
-                TICK = float(sim.get("tick_size", 0.0)) if isinstance(sim.get("tick_size", 0.0), (int, float)) else 0.0
-                eps = TICK
-
-                fill_price = None
-                exit_reason = None
-
-                if tipo == "BUY":
-                    # conservativo: prima SL, poi TP se SL non toccato
-                    if sl and (l <= sl + eps):
-                        fill_price = sl
-                        exit_reason = "SL"
-                    elif tp and (h >= tp - eps):
-                        fill_price = tp
-                        exit_reason = "TP"
-                else:  # SELL
-                    # per SELL, priorità SL (high) poi TP (low)
-                    if sl and (h >= sl - eps):
-                        fill_price = sl
-                        exit_reason = "SL"
-                    elif tp and (l <= tp + eps):
-                        fill_price = tp
-                        exit_reason = "TP"
-
-                if fill_price is not None:
-                    with _pos_lock:
-                        sim["prezzo_chiusura"]  = round(float(fill_price), 10)
-                        sim["chiusa_da_backend"] = True
-                        sim["ora_chiusura"]     = datetime.now(tz=utc).isoformat(timespec="seconds")
-                        # variazione % rispetto a entry
-                        if tipo == "BUY":
-                            var_pct = (fill_price - entry) / entry * 100.0
-                        else:
-                            var_pct = (entry - fill_price) / entry * 100.0
-                        sim["variazione_pct"] = round(float(var_pct), 4)
-                        sim["esito"] = "Profitto" if exit_reason == "TP" else "Perdita"
-                        sim["motivo"] = ("🎯 TP colpito" if exit_reason == "TP" else "🛡️ SL colpito")
-
-                        logging.info(
-                            f"🔚 CLOSE {symbol} {tipo}: entry={entry:.6f} fill={fill_price:.6f} "
-                            f"tp={tp:.6f} sl={sl:.6f} esito={sim['esito']} var={sim['variazione_pct']:.3f}%"
-                        )
-                        # passa al prossimo symbol (questa è chiusa)
+                    # ===== ultima candela timeframe trend =====
+                    df = get_binance_df(symbol, TIMEFRAME_TREND, limit=CANDLE_LIMIT)
+                    if df.empty:
+                        sim["motivo"] = f"⚠️ Dati insufficienti ({TIMEFRAME_TREND})"
                         continue
 
-                # ===== retracement verso SL? =====
-                if sl != 0:
+                    last = df.iloc[-1]
+                    o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
+
+                    # ===== EMA per stato/trailing =====
+                    df["EMA_7"]  = df["close"].ewm(span=7).mean()
+                    df["EMA_25"] = df["close"].ewm(span=25).mean()
+                    ema7  = float(df["EMA_7"].iloc[-1])
+                    ema25 = float(df["EMA_25"].iloc[-1])
+                    dist_ema = abs(ema7 - ema25)
+
+                    in_range = (EMA_DIST_MIN_PERC * c) <= dist_ema <= (EMA_DIST_MAX_PERC * c)
+                    trend_ok = (
+                        (tipo == "BUY"  and c >= ema7 and ema7 > ema25 and in_range) or
+                        (tipo == "SELL" and c <= ema7 and ema7 < ema25 and in_range)
+                    )
+
+                    # ===== verifiche TP/SL su candela corrente =====
+                    TICK = float(sim.get("tick_size", 0.0)) if isinstance(sim.get("tick_size", 0.0), (int, float)) else 0.0
+                    eps = TICK
+
+                    fill_price = None
+                    exit_reason = None
+
                     if tipo == "BUY":
-                        verso_sl = c <= entry - SL_BUFFER_PERC * abs(entry - sl)
+                        if sl and (l <= sl + eps):
+                            fill_price = sl
+                            exit_reason = "SL"
+                        elif tp and (h >= tp - eps):
+                            fill_price = tp
+                            exit_reason = "TP"
                     else:  # SELL
-                        verso_sl = c >= entry + SL_BUFFER_PERC * abs(entry - sl)
-                else:
-                    verso_sl = False
+                        if sl and (h >= sl - eps):
+                            fill_price = sl
+                            exit_reason = "SL"
+                        elif tp and (l <= tp + eps):
+                            fill_price = tp
+                            exit_reason = "TP"
 
-                # ===== trailing TP dinamico (solo se trend OK e non verso SL) =====
-                if GESTIONE_ATTIVA and trend_ok and not verso_sl:
-                    with _pos_lock:
-                        sim.setdefault("tp_esteso", 1)
-                    if tipo == "BUY":
-                        nuovo_tp = round(entry + distanza_entry * TP_TRAIL_FACTOR, 6)
-                        if nuovo_tp > tp:
-                            with _pos_lock:
-                                sim["tp"] = nuovo_tp
-                                sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                    if fill_price is not None:
+                        with _pos_lock:
+                            sim["prezzo_chiusura"]  = round(float(fill_price), 10)
+                            sim["chiusa_da_backend"] = True
+                            sim["ora_chiusura"]     = datetime.now(tz=utc).isoformat(timespec="seconds")
+                            if tipo == "BUY":
+                                var_pct = (fill_price - entry) / entry * 100.0
+                            else:
+                                var_pct = (entry - fill_price) / entry * 100.0
+                            sim["variazione_pct"] = round(float(var_pct), 4)
+                            sim["esito"] = "Profitto" if exit_reason == "TP" else "Perdita"
+                            sim["motivo"] = ("🎯 TP colpito" if exit_reason == "TP" else "🛡️ SL colpito")
+
+                            logging.info(
+                                f"🔚 CLOSE {symbol} {tipo}: entry={entry:.6f} fill={fill_price:.6f} "
+                                f"tp={tp:.6f} sl={sl:.6f} esito={sim['esito']} var={sim['variazione_pct']:.3f}%"
+                            )
+                        continue
+
+                    # ===== retracement verso SL? =====
+                    if sl != 0:
+                        if tipo == "BUY":
+                            verso_sl = c <= entry - SL_BUFFER_PERC * abs(entry - sl)
+                        else:
+                            verso_sl = c >= entry + SL_BUFFER_PERC * abs(entry - sl)
                     else:
-                        nuovo_tp = round(entry - distanza_entry * TP_TRAIL_FACTOR, 6)
-                        if nuovo_tp < tp:
-                            with _pos_lock:
-                                sim["tp"] = nuovo_tp
-                                sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                        verso_sl = False
 
-                # ===== messaggio di stato =====
-                if not trend_ok:
+                    # ===== trailing TP dinamico =====
+                    if GESTIONE_ATTIVA and trend_ok and not verso_sl:
+                        with _pos_lock:
+                            sim.setdefault("tp_esteso", 1)
+                        if tipo == "BUY":
+                            nuovo_tp = round(entry + distanza_entry * TP_TRAIL_FACTOR, 6)
+                            if nuovo_tp > tp:
+                                with _pos_lock:
+                                    sim["tp"] = nuovo_tp
+                                    sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                        else:
+                            nuovo_tp = round(entry - distanza_entry * TP_TRAIL_FACTOR, 6)
+                            if nuovo_tp < tp:
+                                with _pos_lock:
+                                    sim["tp"] = nuovo_tp
+                                    sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+
+                    # ===== messaggio di stato =====
+                    if not trend_ok:
+                        with _pos_lock:
+                            sim["motivo"] = "⚠️ Trend 15m incerto"
+                    elif verso_sl:
+                        with _pos_lock:
+                            sim["motivo"] = "⏸️ Ritracciamento, TP stabile"
+                    elif "TP aggiornato" not in sim.get("motivo", ""):
+                        with _pos_lock:
+                            sim["motivo"] = "✅ Trend 15m in linea"
+
+                    logging.info(
+                        f"[15m] {symbol} {tipo} Entry={entry:.6f} Price={c:.6f} "
+                        f"TP={sim['tp']:.6f} SL={sl:.6f} Prog={progresso:.2f} Motivo={sim['motivo']}"
+                    )
+
+                except Exception as e:
                     with _pos_lock:
-                        sim["motivo"] = "⚠️ Trend 15m incerto"
-                elif verso_sl:
-                    with _pos_lock:
-                        sim["motivo"] = "⏸️ Ritracciamento, TP stabile"
-                elif "TP aggiornato" not in sim.get("motivo", ""):
-                    with _pos_lock:
-                        sim["motivo"] = "✅ Trend 15m in linea"
-                logging.info(
-                    f"[15m] {symbol} {tipo} Entry={entry:.6f} Price={c:.6f} "
-                    f"TP={sim['tp']:.6f} SL={sl:.6f} Prog={progresso:.2f} Motivo={sim['motivo']}"
-                )
+                        sim["motivo"] = f"❌ Errore monitor 15m: {e}"
+                    logging.error(f"[ERRORE] {symbol}: {e}")
 
-            except Exception as e:
-                with _pos_lock:
-                    sim["motivo"] = f"❌ Errore monitor 15m: {e}"
-                logging.error(f"[ERRORE] {symbol}: {e}")
+            # ===== cleanup periodico =====
+            counter += 1
+            if counter >= 10:
+                try:
+                    cleanup_posizioni_attive()
+                except Exception as e:
+                    logging.error(f"❌ Errore nel cleanup_posizioni_attive: {e}")
+                counter = 0
 
-        # --- fine loop sui simboli, qui siamo ancora dentro il while True ---
-
-        counter += 1
-        # ogni 10 cicli (10 * CHECK_INTERVAL_SEC) facciamo il cleanup
-        if counter >= 10:
-            try:
-                cleanup_posizioni_attive()
-            except Exception as e:
-                logging.error(f"❌ Errore nel cleanup_posizioni_attive: {e}")
-            counter = 0
+        # ===== CATCH GLOBALE: il monitor NON può morire =====
+        except Exception as fatal:
+            logging.error(f"💥 ERRORE FATALE nel monitor (protetto): {fatal}")
+            time.sleep(1)   # evita loop immediato
 
 
 # Thread monitor
