@@ -6,7 +6,8 @@ import logging
 import pandas as pd
 # Thread di monitoraggio attivo ogni 5 secondi
 import threading
-from binance_api import get_binance_df, get_best_symbols, get_bid_ask
+from binance_api import get_binance_df, get_best_symbols, get_bid_ask, get_symbol_tick_step
+
 from trend_logic import analizza_trend, conta_candele_trend
 from indicators import calcola_rsi, calcola_macd, calcola_atr
 from models import SignalResponse
@@ -169,6 +170,23 @@ def analyze(symbol: str):
         with _pos_lock:
             posizione = posizioni_attive.get(symbol)
             motivo_attuale = (posizione or {}).get("motivo", "")
+
+        # Tick size reale di Binance (serve al monitor 15m)
+        try:
+            tick_info = get_symbol_tick_step(symbol)
+
+            if isinstance(tick_info, dict):
+                tick_size = float(tick_info.get("tickSize", 0.0))
+            elif isinstance(tick_info, (list, tuple)) and len(tick_info) >= 1:
+                tick_size = float(tick_info[0])
+            else:
+                tick_size = float(tick_info)
+
+        except Exception as e:
+            logging.warning(f"⚠️ Impossibile ottenere tick_size per {symbol}: {e}")
+            tick_size = 0.0
+
+
 
         # 1) Spread PRIMA (early return se eccessivo)
         book = get_bid_ask(symbol)
@@ -473,7 +491,10 @@ def analyze(symbol: str):
                 else:
                     note.append(f"⚠️ Daily in conflitto ({daily_state})")
 
-            logging.info(f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – TP: {tp}, SL: {sl}, spread: {spread:.2f}%")
+            logging.info(
+                f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – "
+                f"TP: {tp}, SL: {sl}, spread: {spread:.2f}%, tick_size={tick_size}"
+            )
             with _pos_lock:
                 posizioni_attive[symbol] = {
                     "tipo": segnale,
@@ -481,6 +502,7 @@ def analyze(symbol: str):
                     "tp": tp,
                     "sl": sl,
                     "spread": spread,
+                    "tick_size": tick_size,          # 👈 aggiunto
                     "chiusa_da_backend": False,
                     "motivo": " | ".join(note)
                 }
