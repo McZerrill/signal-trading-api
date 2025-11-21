@@ -670,7 +670,13 @@ def hot_assets():
 
     for symbol in symbols:
         try:
+            # --- Flag whitelist per simbolo corrente ---
+            base = symbol[:-4] if (symbol.endswith("USDT") or symbol.endswith("USDC")) else symbol
+            is_whitelist = base in HOT_WHITELIST_BASE
+            added = False  # diventa True quando il symbol entra in risultati
+
             df = get_binance_df(symbol, "15m", 100)
+
             # --- Fast-path per LISTING PUMP anche con storico corto (<40 barre) ---
             if len(df) >= 2 and len(df) < 40:
                 ultimo = df.iloc[-1]
@@ -703,9 +709,11 @@ def hot_assets():
                         "candele_trend": 1,
                         "note": "🚀 Listing pump (storico corto)"
                     })
+                    added = True
                     continue  # salta i filtri classici e marca come hot
 
-            if df.empty or len(df) < 40:
+            # --- filtro storico minimo: per whitelist salta solo se df è proprio vuoto ---
+            if df.empty or (len(df) < 40 and not is_whitelist):
                 continue
 
             _filtro_log["totali"] += 1
@@ -716,8 +724,8 @@ def hot_assets():
 
             if pd.isna(volume_quote_medio) or volume_quote_medio < soglia_quote:
                 _filtro_log["volume_basso"] += 1
-                continue
-
+                if not is_whitelist:
+                    continue  # i whitelist non vengono scartati per volume basso
 
             df["EMA_7"] = df["close"].ewm(span=7).mean()
             df["EMA_25"] = df["close"].ewm(span=25).mean()
@@ -735,7 +743,7 @@ def hot_assets():
             atr = df["ATR"].iloc[-1]
             prezzo = df["close"].iloc[-1]
 
-            if prezzo <= 0 or pd.isna(atr) or atr < atr_minimo:
+            if (prezzo <= 0 or pd.isna(atr) or atr < atr_minimo) and not is_whitelist:
                 _filtro_log["atr"] += 1
                 continue
 
@@ -769,16 +777,17 @@ def hot_assets():
                     "prezzo": round(prezzo, 4),
                     "candele_trend": candele_trend
                 })
+                added = True
                 continue  # salta i filtri successivi: la coin è "hot" per pump
 
 
             distanza_relativa = abs(ema7 - ema99) / max(abs(ema99), 1e-9)
-            if distanza_relativa < distanza_minima and prezzo < 1000:
+            if distanza_relativa < distanza_minima and prezzo < 1000 and not is_whitelist:
                 _filtro_log["ema_flat"] += 1
                 continue
 
             oscillazione = df["close"].diff().abs().tail(10).sum()
-            if oscillazione < 0.001 and prezzo < 50:
+            if oscillazione < 0.001 and prezzo < 50 and not is_whitelist:
                 _filtro_log["prezzo_piattissimo"] += 1
                 continue
 
@@ -787,8 +796,9 @@ def hot_assets():
                 and macd_rsi_range[0] < rsi < macd_rsi_range[1]
                 and distanza_relativa < 0.0015
             ):
-                _filtro_log["macd_rsi_neutri"] += 1
-                continue
+                if not is_whitelist:
+                    _filtro_log["macd_rsi_neutri"] += 1
+                    continue
 
             recenti_rialzo = all(df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] > df["EMA_99"].iloc[-i] for i in range(1, 4))
             recenti_ribasso = all(df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] < df["EMA_99"].iloc[-i] for i in range(1, 4))
@@ -831,8 +841,27 @@ def hot_assets():
                     "prezzo": round(prezzo, 4),
                     "candele_trend": candele_trend
                 })
+                added = True
+
+            # --- Fallback: i simboli in whitelist devono comparire comunque ---
+            if is_whitelist and not added:
+                candele_trend = conta_candele_trend(df, rialzista=True)
+                risultati.append({
+                    "symbol": symbol,
+                    "segnali": 0,
+                    "trend": "HOLD",
+                    "rsi": round(float(rsi), 2) if not pd.isna(rsi) else None,
+                    "ema7": round(float(ema7), 2),
+                    "ema25": round(float(ema25), 2),
+                    "ema99": round(float(ema99), 2),
+                    "prezzo": round(float(prezzo), 4),
+                    "candele_trend": candele_trend,
+                    "note": "🎯 Whitelist asset (monitoraggio)"
+                })
+
         except Exception:
             continue
+
 
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
