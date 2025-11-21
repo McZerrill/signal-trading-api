@@ -172,10 +172,13 @@ def _frac_of_close(value: float, close: float) -> float:
 
 def enrich_indicators(hist: pd.DataFrame) -> pd.DataFrame:
     """Aggiunge EMA, RSI, ATR, MACD (se mancanti) al DataFrame."""
-    missing_cols = {"EMA_7", "EMA_25", "EMA_99"} - set(hist.columns)
-    if missing_cols:
-        ema = calcola_ema(hist, [7, 25, 99])
-        hist["EMA_7"], hist["EMA_25"], hist["EMA_99"] = ema[7], ema[25], ema[99]
+    # ➕ EMA_200 per filtro trend globale
+    ema_missing = {7, 25, 99, 200}
+    ema_missing = {p for p in ema_missing if f"EMA_{p}" not in hist.columns}
+    if ema_missing:
+        ema = calcola_ema(hist, sorted(ema_missing))
+        for p in ema_missing:
+            hist[f"EMA_{p}"] = ema[p]
 
     if "RSI" not in hist.columns:
         hist["RSI"] = calcola_rsi(hist["close"])
@@ -187,6 +190,7 @@ def enrich_indicators(hist: pd.DataFrame) -> pd.DataFrame:
         hist["ATR"] = calcola_atr(hist)
 
     return hist
+
 
 
 def is_trend_up(e7: float, e25: float, e99: float) -> bool:
@@ -862,12 +866,29 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     try:
         ultimo, penultimo, antepenultimo = hist.iloc[-1], hist.iloc[-2], hist.iloc[-3]
         ema7, ema25, ema99 = ultimo[["EMA_7", "EMA_25", "EMA_99"]]
+        ema200 = ultimo.get("EMA_200", None)
         close, rsi, atr, macd, macd_signal = ultimo[["close", "RSI", "ATR", "MACD", "MACD_SIGNAL"]]
         supporto = calcola_supporto(hist)
         close_s = _safe_close(close)
+
+        # ➕ Filtro EMA200 globale (se disponibile)
+        ema200_available = (ema200 is not None) and pd.notna(ema200)
+        buy_allowed  = (not ema200_available) or (close > ema200)
+        sell_allowed = (not ema200_available) or (close < ema200)
+
+        # ➕ Nota compatta per notifiche Android (1 rigo)
+        if ema200_available:
+            if close > ema200:
+                note.append("📏 EMA200: trend↑")
+            elif close < ema200:
+                note.append("📏 EMA200: trend↓")
+            else:
+                note.append("📏 EMA200: neutro")
+
     except Exception as e:
         logging.error(f"❌ Errore nell'accesso ai dati finali: {e}")
         return "HOLD", hist, 0.0, "Errore su iloc finali", 0.0, 0.0, 0.0
+
 
 
     volume_attuale = hist["volume"].iloc[-1]
@@ -959,12 +980,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     corpo_candela = abs(ultimo["close"] - ultimo["open"])
 
     if close > massimo_20 and volume_attuale > volume_medio * 1.5:
-        note.append("💥 Breakout↑ con Volume Alto")
+        note.append("💥 Breakout↑ Vol alto")
         if corpo_candela > atr:
             note.append("🚀 Spike↑ con Breakout")
             breakout_valido = True
     elif close < minimo_20 and volume_attuale > volume_medio * 1.5:
-        note.append("💥 Breakout↓ con Volume Alto")
+        note.append("💥 Breakout↓ Vol alto")
         if corpo_candela > atr:
             note.append("🚨 Spike↓ con Breakout")
             breakout_valido = True
@@ -1147,11 +1168,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
 
 
-    # Mostra le note SOLO se il pattern supera i criteri
+    # Mostra le note SOLO se il pattern supera i criteri (versione corta per notifiche)
     if pattern_db_ok:
-        note.append(f"🧩 {p_db.get('pattern', 'Double Bottom')} ({int(p_db.get('confidence',0)*100)}%)")
+        conf_db = int(p_db.get("confidence", 0) * 100)
+        note.append(f"🧩 DB {conf_db}%")
+
     if pattern_tri_ok:
-        note.append(f"🧩 {p_tri.get('pattern', 'Ascending Triangle')} ({int(p_tri.get('confidence',0)*100)}%)")
+        conf_tri = int(p_tri.get("confidence", 0) * 100)
+        note.append(f"🧩 TRI {conf_tri}%")
 
     # Condizione base per strategia + override coerente
     if sistema == "EMA":
@@ -1189,71 +1213,85 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     
     if cond_base:
         if sistema in ("DB","TRI") and pattern_buy_override:
-            segnale = "BUY"
-            note.append("✅ BUY per Pattern override" + (" (Double Bottom)" if sistema=="DB" else " (Ascending Triangle)"))
-        elif sistema == "EMA":
-            durata_trend = candele_reali_up
-            rsi_in_crescita = (rsi > penultimo["RSI"] > antepenultimo["RSI"])
-            
-            # Regole standard (tuo codice esistente)
-            if (
-                rsi >= _p("rsi_buy_forte")
-                and macd_buy_ok
-                and punteggio_trend >= SOGLIA_PUNTEGGIO
-                and rsi_in_crescita
-            ):
-                # consenti anche trend lunghi se breakout/pump
-                LIM_MATURITA = 10
-                if durata_trend >= LIM_MATURITA and not (breakout_valido or pump_flag):
-                    note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
-                else:
-                    segnale = "BUY"
-                    note.append("✅ BUY confermato")
+            if buy_allowed:
+                segnale = "BUY"
+                label = "DB" if sistema == "DB" else "TRI"
+                note.append(f"✅ BUY Pattern {label}")
+            else:
+                note.append("❌ Buy bloccato: sotto EMA200")
 
-            elif (
-                rsi >= _p("rsi_buy_debole")
-                and macd_buy_debole
-                and rsi_in_crescita
-            ):
-                if punteggio_trend >= SOGLIA_PUNTEGGIO + 1 and durata_trend <= 12:
-                    segnale = "BUY"
-                    note.append("✅ BUY confermato Moderato")
-                else:
-                    note.append("🤔 Segnale↑ Debole")
+
+        elif sistema == "EMA":
+            if not buy_allowed:
+                note.append("❌ Buy bloccato: sotto EMA200")
+            else:
+                durata_trend = candele_reali_up
+                rsi_in_crescita = (rsi > penultimo["RSI"] > antepenultimo["RSI"])
+                
+                # Regole standard (tuo codice esistente)
+                if (
+                    rsi >= _p("rsi_buy_forte")
+                    and macd_buy_ok
+                    and punteggio_trend >= SOGLIA_PUNTEGGIO
+                    and rsi_in_crescita
+                ):
+                    # consenti anche trend lunghi se breakout/pump
+                    LIM_MATURITA = 10
+                    if durata_trend >= LIM_MATURITA and not (breakout_valido or pump_flag):
+                        note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
+                    else:
+                        segnale = "BUY"
+                        note.append("✅ BUY confermato")
+
+                elif (
+                    rsi >= _p("rsi_buy_debole")
+                    and macd_buy_debole
+                    and rsi_in_crescita
+                ):
+                    if punteggio_trend >= SOGLIA_PUNTEGGIO + 1 and durata_trend <= 12:
+                        segnale = "BUY"
+                        note.append("✅ BUY confermato Moderato")
+                    else:
+                        note.append("🤔 Segnale↑ Debole")
+
 
 
     # ------------------------------------------------------------------
     # SELL logic (con RSI in calo integrato)
     # ------------------------------------------------------------------
     if not SOLO_BUY and (trend_down or recupero_sell) and distanza_ok:
-        durata_trend = candele_reali_down
-        rsi_in_calo = (rsi < penultimo["RSI"] < antepenultimo["RSI"])
+        if not sell_allowed:
+            note.append("❌ Sell bloccato: sopra EMA200")
+        else:
+            durata_trend = candele_reali_down
+            rsi_in_calo = (rsi < penultimo["RSI"] < antepenultimo["RSI"])
 
-        if (
-            rsi <= _p("rsi_sell_forte")
-            and macd_sell_ok
-            and punteggio_trend <= -SOGLIA_PUNTEGGIO
-            and rsi_in_calo
-        ):
-            if durata_trend >= 15:
-                note.append(f"⛔ Trend↓ Maturo ({durata_trend} candele)")
-            else:
-                segnale = "SELL"
-                note.append("✅ SELL confermato")
+            if (
+                rsi <= _p("rsi_sell_forte")
+                and macd_sell_ok
+                and punteggio_trend <= -SOGLIA_PUNTEGGIO
+                and rsi_in_calo
+            ):
+                if durata_trend >= 15:
+                    note.append(f"⛔ Trend↓ Maturo ({durata_trend} candele)")
+                else:
+                    segnale = "SELL"
+                    note.append("✅ SELL confermato")
 
-        elif (
-            rsi <= _p("rsi_sell_debole")
-            and macd_sell_debole
-            and rsi_in_calo
-        ):
-            if punteggio_trend <= -SOGLIA_PUNTEGGIO - 2 and durata_trend <= 10:
-                segnale = "SELL"
-                note.append("✅ SELL confermato Moderato")
-            else:
-                note.append("🤔 Segnale↓ Debole")
+            elif (
+                rsi <= _p("rsi_sell_debole")
+                and macd_sell_debole
+                and rsi_in_calo
+            ):
+                if punteggio_trend <= -SOGLIA_PUNTEGGIO - 2 and durata_trend <= 10:
+                    segnale = "SELL"
+                    note.append("✅ SELL confermato Moderato")
+                else:
+                    note.append("🤔 Segnale↓ Debole")
 
 
-    # Pattern V rapido → solo se il trend è coerente (5)
+
+    # Pattern V rapido → solo se il trend è coerente (5) e sopra EMA200
     if (
         sistema == "EMA"
         and segnale == "HOLD"
@@ -1261,10 +1299,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         and rsi > 45
         and rileva_pattern_v(hist)
     ):
-        segnale = "BUY"
-        tp = round(close + atr * 1.5, 4)
-        sl = round(close - atr, 4)
-        note.append("📈 Pattern V: BUY da inversione rapida")
+        if buy_allowed:
+            segnale = "BUY"
+            tp = round(close + atr * 1.5, 4)
+            sl = round(close - atr, 4)
+            note.append("📈 Pattern V: BUY rapido")
+        else:
+            note.append("❌ Buy bloccato: sotto EMA200")
+
 
     # Se segnale BUY/SELL aggiungi meta info + pattern con percentuale
     pattern, pattern_conf = riconosci_pattern_candela(hist)
@@ -1282,9 +1324,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         if pattern:
             pct = int(round(pattern_conf * 100)) if pattern_conf > 0 else 0
             if pct > 0:
-                note.append(f"✅ Pattern: {pattern} ({pct}%)")
+                note.append(f"✅ {pattern} {pct}%")
             else:
-                note.append(f"✅ Pattern: {pattern}")
+                note.append(f"✅ {pattern}")
 
     else:
         if not (trend_up or trend_down):
@@ -1304,7 +1346,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
 
     # Invalidation per pattern contrario
     if pattern_contrario(segnale, pattern):
-        note.append(f"⚠️ Pattern contrario: inversione ({pattern})")
+        note.append("⚠️ Pattern contrario, segnale OFF")
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
     # RSI/MACD neutri → solo warning (la penalità è già gestita in calcola_probabilita_successo)
@@ -1321,14 +1363,18 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
     if not DISATTIVA_CHECK_EMA_1M:
         n_check_ema = 5 if MODALITA_TEST else 15
         if not ema_in_movimento_coerente(hist_1m, rialzista=(segnale == "BUY"), n_candele=n_check_ema):
-            note.append("⛔ Segnale annullato: EMA su 1m non in movimento coerente col trend 15m")
+            note.append("⛔ EMA 1m fuori trend 15m")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
-    # BUY forzato su incrocio progressivo
+    # BUY forzato su incrocio progressivo (rispetta EMA200)
     if sistema == "EMA" and segnale == "HOLD" and rileva_incrocio_progressivo(hist):
-        segnale = "BUY"
-        note.append("📈 Incrocio Progressivo EMA(7>25>99): BUY")
+        if buy_allowed:
+            segnale = "BUY"
+            note.append("📈 Incrocio Progressivo EMA(7>25>99): BUY")
+        else:
+            note.append("❌ Buy bloccato: sotto EMA200")
 
+    
     # Calcolo probabilità di successo (con penalità avanzate)
     try:
         if segnale in ["BUY", "SELL"]:
