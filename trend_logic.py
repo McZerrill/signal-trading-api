@@ -1220,39 +1220,76 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
             else:
                 note.append("❌ Buy bloccato: sotto EMA200")
 
-
+        
         elif sistema == "EMA":
             if not buy_allowed:
                 note.append("❌ Buy bloccato: sotto EMA200")
             else:
                 durata_trend = candele_reali_up
                 rsi_in_crescita = (rsi > penultimo["RSI"] > antepenultimo["RSI"])
-                
-                # Regole standard (tuo codice esistente)
-                if (
-                    rsi >= _p("rsi_buy_forte")
-                    and macd_buy_ok
-                    and punteggio_trend >= SOGLIA_PUNTEGGIO
-                    and rsi_in_crescita
-                ):
-                    # consenti anche trend lunghi se breakout/pump
-                    LIM_MATURITA = 10
-                    if durata_trend >= LIM_MATURITA and not (breakout_valido or pump_flag):
-                        note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
-                    else:
-                        segnale = "BUY"
-                        note.append("✅ BUY confermato")
 
-                elif (
-                    rsi >= _p("rsi_buy_debole")
-                    and macd_buy_debole
-                    and rsi_in_crescita
-                ):
-                    if punteggio_trend >= SOGLIA_PUNTEGGIO + 1 and durata_trend <= 12:
+                # --- Setup anticipati su incrocio EMA7/25 + primo pullback ---
+                cross_7_25_recent = (
+                    hist["EMA_7"].iloc[-2] <= hist["EMA_25"].iloc[-2]  # prima la 7 era sotto
+                    and ema7 > ema25                                   # ora la 7 è sopra
+                )
+                early_trend = durata_trend <= 4  # trend appena partito
+
+                pullback_su_ema = (
+                    trend_up
+                    and 4 <= durata_trend <= 10
+                    and close >= ema25
+                    and close <= ema7 * 1.005   # prezzo tra 25 e poco sopra la 7
+                )
+
+                # 1) BUY early sull'incrocio recente 7/25
+                if segnale == "HOLD" and cross_7_25_recent and early_trend:
+                    if (
+                        rsi > 50
+                        and macd_buy_debole
+                        and punteggio_trend >= SOGLIA_PUNTEGGIO - 1
+                    ):
                         segnale = "BUY"
-                        note.append("✅ BUY confermato Moderato")
-                    else:
-                        note.append("🤔 Segnale↑ Debole")
+                        note.append("⚡ BUY early: incrocio EMA7/25 recente")
+
+                # 2) BUY sul primo pullback dopo l'incrocio
+                if segnale == "HOLD" and pullback_su_ema:
+                    if (
+                        rsi > 52
+                        and macd > 0
+                        and punteggio_trend >= SOGLIA_PUNTEGGIO
+                    ):
+                        segnale = "BUY"
+                        note.append("🎯 BUY su pullback EMA7/25")
+
+                # 3) Regole standard (come prima), solo se non è già scattato un BUY early
+                if segnale == "HOLD":
+                    if (
+                        rsi >= _p("rsi_buy_forte")
+                        and macd_buy_ok
+                        and punteggio_trend >= SOGLIA_PUNTEGGIO
+                        and rsi_in_crescita
+                    ):
+                        # consenti anche trend un po' più lunghi se l'incrocio è recente
+                        LIM_BASE = 10
+                        LIM_MATURITA = 14 if cross_7_25_recent else LIM_BASE
+
+                        if durata_trend >= LIM_MATURITA and not (breakout_valido or pump_flag):
+                            note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
+                        else:
+                            segnale = "BUY"
+                            note.append("✅ BUY confermato")
+
+                    elif (
+                        rsi >= _p("rsi_buy_debole")
+                        and macd_buy_debole
+                        and rsi_in_crescita
+                    ):
+                        if punteggio_trend >= SOGLIA_PUNTEGGIO + 1 and durata_trend <= 12:
+                            segnale = "BUY"
+                            note.append("✅ BUY confermato Moderato")
+                        else:
+                            note.append("🤔 Segnale↑ Debole")
 
 
 
