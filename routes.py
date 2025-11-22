@@ -143,6 +143,7 @@ def append_simulazione_chiusa(symbol: str, sim: dict):
             "esito": sim.get("esito"),
             "variazione_pct": float(sim.get("variazione_pct", 0.0)),
             "motivo": sim.get("motivo"),
+            "note_notifica": sim.get("note_notifica", ""),
             "ora_chiusura": sim.get("ora_chiusura"),
             "chiusa_da_backend": bool(sim.get("chiusa_da_backend", False)),
             "timestamp_log": datetime.now(tz=utc).isoformat(timespec="seconds"),
@@ -484,13 +485,20 @@ def analyze(symbol: str):
             if daily_state == "NA":
                 note.append("📅 1d - Check fallito")  # dati non disponibili / check fallito
             else:
-                ok_daily = (segnale == "BUY" and daily_state == "BUY") or \
-                   (segnale == "SELL" and daily_state == "SELL")
+                ok_daily = (
+                    (segnale == "BUY"  and daily_state == "BUY") or
+                    (segnale == "SELL" and daily_state == "SELL")
+                )
                 if ok_daily:
                     note.append("📅 1d✓")
                 else:
                     note.append(f"⚠️ Daily in conflitto ({daily_state})")
 
+        # testo completo della notifica (per app + per log simulazioni)
+        commento = "\n".join(note) if note else "Nessuna nota"
+
+        # apertura simulazione SOLO se c'è un vero segnale
+        if segnale in ["BUY", "SELL"]:
             logging.info(
                 f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – "
                 f"TP: {tp}, SL: {sl}, spread: {spread:.2f}%, tick_size={tick_size}"
@@ -502,13 +510,11 @@ def analyze(symbol: str):
                     "tp": tp,
                     "sl": sl,
                     "spread": spread,
-                    "tick_size": tick_size,          # 👈 aggiunto
+                    "tick_size": tick_size,
                     "chiusa_da_backend": False,
-                    "motivo": " | ".join(note)
+                    "motivo": " | ".join(note),
+                    "note_notifica": commento,   # 👈 testo completo notifica
                 }
-
-
-        commento = "\n".join(note) if note else "Nessuna nota"
 
         return SignalResponse(
             symbol=symbol,
@@ -529,6 +535,7 @@ def analyze(symbol: str):
             motivo=" | ".join(note),
             chiusa_da_backend=False
         )
+
 
     except Exception as e:
         logging.error(f"❌ Errore durante /analyze per {symbol}: {e}")
