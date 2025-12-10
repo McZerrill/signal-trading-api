@@ -36,9 +36,6 @@ logging.warning("🚀 BACKEND RIAVVIATO — routes.py ricaricato")
 router = APIRouter()
 utc = dt_timezone.utc
 
-router = APIRouter()
-utc = dt_timezone.utc
-
 
 # ------------------------------------------------------------------
 # WHITELIST asset che devono comparire sempre in /hotassets
@@ -195,6 +192,7 @@ def analyze(symbol: str):
         ask = float(book.get("ask", 0.0))
         spread = book["spread"]
 
+
         # Prezzo live (mid tra bid e ask) per allineare l'app a Binance
         prezzo_live = round(((bid + ask) / 2), 6) if bid > 0 and ask > 0 else 0.0
 
@@ -335,6 +333,14 @@ def analyze(symbol: str):
                     posizione["esito"] = "Annullata"
                     posizione["chiusa_da_backend"] = True
                     posizione["motivo"] = note15
+                    posizione["ora_chiusura"] = datetime.now(tz=utc).isoformat(timespec="seconds")
+                    posizione.setdefault("note_notifica", note15)
+                # opzionale ma consigliato: log JSONL anche per annullate
+                try:
+                    append_simulazione_chiusa(symbol, posizione)
+                except Exception:
+                    pass
+
                 return SignalResponse(
                     symbol=symbol,
                     segnale="HOLD",
@@ -392,7 +398,7 @@ def analyze(symbol: str):
 
         # 5) Logging timeframe e analisi di conferma
         logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
-        logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
+        logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {(note15 or '').replace(chr(10), ' | ')}")
         logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
 
         # 1h: ok usare ancora analizza_trend come conferma "soft"
@@ -720,8 +726,23 @@ def hot_assets():
                     continue  # salta i filtri classici e marca come hot
 
             # --- filtro storico minimo: per whitelist salta solo se df è proprio vuoto ---
-            if df.empty or (len(df) < 40 and not is_whitelist):
+            if df.empty:
+                if is_whitelist:
+                    risultati.append({
+                        "symbol": symbol,
+                        "segnali": 0,
+                        "trend": "HOLD",
+                        "rsi": None,
+                        "ema7": 0.0, "ema25": 0.0, "ema99": 0.0,
+                        "prezzo": 0.0,
+                        "candele_trend": 0,
+                        "note": "🎯 Whitelist asset (dati non disponibili)"
+                    })
                 continue
+
+            if len(df) < 40 and not is_whitelist:
+                continue
+
 
             _filtro_log["totali"] += 1
 
@@ -866,8 +887,20 @@ def hot_assets():
                     "note": "🎯 Whitelist asset (monitoraggio)"
                 })
 
-        except Exception:
+        except Exception as e:
+            if is_whitelist:
+                risultati.append({
+                    "symbol": symbol,
+                    "segnali": 0,
+                    "trend": "HOLD",
+                    "rsi": None,
+                    "ema7": 0.0, "ema25": 0.0, "ema99": 0.0,
+                    "prezzo": 0.0,
+                    "candele_trend": 0,
+                    "note": f"🎯 Whitelist asset (errore: {type(e).__name__})"
+                })
             continue
+
 
 
     _hot_cache["time"] = now
@@ -922,8 +955,12 @@ def verifica_posizioni_attive():
                     # ===== ultima candela timeframe trend =====
                     df = get_binance_df(symbol, TIMEFRAME_TREND, limit=CANDLE_LIMIT)
                     if df.empty:
-                        sim["motivo"] = f"⚠️ Dati insufficienti ({TIMEFRAME_TREND})"
+                        with _pos_lock:
+                            s = posizioni_attive.get(symbol)
+                            if s is not None:
+                                s["motivo"] = f"⚠️ Dati insufficienti ({TIMEFRAME_TREND})"
                         continue
+
 
                     last = df.iloc[-1]
                     o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
