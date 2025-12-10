@@ -176,7 +176,7 @@ def enrich_indicators(hist: pd.DataFrame) -> pd.DataFrame:
     ema_missing = {7, 25, 99, 200}
     ema_missing = {p for p in ema_missing if f"EMA_{p}" not in hist.columns}
     if ema_missing:
-        ema = calcola_ema(hist, sorted(ema_missing))
+        ema = calcola_ema(hist["close"], sorted(ema_missing))
         for p in ema_missing:
             hist[f"EMA_{p}"] = ema[p]
 
@@ -530,10 +530,19 @@ def calcola_punteggio_trend(
     punteggio = 0
 
     # 1. Direzione del trend (più forte)
-    if is_trend_up(ema7, ema25, ema99):
+    trend_up = is_trend_up(ema7, ema25, ema99)
+    trend_down = is_trend_down(ema7, ema25, ema99)
+
+    if trend_up:
         punteggio += 3
-    elif is_trend_down(ema7, ema25, ema99):
+    elif trend_down:
         punteggio -= 3
+
+    # 1b. Se è trend ma EMA ancora compresse → riduci ottimismo (uscita congestione)
+    dist_7_99_pct = _frac_of_close(abs(ema7 - ema99), close)
+    if (trend_up or trend_down) and dist_7_99_pct < 0.0020:   # stesso valore del gate etichetta
+        punteggio -= 1 if trend_up else -1
+
 
     # 2. RSI
     if rsi >= 65:
@@ -633,20 +642,24 @@ def calcola_probabilita_successo(
 
     # 3. MACD coerente con segnale
     macd_gap = macd - macd_signal
+    gap_rel  = _frac_of_close(macd_gap, close)
+
     if segnale == "BUY":
-        if macd > macd_signal and macd_gap > 0.001:
+        if (macd > macd_signal) and (gap_rel > _p("macd_gap_rel_forte")):
             punteggio += 10
-        elif macd > 0 and macd_gap > 0:
+        elif (macd > 0) and (gap_rel > _p("macd_gap_rel_debole")):
             punteggio += 5
         elif abs(macd_gap) < _p("macd_signal_threshold"):
             punteggio -= 5
+
     elif segnale == "SELL":
-        if macd < macd_signal and macd_gap < -0.001:
+        if (macd < macd_signal) and (gap_rel < -_p("macd_gap_rel_forte")):
             punteggio += 10
-        elif macd < 0 and macd_gap < 0:
+        elif (macd < 0) and (gap_rel < -_p("macd_gap_rel_debole")):
             punteggio += 5
         elif abs(macd_gap) < _p("macd_signal_threshold"):
             punteggio -= 5
+
 
     # 4. Volume coerente
     if volume_attuale > volume_medio * _p("volume_alto"):
@@ -969,9 +982,26 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFram
         volume_attuale, volume_medio, distanza_ema, atr, close,
     )
     note.append(f"📊 Trend score: {punteggio_trend}")
+
+    # --- etichetta trend più realistica: evita "Forte" se EMA ancora compresse ---
+    dist_7_99_pct = _frac_of_close(abs(ema7 - ema99), close_s)
+    STRONG_MIN_DIST_7_99 = 0.0020   # 0.20% (tuning rapido)
+    STRONG_MIN_CANDLES   = 4        # candele strict minime
+
     desc = trend_score_description(punteggio_trend)
+
+    if desc == "🔥 Trend↑ Forte":
+        if dist_7_99_pct < STRONG_MIN_DIST_7_99 or candele_trend_up_strict < STRONG_MIN_CANDLES:
+            desc = "👍 Trend↑ Moderato"
+            note.append("🧊 EMA compresse: uscita congestione")
+    elif desc == "❌ Trend↓ Forte":
+        if dist_7_99_pct < STRONG_MIN_DIST_7_99 or candele_trend_down_strict < STRONG_MIN_CANDLES:
+            desc = "⚠️ Trend↓ Moderato"
+            note.append("🧊 EMA compresse: uscita congestione")
+
     if desc:
         note.append(desc)
+
 
     # ------------------------------------------------------------------
     # Breakout
