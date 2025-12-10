@@ -172,9 +172,14 @@ def detect_ascending_triangle(
     else:
         res = float(highs.quantile(0.90))
 
-    hits = _level_touch_ratio(highs, res, touch_tol)
-    if hits < (min_touches / max(5, len(d))):
+    # touches calcolati sulla stessa finestra usata per la resistenza
+    highs_win = highs.tail(k) if use_tail_window else highs
+    tol = abs(res) * touch_tol
+    hits_count = ((highs_win - res).abs() <= tol).sum()
+
+    if hits_count < min_touches:
         return {"found": False, "pattern": "Ascending Triangle", "confidence": 0.0, "last_index": d.index[-1]}
+
 
     # Base ascendente (trendline minimi)
     x = np.arange(len(lows))
@@ -312,8 +317,13 @@ def detect_price_channel(
     if "ATR" in df.columns and pd.notna(df["ATR"].iloc[-1]):
         atr_now = float(df["ATR"].iloc[-1])
     else:
-        atr_now = 0.0
+        # fallback robusto se ATR non è presente (es. resample 1h): usa range medio recente
+        rng = (df["high"] - df["low"]).tail(14)
+        atr_now = float(rng.mean()) if len(rng) else 0.0
+
     touch_tol = (touch_tol_mult_atr * atr_now) if atr_now > 0 else (width_now / 200.0)
+    touch_tol = max(touch_tol, width_now / 500.0)  # evita tolleranza troppo microscopica
+
 
     dist_up = np.abs(highs - upper_line)
     dist_lo = np.abs(lows - lower_line)
@@ -542,10 +552,17 @@ def detect_candlestick_patterns(
             keep = True
             if "Doji" in p["name"] and atrv is not None:
                 rng = max(1e-9, d.iloc[-1]["high"] - d.iloc[-1]["low"])
-                if rng > 0 and (atrv / rng) < 0.25:  # scarta doji in micro-range
+                # scarta doji quando il range è davvero piccolo rispetto all'ATR (micro-range)
+                if atrv > 0 and (rng / atrv) < 0.25:
                     keep = False
-            if volv is not None:
-                p["confidence"] = min(0.95, p["confidence"] + 0.05)  # volume rafforza di poco
+
+            # boost SOLO se volume sopra media recente
+            if vol is not None:
+                vol_last = float(vol.loc[last_idx]) if last_idx in vol.index else None
+                vol_mean = float(vol.iloc[-21:-1].mean()) if len(vol) > 5 else None
+                if vol_last is not None and vol_mean and vol_mean > 0 and vol_last > vol_mean * 1.2:
+                    p["confidence"] = min(0.95, p["confidence"] + 0.05)
+
             if keep:
                 adjusted.append(p)
         out = adjusted
