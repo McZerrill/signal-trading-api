@@ -319,20 +319,45 @@ def analyze(symbol: str):
         df_1m  = get_binance_df(symbol, "1m", 100)
 
         try:
-            segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread, df_1m)
-        except KeyError as e:
-            logging.error(
-                f"[analizza_trend 15m] KeyError {e} per {symbol} – colonne df_15m: {list(df_15m.columns)}"
+            segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
+                df_15m,
+                spread,
+                df_1m
             )
-            from trend_logic import enrich_indicators
-            # fallback: arricchiamo df_15m e lo usiamo come hist
-            hist = enrich_indicators(df_15m.copy()) if isinstance(df_15m, pd.DataFrame) and not df_15m.empty else df_15m
-            segnale = "HOLD"
-            distanza_ema = 0.0
-            note15 = f"Errore analisi 15m: {e}"
-            tp = sl = supporto = 0.0
+        except KeyError as e:
+            # 👉 Non facciamo più fallire /analyze: trasformiamo in HOLD di sicurezza
+            cols = list(df_15m.columns) if isinstance(df_15m, pd.DataFrame) else []
+            logging.warning(
+                f"[analizza_trend 15m] KeyError {e!r} per {symbol} - "
+                f"colonne df_15m: {cols} (len={len(df_15m) if hasattr(df_15m, '__len__') else 'NA'})"
+            )
+            segnale, hist, distanza_ema, note15, tp, sl, supporto = (
+                "HOLD",
+                df_15m if isinstance(df_15m, pd.DataFrame) else pd.DataFrame(),
+                0.0,
+                "Analisi 15m non disponibile (KeyError su dati)",
+                0.0,
+                0.0,
+                None,
+            )
+        except Exception as e:
+            cols = list(df_15m.columns) if isinstance(df_15m, pd.DataFrame) else []
+            logging.error(
+                f"❌ Errore imprevisto in analizza_trend 15m per {symbol}: {e} - "
+                f"colonne df_15m: {cols} (len={len(df_15m) if hasattr(df_15m, '__len__') else 'NA'})"
+            )
+            segnale, hist, distanza_ema, note15, tp, sl, supporto = (
+                "HOLD",
+                df_15m if isinstance(df_15m, pd.DataFrame) else pd.DataFrame(),
+                0.0,
+                "Analisi 15m non disponibile (errore interno)",
+                0.0,
+                0.0,
+                None,
+            )
 
         note = note15.split("\n") if note15 else []
+
 
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
