@@ -530,21 +530,10 @@ def calcola_punteggio_trend(
     punteggio = 0
 
     # 1. Direzione del trend (più forte)
-    trend_up = is_trend_up(ema7, ema25, ema99)
-    trend_down = is_trend_down(ema7, ema25, ema99)
-
-    if trend_up:
+    if is_trend_up(ema7, ema25, ema99):
         punteggio += 3
-    elif trend_down:
+    elif is_trend_down(ema7, ema25, ema99):
         punteggio -= 3
-
-    # 1b. Se è trend ma EMA ancora compresse → riduci "forza" (sia per UP che per DOWN)
-    dist_7_99_pct = _frac_of_close(abs(ema7 - ema99), close)
-    if (trend_up or trend_down) and dist_7_99_pct < 0.0020:   # stesso valore del gate etichetta
-        if trend_up:
-            punteggio -= 1   # +3 → +2
-        elif trend_down:
-            punteggio -= 1   # -3 → -4 (più deciso, non annacquato)
 
     # 2. RSI
     if rsi >= 65:
@@ -568,6 +557,7 @@ def calcola_punteggio_trend(
         punteggio -= 2
     elif gap_rel < -_p("macd_gap_rel_debole"):
         punteggio -= 1
+
 
     # 4. Volume
     if volume_attuale > volume_medio * _p("volume_alto"):
@@ -821,12 +811,28 @@ def calcola_probabilita_successo(
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None, sistema: str = "EMA"):
 
     logging.debug("🔍 Inizio analisi trend")
-    hist = hist.copy()  
+
+    # 🔒 Guard 0: DF mancante o vuoto
+    if hist is None or not isinstance(hist, pd.DataFrame) or hist.empty:
+        logging.warning("⚠️ analizza_trend: DataFrame vuoto o None")
+        return "HOLD", (hist if isinstance(hist, pd.DataFrame) else pd.DataFrame()), 0.0, "Dati insufficienti", 0.0, 0.0, None
+
+    # 🔒 Guard 1: colonne OHLC mancanti
+    required_cols = {"open", "high", "low", "close"}
+    if not required_cols.issubset(hist.columns):
+        missing = required_cols - set(hist.columns)
+        logging.warning(f"⚠️ analizza_trend: colonne OHLC mancanti {missing}")
+        return "HOLD", hist, 0.0, "Colonne OHLC mancanti", 0.0, 0.0, None
+
+    hist = hist.copy()
+
     if "volume" not in hist.columns:
         hist["volume"] = 0.0
 
     pump_flag = False
     pump_msg  = None
+  
+
     if len(hist) < 22:
         try:
             ultimo = hist.iloc[-1]
