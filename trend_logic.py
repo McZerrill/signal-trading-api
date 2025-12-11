@@ -176,20 +176,26 @@ def enrich_indicators(hist: pd.DataFrame) -> pd.DataFrame:
     ema_missing = {7, 25, 99, 200}
     ema_missing = {p for p in ema_missing if f"EMA_{p}" not in hist.columns}
     if ema_missing:
-        ema = calcola_ema(hist["close"], sorted(ema_missing))
-        for p in ema_missing:
-            hist[f"EMA_{p}"] = ema[p]
+        # ⬇️ QUI LA FIX: passo il DataFrame intero, non la Series "close"
+        periods = sorted(ema_missing)
+        ema_dict = calcola_ema(hist, periods)
+        for p in periods:
+            hist[f"EMA_{p}"] = ema_dict[p]
 
+    # RSI
     if "RSI" not in hist.columns:
         hist["RSI"] = calcola_rsi(hist["close"])
 
+    # MACD
     if not {"MACD", "MACD_SIGNAL"}.issubset(hist.columns):
         hist["MACD"], hist["MACD_SIGNAL"] = calcola_macd(hist["close"])
 
+    # ATR
     if "ATR" not in hist.columns:
         hist["ATR"] = calcola_atr(hist)
 
     return hist
+
 
 
 
