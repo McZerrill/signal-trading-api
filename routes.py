@@ -318,8 +318,22 @@ def analyze(symbol: str):
         df_1d  = get_binance_df(symbol, "1d", 300)
         df_1m  = get_binance_df(symbol, "1m", 100)
 
-        segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread, df_1m)
+        try:
+            segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread, df_1m)
+        except KeyError as e:
+            logging.error(
+                f"[analizza_trend 15m] KeyError {e} per {symbol} – colonne df_15m: {list(df_15m.columns)}"
+            )
+            from trend_logic import enrich_indicators
+            # fallback: arricchiamo df_15m e lo usiamo come hist
+            hist = enrich_indicators(df_15m.copy()) if isinstance(df_15m, pd.DataFrame) and not df_15m.empty else df_15m
+            segnale = "HOLD"
+            distanza_ema = 0.0
+            note15 = f"Errore analisi 15m: {e}"
+            tp = sl = supporto = 0.0
+
         note = note15.split("\n") if note15 else []
+
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
         if posizione:
