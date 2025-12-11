@@ -446,7 +446,21 @@ def analyze(symbol: str):
         # 5) Logging timeframe e analisi di conferma
         logging.debug(f"[BINANCE] {symbol} – 15m: {len(df_15m)} | 1h: {len(df_1h)} | 1d: {len(df_1d)}")
         logging.debug(f"[15m] {symbol} – Segnale: {segnale}, Note: {note15.replace(chr(10), ' | ')}")
-        logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
+
+        # supporto può essere None → niente formato .6f diretto
+        try:
+            dist_val = float(distanza_ema) if distanza_ema is not None else 0.0
+            tp_val   = float(tp) if tp is not None else 0.0
+            sl_val   = float(sl) if sl is not None else 0.0
+            sup_val  = float(supporto) if isinstance(supporto, (int, float)) else 0.0
+            logging.debug(
+                "[15m DETTAGLI] distEMA={:.6f}, TP={:.6f}, SL={:.6f}, supporto={:.6f}".format(
+                    dist_val, tp_val, sl_val, sup_val
+                )
+            )
+        except Exception as e_log:
+            logging.debug(f"[15m DETTAGLI] impossibile loggare TP/SL/supporto: {e_log}")
+
 
         # 1h: ok usare ancora analizza_trend come conferma "soft"
         try:
