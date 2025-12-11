@@ -409,21 +409,21 @@ def analyze(symbol: str):
             )
 
         # 4) Estrai sempre i tecnici più recenti (anche se HOLD)
+        close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
+
         try:
-            # Se hist è valido e ha 'close', usiamo quello, altrimenti df_15m
+            # scegli la sorgente: hist se valido, altrimenti df_15m
             src = hist if isinstance(hist, pd.DataFrame) and not hist.empty and "close" in hist.columns else df_15m
 
-            if src is None or not isinstance(src, pd.DataFrame) or src.empty:
+            if not isinstance(src, pd.DataFrame) or src.empty:
                 raise ValueError("DataFrame tecnico vuoto")
 
-            # Assicuriamoci che abbia gli indicatori base
-            from trend_logic import enrich_indicators
-            if any(col not in src.columns for col in ("EMA_7", "EMA_25", "EMA_99", "RSI", "ATR", "MACD", "MACD_SIGNAL")):
-                src = enrich_indicators(src.copy())
+            if "close" not in src.columns:
+                raise KeyError("colonna 'close' mancante nel DataFrame tecnico")
 
+            # recupera l’ultima riga e applica valori fallback per sicurezza
             ultimo = src.iloc[-1]
-
-            close = round(float(ultimo["close"]), 4)
+            close = round(float(ultimo.get("close", 0.0)), 4)
             rsi = round(float(ultimo.get("RSI", 0.0)), 2)
             ema7 = round(float(ultimo.get("EMA_7", 0.0)), 2)
             ema25 = round(float(ultimo.get("EMA_25", 0.0)), 2)
@@ -435,6 +435,7 @@ def analyze(symbol: str):
         except Exception as e:
             logging.warning(f"⚠️ Errore nell’estrazione dei dati tecnici per {symbol}: {e}")
             close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
+
 
 
         # Prezzo da esporre all'app:
