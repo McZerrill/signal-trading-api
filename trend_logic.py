@@ -1162,8 +1162,32 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
     # ------------------------------------------------------------------
     # Pattern strutturali (solo BUY)
     # ------------------------------------------------------------------
-    p_db  = detect_double_bottom(hist, lookback=180, neckline_confirm=True) or {}
-    p_tri = detect_ascending_triangle(hist, lookback=200, breakout_confirm=True) or {}
+    try:
+        p_db = detect_double_bottom(
+            hist,
+            lookback=180,
+            neckline_confirm=True
+        ) or {}
+    except Exception as e:
+        logging.warning(
+            f"⚠️ Errore detect_double_bottom: {e} | "
+            f"colonne={list(hist.columns)} | len={len(hist)}"
+        )
+        p_db = {}
+
+    try:
+        p_tri = detect_ascending_triangle(
+            hist,
+            lookback=200,
+            breakout_confirm=True
+        ) or {}
+    except Exception as e:
+        logging.warning(
+            f"⚠️ Errore detect_ascending_triangle: {e} | "
+            f"colonne={list(hist.columns)} | len={len(hist)}"
+        )
+        p_tri = {}
+
 
     def _pattern_recent(p: dict, max_age: int = 40) -> bool:
         pts = p.get("points", {}) or {}
