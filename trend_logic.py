@@ -808,12 +808,34 @@ def calcola_probabilita_successo(
 # -----------------------------------------------------------------------------
 # Funzione principale: analizza_trend
 # -----------------------------------------------------------------------------
-def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None, sistema: str = "EMA"):
+def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
+                   hist_1m: pd.DataFrame = None, sistema: str = "EMA"):
 
     logging.debug("🔍 Inizio analisi trend")
-    hist = hist.copy()  
+
+    # 🔐 Guard rail: DataFrame vuoto o senza 'close' -> non esplodere
+    if hist is None or hist is pd.NA:
+        logging.warning("⚠️ analizza_trend chiamata con hist=None/NA")
+        return "HOLD", pd.DataFrame(), 0.0, "Dati assenti (hist None)", 0.0, 0.0, None
+
+    if not isinstance(hist, pd.DataFrame):
+        logging.warning(f"⚠️ analizza_trend: tipo hist non valido ({type(hist)})")
+        return "HOLD", pd.DataFrame(), 0.0, f"Tipo dati non valido: {type(hist)}", 0.0, 0.0, None
+
+    if hist.empty:
+        logging.warning("⚠️ analizza_trend chiamata con DataFrame vuoto")
+        return "HOLD", hist, 0.0, "Dati insufficienti (hist vuoto)", 0.0, 0.0, None
+
+    if "close" not in hist.columns:
+        logging.warning(f"⚠️ analizza_trend: colonna 'close' assente. Colonne: {list(hist.columns)}")
+        return "HOLD", hist, 0.0, "Dati incompleti (manca colonna close)", 0.0, 0.0, None
+
+    hist = hist.copy()
     if "volume" not in hist.columns:
         hist["volume"] = 0.0
+
+    # ... resto della funzione come ce l’hai ...
+
 
     pump_flag = False
     pump_msg  = None
