@@ -538,11 +538,13 @@ def calcola_punteggio_trend(
     elif trend_down:
         punteggio -= 3
 
-    # 1b. Se è trend ma EMA ancora compresse → riduci ottimismo (uscita congestione)
+    # 1b. Se è trend ma EMA ancora compresse → riduci "forza" (sia per UP che per DOWN)
     dist_7_99_pct = _frac_of_close(abs(ema7 - ema99), close)
     if (trend_up or trend_down) and dist_7_99_pct < 0.0020:   # stesso valore del gate etichetta
-        punteggio -= 1 if trend_up else -1
-
+        if trend_up:
+            punteggio -= 1   # +3 → +2
+        elif trend_down:
+            punteggio -= 1   # -3 → -4 (più deciso, non annacquato)
 
     # 2. RSI
     if rsi >= 65:
@@ -566,7 +568,6 @@ def calcola_punteggio_trend(
         punteggio -= 2
     elif gap_rel < -_p("macd_gap_rel_debole"):
         punteggio -= 1
-
 
     # 4. Volume
     if volume_attuale > volume_medio * _p("volume_alto"):
