@@ -424,8 +424,19 @@ def analyze(symbol: str):
         logging.debug(f"[15m DETTAGLI] distEMA={distanza_ema:.6f}, TP={tp:.6f}, SL={sl:.6f}, supporto={supporto:.6f}")
 
         # 1h: ok usare ancora analizza_trend come conferma "soft"
-        segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread)
+        try:
+            segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread)
+        except KeyError as e:
+            logging.error(
+                f"[analizza_trend 1h] KeyError {e} per {symbol} – colonne df_1h: {list(df_1h.columns)}"
+            )
+            from trend_logic import enrich_indicators
+            hist_1h = enrich_indicators(df_1h.copy()) if isinstance(df_1h, pd.DataFrame) and not df_1h.empty else df_1h
+            segnale_1h = "HOLD"
+            note1h = f"Errore analisi 1h: {e}"
+
         logging.debug(f"[1h] {symbol} – Segnale: {segnale_1h}")
+
 
         # 1d: controllo RIGOROSO solo su EMA (niente recupero/RSI/MACD)
         try:
