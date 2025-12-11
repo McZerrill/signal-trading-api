@@ -748,11 +748,28 @@ def hot_assets():
 
     risultati = []
 
-    volume_soglia = 50 if MODALITA_TEST else 300
-    atr_minimo = 0.0003 if MODALITA_TEST else 0.0009
-    distanza_minima = 0.0004 if MODALITA_TEST else 0.0012
-    macd_rsi_range = (40, 60) if MODALITA_TEST else (47.5, 52.5)
-    macd_signal_threshold = 0.0008 if MODALITA_TEST else 0.0005
+    # --- Soglie radar HOT vs trend_logic (imbuto crescente) ---
+    if MODALITA_TEST:
+        # Radar più permissivo di trend_logic:
+        # trend_logic TEST: volume_soglia=120, atr_minimo=0.0005, distanza_minima=0.0008,
+        #                   macd_rsi_range=(45,55), macd_signal_threshold=0.00015
+        volume_soglia = 50          # quantità scambiata minima per non essere "morta"
+        atr_minimo = 0.0003         # un po' sotto 0.0005 → passa roba più "timida"
+        distanza_minima = 0.0004    # metà della soglia di analizza_trend
+        macd_rsi_range = (47, 53)   # zona neutra più stretta del (45,55)
+        macd_signal_threshold = 0.00010  # MACD davvero incollato al segnale
+        distanza_flat_max = 0.0012       # EMA 7–99 quasi sovrapposte = mercato piatto
+    else:
+        # Radar PROD, sempre più permissivo di trend_logic PROD:
+        # trend_logic PROD: volume_soglia=300, atr_minimo=0.0009, distanza_minima=0.0012,
+        #                   macd_rsi_range=(47,53), macd_signal_threshold=0.0006
+        volume_soglia = 200
+        atr_minimo = 0.0007
+        distanza_minima = 0.0008
+        macd_rsi_range = (48, 52)   # ancora più centrale
+        macd_signal_threshold = 0.00040
+        distanza_flat_max = 0.0010
+
 
     for symbol in symbols:
         try:
@@ -877,14 +894,17 @@ def hot_assets():
                 _filtro_log["prezzo_piattissimo"] += 1
                 continue
 
+            # --- Kill switch solo per asset DAVVERO piatti (MACD/RSI neutri + EMA schiacciate) ---
+            delta_macd = abs(macd - macd_signal)
             if (
-                abs(macd - macd_signal) < macd_signal_threshold
-                and macd_rsi_range[0] < rsi < macd_rsi_range[1]
-                and distanza_relativa < 0.0015
+                delta_macd < macd_signal_threshold           # MACD quasi sovrapposto al segnale
+                and macd_rsi_range[0] <= rsi <= macd_rsi_range[1]  # RSI molto centrale
+                and distanza_relativa < distanza_flat_max    # EMA 7–99 troppo vicine
             ):
                 if not is_whitelist:
                     _filtro_log["macd_rsi_neutri"] += 1
                     continue
+
 
             recenti_rialzo = all(df["EMA_7"].iloc[-i] > df["EMA_25"].iloc[-i] > df["EMA_99"].iloc[-i] for i in range(1, 4))
             recenti_ribasso = all(df["EMA_7"].iloc[-i] < df["EMA_25"].iloc[-i] < df["EMA_99"].iloc[-i] for i in range(1, 4))
