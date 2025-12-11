@@ -811,21 +811,7 @@ def calcola_probabilita_successo(
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0, hist_1m: pd.DataFrame = None, sistema: str = "EMA"):
 
     logging.debug("🔍 Inizio analisi trend")
-
-    # 🔒 Guard 0: DF mancante o vuoto
-    if hist is None or not isinstance(hist, pd.DataFrame) or hist.empty:
-        logging.warning("⚠️ analizza_trend: DataFrame vuoto o None")
-        return "HOLD", (hist if isinstance(hist, pd.DataFrame) else pd.DataFrame()), 0.0, "Dati insufficienti", 0.0, 0.0, None
-
-    # 🔒 Guard 1: colonne OHLC mancanti
-    required_cols = {"open", "high", "low", "close"}
-    if not required_cols.issubset(hist.columns):
-        missing = required_cols - set(hist.columns)
-        logging.warning(f"⚠️ analizza_trend: colonne OHLC mancanti {missing}")
-        return "HOLD", hist, 0.0, "Colonne OHLC mancanti", 0.0, 0.0, None
-
-    hist = hist.copy()
-
+    hist = hist.copy()  
     if "volume" not in hist.columns:
         hist["volume"] = 0.0
 
