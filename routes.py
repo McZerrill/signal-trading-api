@@ -270,22 +270,70 @@ def analyze(symbol: str):
                         COND_VOLUME  = ("volume" in df_15m_tmp.columns) and (float(u["volume"]) >= 2.5 * max(volume_ref, 1e-9))
 
                         # se 1 candela → usa COND_LISTING; se >=2 candele → accetta anche corpo/volume esplosi
-                        trigger = (n == 1 and COND_LISTING) or (n >= 2 and (COND_LISTING or (body_frac >= 0.70 and (COND_CORPO or COND_VOLUME))))
+                        trigger = (
+                            n == 1 and COND_LISTING
+                        ) or (
+                            n >= 2 and (COND_LISTING or (body_frac >= 0.70 and (COND_CORPO or COND_VOLUME)))
+                        )
 
                         if trigger:
                             prezzo_notifica = close_tmp if close_tmp > 0 else round(float(u["close"]), 6)
+
+                            # Calcolo ATR per impostare TP/SL sperimentali
+                            try:
+                                atr_series = calcola_atr(df_15m_tmp)
+                                atr_clean = atr_series.dropna()
+                                atr_val = float(atr_clean.iloc[-1]) if not atr_clean.empty else 0.0
+                            except Exception as _e_atr:
+                                logging.warning(f"⚠️ ATR listing pump non disponibile per {symbol}: {_e_atr}")
+                                atr_val = 0.0
+
+                            # fallback ATR ≈ 5% del prezzo se non disponibile
+                            if atr_val <= 0:
+                                atr_val = max(prezzo_notifica * 0.05, 1e-8)
+
+                            # TP/SL semplici con RR ~ 1.5 (solo per test listing pump)
+                            tp_lp = round(prezzo_notifica + atr_val * 1.8, 6)
+                            sl_lp = round(prezzo_notifica - atr_val * 1.2, 6)
+                            if sl_lp <= 0:
+                                sl_lp = round(prezzo_notifica * 0.5, 6)  # safety extra
+
+                            # 👉 Avvia la simulazione COME per gli altri BUY
+                            with _pos_lock:
+                                posizioni_attive[symbol] = {
+                                    "tipo": "BUY",
+                                    "entry": prezzo_notifica,
+                                    "tp": tp_lp,
+                                    "sl": sl_lp,
+                                    "spread": spread,
+                                    "tick_size": tick_size,
+                                    "chiusa_da_backend": False,
+                                    "motivo": "Listing pump (auto-sim)",
+                                    "note_notifica": "🚀 Listing/Vertical pump rilevato • ⚠️ Spread elevato: operazione ad altissimo rischio",
+                                }
+
+                            logging.info(
+                                f"✅ [LISTING] Nuova simulazione BUY per {symbol} @ {prezzo_notifica}$ – "
+                                f"TP: {tp_lp}, SL: {sl_lp}, spread: {spread:.2f}%"
+                            )
+
                             return SignalResponse(
                                 symbol=symbol,
                                 segnale="BUY",
                                 commento="🚀 Listing/Vertical pump rilevato • ⚠️ Spread elevato: operazione ad altissimo rischio",
                                 prezzo=prezzo_notifica,
-                                take_profit=0.0,
-                                stop_loss=0.0,
-                                rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
-                                ema7=0.0, ema25=0.0, ema99=0.0,
+                                take_profit=tp_lp,
+                                stop_loss=sl_lp,
+                                rsi=0.0,
+                                macd=0.0,
+                                macd_signal=0.0,
+                                atr=atr_val,
+                                ema7=0.0,
+                                ema25=0.0,
+                                ema99=0.0,
                                 timeframe="15m",
                                 spread=spread,
-                                motivo="Listing pump (override spread)",
+                                motivo="Listing pump (auto-sim)",
                                 chiusa_da_backend=False
                             )
                 except Exception:
