@@ -36,9 +36,6 @@ logging.warning("🚀 BACKEND RIAVVIATO — routes.py ricaricato")
 router = APIRouter()
 utc = dt_timezone.utc
 
-router = APIRouter()
-utc = dt_timezone.utc
-
 
 # ------------------------------------------------------------------
 # WHITELIST asset che devono comparire sempre in /hotassets
@@ -832,6 +829,11 @@ def hot_assets():
 
                 if (COND_GAIN and COND_BODY and (COND_CORPO or COND_VOLUME)):
                     trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
+
+                    note_txt = "🚀 Listing pump (storico corto)"
+                    if is_whitelist:
+                        note_txt = "⭐ WL • " + note_txt
+                    
                     risultati.append({
                         "symbol": symbol,
                         "segnali": 1,
@@ -840,7 +842,7 @@ def hot_assets():
                         "ema7": 0.0, "ema25": 0.0, "ema99": 0.0,
                         "prezzo": round(float(ultimo["close"]), 4),
                         "candele_trend": 1,
-                        "note": "🚀 Listing pump (storico corto)"
+                        "note": note_txt,
                     })
                     added = True
                     continue  # salta i filtri classici e marca come hot
@@ -899,7 +901,8 @@ def hot_assets():
             if (cond_corpo and cond_volume) or (cond_range and cond_volume and cond_wick):
                 trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
                 candele_trend = conta_candele_trend(df, rialzista=(trend_pump == "BUY"))
-                risultati.append({
+
+                obj = {
                     "symbol": symbol,
                     "segnali": 1,
                     "trend": trend_pump,
@@ -908,10 +911,16 @@ def hot_assets():
                     "ema25": round(ema25, 2),
                     "ema99": round(ema99, 2),
                     "prezzo": round(prezzo, 4),
-                    "candele_trend": candele_trend
-                })
+                    "candele_trend": candele_trend,
+                }
+
+                if is_whitelist:
+                    obj["note"] = "⭐ WL • Pump 15m"
+
+                risultati.append(obj)
                 added = True
                 continue  # salta i filtri successivi: la coin è "hot" per pump
+
 
 
             distanza_relativa = abs(ema7 - ema99) / max(abs(ema99), 1e-9)
@@ -966,7 +975,8 @@ def hot_assets():
             if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
                 segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
-                risultati.append({
+
+                obj = {
                     "symbol": symbol,
                     "segnali": 1,
                     "trend": segnale,
@@ -975,13 +985,23 @@ def hot_assets():
                     "ema25": round(ema25, 2),
                     "ema99": round(ema99, 2),
                     "prezzo": round(prezzo, 4),
-                    "candele_trend": candele_trend
-                })
+                    "candele_trend": candele_trend,
+                }
+
+                if is_whitelist:
+                    obj["note"] = "⭐ WL • Monitor trend"
+
+                risultati.append(obj)
                 added = True
+
 
             # --- Fallback: i simboli in whitelist devono comparire comunque ---
             if is_whitelist and not added:
                 candele_trend = conta_candele_trend(df, rialzista=True)
+
+                note_txt = "🎯 Whitelist asset (monitoraggio)"
+                note_txt = "⭐ WL • " + note_txt  # qui è sicuramente whitelist
+
                 risultati.append({
                     "symbol": symbol,
                     "segnali": 0,
@@ -992,8 +1012,9 @@ def hot_assets():
                     "ema99": round(float(ema99), 2),
                     "prezzo": round(float(prezzo), 4),
                     "candele_trend": candele_trend,
-                    "note": "🎯 Whitelist asset (monitoraggio)"
+                    "note": note_txt,
                 })
+
 
         except Exception:
             continue
