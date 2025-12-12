@@ -36,6 +36,9 @@ logging.warning("🚀 BACKEND RIAVVIATO — routes.py ricaricato")
 router = APIRouter()
 utc = dt_timezone.utc
 
+router = APIRouter()
+utc = dt_timezone.utc
+
 
 # ------------------------------------------------------------------
 # WHITELIST asset che devono comparire sempre in /hotassets
@@ -169,36 +172,6 @@ def analyze(symbol: str):
             posizione = posizioni_attive.get(symbol)
             motivo_attuale = (posizione or {}).get("motivo", "")
 
-        # 👉 Se c'è già una simulazione APERTA su questo simbolo,
-        #    non rifacciamo l'analisi e NON generiamo nuovi segnali.
-        if posizione and not posizione.get("chiusa_da_backend", False):
-            logging.info(
-                f"⏳ /analyze ignorato: simulazione già attiva su {symbol} – "
-                f"{posizione['tipo']} @ {posizione['entry']}$"
-            )
-            return SignalResponse(
-                symbol=symbol,
-                segnale="HOLD",
-                commento=(
-                    f"⏳ Simulazione già attiva su {symbol} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
-                    f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
-                ),
-                prezzo=float(posizione["entry"]),
-                take_profit=float(posizione["tp"]),
-                stop_loss=float(posizione["sl"]),
-                rsi=0.0,
-                macd=0.0,
-                macd_signal=0.0,
-                atr=0.0,
-                ema7=0.0,
-                ema25=0.0,
-                ema99=0.0,
-                timeframe="15m",
-                spread=float(posizione.get("spread", 0.0)),
-                motivo=motivo_attuale,
-                chiusa_da_backend=posizione.get("chiusa_da_backend", False),
-            )
-
         # Tick size reale di Binance (serve al monitor 15m)
         try:
             tick_info = get_symbol_tick_step(symbol)
@@ -267,70 +240,22 @@ def analyze(symbol: str):
                         COND_VOLUME  = ("volume" in df_15m_tmp.columns) and (float(u["volume"]) >= 2.5 * max(volume_ref, 1e-9))
 
                         # se 1 candela → usa COND_LISTING; se >=2 candele → accetta anche corpo/volume esplosi
-                        trigger = (
-                            n == 1 and COND_LISTING
-                        ) or (
-                            n >= 2 and (COND_LISTING or (body_frac >= 0.70 and (COND_CORPO or COND_VOLUME)))
-                        )
+                        trigger = (n == 1 and COND_LISTING) or (n >= 2 and (COND_LISTING or (body_frac >= 0.70 and (COND_CORPO or COND_VOLUME))))
 
                         if trigger:
                             prezzo_notifica = close_tmp if close_tmp > 0 else round(float(u["close"]), 6)
-
-                            # Calcolo ATR per impostare TP/SL sperimentali
-                            try:
-                                atr_series = calcola_atr(df_15m_tmp)
-                                atr_clean = atr_series.dropna()
-                                atr_val = float(atr_clean.iloc[-1]) if not atr_clean.empty else 0.0
-                            except Exception as _e_atr:
-                                logging.warning(f"⚠️ ATR listing pump non disponibile per {symbol}: {_e_atr}")
-                                atr_val = 0.0
-
-                            # fallback ATR ≈ 5% del prezzo se non disponibile
-                            if atr_val <= 0:
-                                atr_val = max(prezzo_notifica * 0.05, 1e-8)
-
-                            # TP/SL semplici con RR ~ 1.5 (solo per test listing pump)
-                            tp_lp = round(prezzo_notifica + atr_val * 1.8, 6)
-                            sl_lp = round(prezzo_notifica - atr_val * 1.2, 6)
-                            if sl_lp <= 0:
-                                sl_lp = round(prezzo_notifica * 0.5, 6)  # safety extra
-
-                            # 👉 Avvia la simulazione COME per gli altri BUY
-                            with _pos_lock:
-                                posizioni_attive[symbol] = {
-                                    "tipo": "BUY",
-                                    "entry": prezzo_notifica,
-                                    "tp": tp_lp,
-                                    "sl": sl_lp,
-                                    "spread": spread,
-                                    "tick_size": tick_size,
-                                    "chiusa_da_backend": False,
-                                    "motivo": "Listing pump (auto-sim)",
-                                    "note_notifica": "🚀 Listing/Vertical pump rilevato • ⚠️ Spread elevato: operazione ad altissimo rischio",
-                                }
-
-                            logging.info(
-                                f"✅ [LISTING] Nuova simulazione BUY per {symbol} @ {prezzo_notifica}$ – "
-                                f"TP: {tp_lp}, SL: {sl_lp}, spread: {spread:.2f}%"
-                            )
-
                             return SignalResponse(
                                 symbol=symbol,
                                 segnale="BUY",
                                 commento="🚀 Listing/Vertical pump rilevato • ⚠️ Spread elevato: operazione ad altissimo rischio",
                                 prezzo=prezzo_notifica,
-                                take_profit=tp_lp,
-                                stop_loss=sl_lp,
-                                rsi=0.0,
-                                macd=0.0,
-                                macd_signal=0.0,
-                                atr=atr_val,
-                                ema7=0.0,
-                                ema25=0.0,
-                                ema99=0.0,
+                                take_profit=0.0,
+                                stop_loss=0.0,
+                                rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
+                                ema7=0.0, ema25=0.0, ema99=0.0,
                                 timeframe="15m",
                                 spread=spread,
-                                motivo="Listing pump (auto-sim)",
+                                motivo="Listing pump (override spread)",
                                 chiusa_da_backend=False
                             )
                 except Exception:
@@ -434,6 +359,54 @@ def analyze(symbol: str):
         note = note15.split("\n") if note15 else []
 
 
+
+        # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
+        if posizione:
+            logging.info(
+                f"⏳ Simulazione già attiva su {symbol} – tipo: "
+                f"{posizione['tipo']} @ {posizione['entry']}$"
+            )
+
+            # se l’analisi ha “annullato” il segnale → marca la simulazione e restituisci HOLD annotato
+            if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
+                with _pos_lock:
+                    posizione["tipo"] = "HOLD"
+                    posizione["esito"] = "Annullata"
+                    posizione["chiusa_da_backend"] = True
+                    posizione["motivo"] = note15
+                return SignalResponse(
+                    symbol=symbol,
+                    segnale="HOLD",
+                    commento=note15,
+                    prezzo=posizione["entry"],
+                    take_profit=posizione["tp"],
+                    stop_loss=posizione["sl"],
+                    rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
+                    ema7=0.0, ema25=0.0, ema99=0.0,
+                    timeframe="15m",
+                    spread=posizione.get("spread", 0.0),
+                    motivo=note15,
+                    chiusa_da_backend=True
+                )
+
+            # altrimenti ritorna lo stato della simulazione attiva
+            return SignalResponse(
+                symbol=symbol,
+                segnale="HOLD",
+                commento=(
+                    f"\u23f3 Simulazione gi\u00e0 attiva su {symbol} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
+                    f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
+                ),
+                prezzo=posizione["entry"],
+                take_profit=posizione["tp"],
+                stop_loss=posizione["sl"],
+                rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
+                ema7=0.0, ema25=0.0, ema99=0.0,
+                timeframe="15m",
+                spread=posizione.get("spread", 0.0),
+                motivo=motivo_attuale,
+                chiusa_da_backend=posizione.get("chiusa_da_backend", False)
+            )
 
         # 4) Estrai sempre i tecnici più recenti (anche se HOLD)
         close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
@@ -829,11 +802,6 @@ def hot_assets():
 
                 if (COND_GAIN and COND_BODY and (COND_CORPO or COND_VOLUME)):
                     trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
-
-                    note_txt = "🚀 Listing pump (storico corto)"
-                    if is_whitelist:
-                        note_txt = "⭐ WL • " + note_txt
-                    
                     risultati.append({
                         "symbol": symbol,
                         "segnali": 1,
@@ -842,7 +810,7 @@ def hot_assets():
                         "ema7": 0.0, "ema25": 0.0, "ema99": 0.0,
                         "prezzo": round(float(ultimo["close"]), 4),
                         "candele_trend": 1,
-                        "note": note_txt,
+                        "note": "🚀 Listing pump (storico corto)"
                     })
                     added = True
                     continue  # salta i filtri classici e marca come hot
@@ -901,8 +869,7 @@ def hot_assets():
             if (cond_corpo and cond_volume) or (cond_range and cond_volume and cond_wick):
                 trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
                 candele_trend = conta_candele_trend(df, rialzista=(trend_pump == "BUY"))
-
-                obj = {
+                risultati.append({
                     "symbol": symbol,
                     "segnali": 1,
                     "trend": trend_pump,
@@ -911,16 +878,10 @@ def hot_assets():
                     "ema25": round(ema25, 2),
                     "ema99": round(ema99, 2),
                     "prezzo": round(prezzo, 4),
-                    "candele_trend": candele_trend,
-                }
-
-                if is_whitelist:
-                    obj["note"] = "⭐ WL • Pump 15m"
-
-                risultati.append(obj)
+                    "candele_trend": candele_trend
+                })
                 added = True
                 continue  # salta i filtri successivi: la coin è "hot" per pump
-
 
 
             distanza_relativa = abs(ema7 - ema99) / max(abs(ema99), 1e-9)
@@ -975,8 +936,7 @@ def hot_assets():
             if trend_buy or trend_sell or presegnale_buy or presegnale_sell:
                 segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
-
-                obj = {
+                risultati.append({
                     "symbol": symbol,
                     "segnali": 1,
                     "trend": segnale,
@@ -985,23 +945,13 @@ def hot_assets():
                     "ema25": round(ema25, 2),
                     "ema99": round(ema99, 2),
                     "prezzo": round(prezzo, 4),
-                    "candele_trend": candele_trend,
-                }
-
-                if is_whitelist:
-                    obj["note"] = "⭐ WL • Monitor trend"
-
-                risultati.append(obj)
+                    "candele_trend": candele_trend
+                })
                 added = True
-
 
             # --- Fallback: i simboli in whitelist devono comparire comunque ---
             if is_whitelist and not added:
                 candele_trend = conta_candele_trend(df, rialzista=True)
-
-                note_txt = "🎯 Whitelist asset (monitoraggio)"
-                note_txt = "⭐ WL • " + note_txt  # qui è sicuramente whitelist
-
                 risultati.append({
                     "symbol": symbol,
                     "segnali": 0,
@@ -1012,9 +962,8 @@ def hot_assets():
                     "ema99": round(float(ema99), 2),
                     "prezzo": round(float(prezzo), 4),
                     "candele_trend": candele_trend,
-                    "note": note_txt,
+                    "note": "🎯 Whitelist asset (monitoraggio)"
                 })
-
 
         except Exception:
             continue
