@@ -114,6 +114,15 @@ def _normalize_ohlc_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     df.columns = [str(c[0]) if isinstance(c, tuple) else str(c) for c in df.columns]
     df = df.rename(columns=rename_map)
 
+    # --- Gestisci doppio 'close' (Close + Adj Close) ---
+    close_cols = [c for c in df.columns if c == "close"]
+    if len(close_cols) > 1:
+        # prendi, per ogni riga, il primo valore non-NaN tra le colonne close
+        close_series = df[close_cols].bfill(axis=1).iloc[:, 0]
+        df = df.drop(columns=close_cols)
+        df["close"] = close_series
+
+
     # --- Aggiungi colonne mancanti ---
     for col in ["open", "high", "low", "close", "volume"]:
         if col not in df.columns:
