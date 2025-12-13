@@ -1,35 +1,70 @@
+#!/usr/bin/env python3
+"""
+Test minimale per yahoo_api.get_yahoo_df su macro + crypto.
+
+Si lancia con:
+    python3 test_yahoo_rate.py
+"""
+
 import time
+import traceback
+
+import yfinance as yf
 from yahoo_api import get_yahoo_df, YAHOO_SYMBOL_MAP
 
-CRYPTO_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT"]
+# Simboli “logici” che usi nel backend
+SYMBOLS = [
+    "XAUUSD",  # Oro
+    "XAGUSD",  # Argento
+    "SP500",
+    "NAS100",
+    "DAX40",
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "ADAUSDT",
+]
 
-print("=== Test YAHOO CRYPTO (via yahoo_api.get_yahoo_df) ===")
-print("Symbol map:")
-for s in CRYPTO_SYMBOLS:
-    print(f"  {s} -> {YAHOO_SYMBOL_MAP.get(s, s)}")
 
-for round_no in range(1, 3):
-    print(f"\n[ROUND #{round_no}]")
-    for s in CRYPTO_SYMBOLS:
-        y_symbol = YAHOO_SYMBOL_MAP.get(s, s)
-        try:
-            # NB: qui passo il TICKER YAHOO (es. BTC-USD) perché
-            # il tuo get_yahoo_df chiama direttamente yfinance su 'symbol'
-            df = get_yahoo_df(y_symbol, interval="15m")
+def main() -> None:
+    print("=== Test YAHOO (via yahoo_api.get_yahoo_df) ===")
+    print("yfinance version:", getattr(yf, "__version__", "unknown"))
+    print("\nSymbol map:")
+    for s in SYMBOLS:
+        print(f"  {s:7s} -> {YAHOO_SYMBOL_MAP.get(s, s)}")
 
-            if df is None or df.empty:
-                print(f"{s} ({y_symbol}) -> VUOTO (len=0)")
+    for round_no in (1, 2):
+        print(f"\n[ROUND #{round_no}]")
+        for s in SYMBOLS:
+            y_sym = YAHOO_SYMBOL_MAP.get(s, s)
+
+            try:
+                # usiamo direttamente il ticker Yahoo (GC=F, BTC-USD, ecc.)
+                df = get_yahoo_df(y_sym, interval="15m")
+            except Exception as e:
+                print(f"{s:7s} ({y_sym}) -> ERRORE: {repr(e)}")
+                traceback.print_exc()
                 continue
 
-            last = df.iloc[-1]
-            ts = df.index[-1]
-            print(
-                f"{s} ({y_symbol}) -> len={len(df)} "
-                f"last_close={last['close']:.4f} @ {ts}"
-            )
-        except Exception as e:
-            print(f"{s} ({y_symbol}) -> ERRORE: {e}")
+            if df is None or df.empty:
+                print(f"{s:7s} ({y_sym}) -> VUOTO (len=0)")
+            else:
+                last = df.iloc[-1]
+                try:
+                    last_close = float(last.get("close", 0.0))
+                except Exception:
+                    last_close = 0.0
+                print(
+                    f"{s:7s} ({y_sym}) -> OK len={len(df)} "
+                    f"last_close={last_close:.6f}"
+                )
 
-    if round_no < 2:
-        print("...aspetto 5 secondi prima del prossimo round...\n")
-        time.sleep(5)
+        if round_no == 1:
+            print("...aspetto 5 secondi prima del prossimo round...")
+            time.sleep(5)
+
+
+if __name__ == "__main__":
+    main()
+
