@@ -76,12 +76,26 @@ def get_yahoo_last_price(symbol: str) -> float:
 
 # Mappa "nostri" simboli → ticker Yahoo
 YAHOO_SYMBOL_MAP = {
+    # ----- COMMODITIES / INDICI -----
     "XAUUSD": "GC=F",     # Oro futures
     "XAGUSD": "SI=F",     # Argento futures
     "SP500": "^GSPC",     # S&P 500
     "NAS100": "^NDX",     # Nasdaq 100
     "DAX40": "^GDAXI",    # DAX
-    # Esempi azioni:
+
+    # ----- CRYPTO via Yahoo (USD) -----
+    # (chiavi "logiche" che userai nella app /hotassets)
+    "BTCUSD": "BTC-USD",
+    "ETHUSD": "ETH-USD",
+    "BNBUSD": "BNB-USD",
+    "SOLUSD": "SOL-USD",
+    "XRPUSD": "XRP-USD",
+    "ADAUSD": "ADA-USD",
+    "DOGEUSD": "DOGE-USD",
+    "LTCUSD": "LTC-USD",
+
+    # ----- Esempi azioni, se ti servono -----
     # "AAPL": "AAPL",
     # "TSLA": "TSLA",
 }
+
