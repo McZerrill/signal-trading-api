@@ -116,6 +116,11 @@ def get_yahoo_df(
         # restituisco comunque un DF con le colonne giuste
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
+    # 🔹 Se le colonne sono MultiIndex (es. ('GC=F', 'Open')), le schiacciamo
+    if isinstance(df.columns, pd.MultiIndex):
+        # prendo sempre il livello "interno" (Open/High/Low/Close/Adj Close/Volume)
+        df.columns = [str(c[-1]) for c in df.columns]
+
     # yfinance in genere usa queste colonne: Open, High, Low, Close, Volume
     df = df.rename(
         columns={
