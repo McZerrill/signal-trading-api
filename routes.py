@@ -1114,6 +1114,7 @@ def hot_assets():
     # --- Aggiunta asset YAHOO Finance in coda alla lista HOT ---
     for y_sym in YAHOO_HOT_LIST:
         try:
+            time.sleep(1.5)
             # Mappa simbolo “logico” -> ticker Yahoo reale
             y_symbol = YAHOO_SYMBOL_MAP.get(y_sym, y_sym)
 
