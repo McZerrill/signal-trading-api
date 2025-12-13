@@ -10,6 +10,7 @@ from binance_api import get_binance_df, get_best_symbols, get_bid_ask, get_symbo
 # Supporto Yahoo Finance
 from yahoo_api import get_yahoo_df, get_yahoo_last_price, YAHOO_SYMBOL_MAP
 
+
 from trend_logic import analizza_trend, conta_candele_trend
 from indicators import calcola_rsi, calcola_macd, calcola_atr
 from models import SignalResponse
@@ -54,12 +55,15 @@ HOT_WHITELIST_BASE = {
 QUOTES = ("USDT", "USDC")
 SIM_LOG_PATH = Path("simulazioni_chiuse_log.jsonl")
 
-# Asset “macro” da mostrare sempre in /hotassets via Yahoo Finance
+# Asset “macro” da mostrare in /hotassets via Yahoo Finance
 YAHOO_HOT_LIST = [
     "XAUUSD",   # Oro
     "XAGUSD",   # Argento
-    "SP500",    # Indice S&P 500 (es. ^GSPC)
+    "SP500",    # S&P 500
+    "NAS100",   # Nasdaq 100
+    "DAX40",    # DAX tedesco
 ]
+
 
 def _augment_with_whitelist(symbols: list[str]) -> list[str]:
     """
@@ -1097,10 +1101,11 @@ def hot_assets():
     # --- Aggiunta asset YAHOO Finance in coda alla lista HOT ---
     for y_sym in YAHOO_HOT_LIST:
         try:
-            # mappa simbolo “logico” -> ticker Yahoo reale
+            # Mappa simbolo “logico” -> ticker Yahoo reale
             y_symbol = YAHOO_SYMBOL_MAP.get(y_sym, y_sym)
 
-            df_y = get_yahoo_df(y_symbol, "15m")
+            # Dati 15m da Yahoo, compatibili con trend_logic
+            df_y = get_yahoo_df(y_symbol, interval="15m")
             if df_y is None or df_y.empty:
                 logging.warning(f"[YAHOO hotassets] Nessun dato per {y_sym} ({y_symbol})")
                 continue
@@ -1125,7 +1130,6 @@ def hot_assets():
             ema99_y  = float(ultimo_y.get("EMA_99", 0.0)) if "EMA_99" in src_y.columns else 0.0
             rsi_y    = float(ultimo_y.get("RSI", 0.0))    if "RSI" in src_y.columns    else 0.0
 
-            # Candele in trend, come per le crypto
             candele_trend_y = conta_candele_trend(src_y, rialzista=(segnale_y == "BUY"))
 
             obj_y = {
