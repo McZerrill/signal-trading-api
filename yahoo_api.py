@@ -166,20 +166,26 @@ def get_yahoo_last_price(symbol: str) -> float:
 #  Mappa simboli "logici" → ticker reali Yahoo
 # ============================================================
 
-YAHOO_SYMBOL_MAP: dict[str, str] = {
-    # Oro / Argento (Futures COMEX)
-    "XAUUSD": "GC=F",   # Gold Futures
-    "XAGUSD": "SI=F",   # Silver Futures
+YAHOO_SYMBOL_MAP = {
+    # Macro / futures / indici
+    "XAUUSD": "GC=F",     # Oro futures
+    "XAGUSD": "SI=F",     # Argento futures
+    "SP500":  "^GSPC",    # S&P 500
+    "NAS100": "^NDX",     # Nasdaq 100
+    "DAX40":  "^GDAXI",   # DAX tedesco
 
-    # Indici principali
-    "SP500":  "^GSPC",   # S&P 500
-    "NAS100": "^NDX",    # Nasdaq 100
-    "DAX40":  "^GDAXI",  # DAX tedesco
+    # --- Crypto principali (ticker Yahoo) ---
+    "BTCUSDT": "BTC-USD",
+    "ETHUSDT": "ETH-USD",
+    "SOLUSDT": "SOL-USD",
+    "XRPUSDT": "XRP-USD",
+    "ADAUSDT": "ADA-USD",
 
-    # Crypto spot (se vuoi provarle via Yahoo)
+    # Alias "senza USDT" (se ti piace usarli così)
     "BTCUSD": "BTC-USD",
     "ETHUSD": "ETH-USD",
-    "BNBUSD": "BNB-USD",
     "SOLUSD": "SOL-USD",
     "XRPUSD": "XRP-USD",
+    "ADAUSD": "ADA-USD",
 }
+
