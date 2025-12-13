@@ -76,28 +76,31 @@ def _cache_set(symbol: str, interval: str, period: str, df: pd.DataFrame) -> Non
 
 def _normalize_ohlc_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     """
-    Porta il DataFrame di yfinance a:
+    Porta il DataFrame di yfinance (qualsiasi formato) a:
     index: datetime (UTC)
     columns: open, high, low, close, volume
     """
     if df is None or df.empty:
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
-    # Caso MultiIndex (es. ('Close','GC=F'))
+    # --- Gestione MultiIndex o single-level ---
     if isinstance(df.columns, pd.MultiIndex):
         lvl0 = df.columns.get_level_values(0)
         lvl1 = df.columns.get_level_values(1)
 
-        # tipico: level 0 = Open/High/Low/Close, level 1 = ticker
+        # caso classico: ('Open','BTC-USD') oppure ('Open','GC=F')
         if symbol in lvl1:
             df = df.xs(symbol, axis=1, level=1)
         elif symbol in lvl0:
             df = df.xs(symbol, axis=1, level=0)
         else:
-            # fallback: usa solo il livello 0
+            # nessun match → prova a prendere solo il primo livello
             df.columns = lvl0
+    else:
+        # singolo livello (caso crypto)
+        pass
 
-    # Ora le colonne dovrebbero essere singolo livello
+    # --- Normalizza nomi colonne ---
     rename_map = {
         "Open": "open",
         "High": "high",
@@ -105,36 +108,29 @@ def _normalize_ohlc_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         "Close": "close",
         "Adj Close": "close",
         "Volume": "volume",
-        "open": "open",
-        "high": "high",
-        "low": "low",
-        "close": "close",
-        "volume": "volume",
     }
     df = df.rename(columns=rename_map)
 
-    # Assicura la presenza delle 5 colonne base
+    # --- Rimuovi colonne sconosciute, aggiungi mancanti ---
     for col in ["open", "high", "low", "close", "volume"]:
         if col not in df.columns:
             df[col] = pd.NA
 
     df = df[["open", "high", "low", "close", "volume"]]
-    df = df.dropna(subset=["close"])
+    df = df.dropna(subset=["close"], how="any")
 
-    if df.empty:
-        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
-
-    # Index a datetime UTC
-    df.index = pd.to_datetime(df.index, utc=True)
-    df.rename_axis("datetime", inplace=True)
-
-    # Converte i numerici in float (per evitare Series/object strani)
+    # --- Assicura tipi numerici ---
     for col in ["open", "high", "low", "close", "volume"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    df = df.dropna(subset=["close"])
+    df = df.dropna(subset=["close"], how="any")
+
+    # --- Index datetime ---
+    df.index = pd.to_datetime(df.index, utc=True)
+    df.rename_axis("datetime", inplace=True)
 
     return df
+
 
 
 # ============================================================
