@@ -1,21 +1,24 @@
 import time
 from threading import RLock
-from typing import Optional
+from typing import Optional, Tuple, Dict
 
 import logging
 import pandas as pd
 import yfinance as yf
 
+logger = logging.getLogger(__name__)
+
+# Riduci il rumore di yfinance (tieni WARNING / ERROR)
+logging.getLogger("yfinance").setLevel(logging.WARNING)
+
 # ============================================================
-#  Config
+#  Config cache
 # ============================================================
 
-# TTL cache per le chiamate Yahoo (in secondi)
-YF_CACHE_TTL = 60  # 1 minuto; riduce tantissimo il rischio di 429
+YF_CACHE_TTL = 60  # secondi
 
-# Cache semplice in RAM
 # key: (symbol, interval, period) -> (df, timestamp)
-_YF_CACHE: dict[tuple[str, str, str], tuple[pd.DataFrame, float]] = {}
+_YF_CACHE: Dict[Tuple[str, str, str], Tuple[pd.DataFrame, float]] = {}
 _YF_LOCK = RLock()
 
 
@@ -24,7 +27,6 @@ def _map_interval(interval: str) -> str:
     Normalizza gli intervalli in formato accettato da yfinance.
     """
     interval = interval.lower().strip()
-    # yfinance supporta direttamente questi
     allowed = {
         "1m", "2m", "5m", "15m", "30m",
         "60m", "90m", "1h",
@@ -36,7 +38,6 @@ def _map_interval(interval: str) -> str:
         return "60m"
     if interval == "4h":
         return "240m"
-    # fallback prudente
     return "1d"
 
 
@@ -47,11 +48,9 @@ def _default_period(interval: str) -> str:
     """
     interval = interval.lower()
     if interval.endswith("m") or interval in ("60m", "90m", "1h"):
-        # per intraday 15m/1h: 7 giorni bastano a trend_logic
         return "7d"
     if interval in ("1d", "5d"):
         return "1y"
-    # fallback generico
     return "1y"
 
 
@@ -64,10 +63,8 @@ def _cache_get(symbol: str, interval: str, period: str) -> Optional[pd.DataFrame
             return None
         df, ts = entry
         if now - ts > YF_CACHE_TTL:
-            # scaduto
             _YF_CACHE.pop(key, None)
             return None
-        # ritorno una copia per evitare side-effect
         return df.copy(deep=True)
 
 
@@ -75,6 +72,69 @@ def _cache_set(symbol: str, interval: str, period: str, df: pd.DataFrame) -> Non
     key = (symbol, interval, period)
     with _YF_LOCK:
         _YF_CACHE[key] = (df.copy(deep=True), time.time())
+
+
+def _normalize_ohlc_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """
+    Porta il DataFrame di yfinance a:
+    index: datetime (UTC)
+    columns: open, high, low, close, volume
+    """
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+
+    # Caso MultiIndex (es. ('Close','GC=F'))
+    if isinstance(df.columns, pd.MultiIndex):
+        lvl0 = df.columns.get_level_values(0)
+        lvl1 = df.columns.get_level_values(1)
+
+        # tipico: level 0 = Open/High/Low/Close, level 1 = ticker
+        if symbol in lvl1:
+            df = df.xs(symbol, axis=1, level=1)
+        elif symbol in lvl0:
+            df = df.xs(symbol, axis=1, level=0)
+        else:
+            # fallback: usa solo il livello 0
+            df.columns = lvl0
+
+    # Ora le colonne dovrebbero essere singolo livello
+    rename_map = {
+        "Open": "open",
+        "High": "high",
+        "Low": "low",
+        "Close": "close",
+        "Adj Close": "close",
+        "Volume": "volume",
+        "open": "open",
+        "high": "high",
+        "low": "low",
+        "close": "close",
+        "volume": "volume",
+    }
+    df = df.rename(columns=rename_map)
+
+    # Assicura la presenza delle 5 colonne base
+    for col in ["open", "high", "low", "close", "volume"]:
+        if col not in df.columns:
+            df[col] = pd.NA
+
+    df = df[["open", "high", "low", "close", "volume"]]
+    df = df.dropna(subset=["close"])
+
+    if df.empty:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+
+    # Index a datetime UTC
+    df.index = pd.to_datetime(df.index, utc=True)
+    df.rename_axis("datetime", inplace=True)
+
+    # Converte i numerici in float (per evitare Series/object strani)
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=["close"])
+
+    return df
 
 
 # ============================================================
@@ -87,23 +147,21 @@ def get_yahoo_df(
     range_str: Optional[str] = None,
 ) -> pd.DataFrame:
     """
-    Restituisce un DataFrame con colonne: open, high, low, close, volume
-    compatibile con trend_logic.
-
-    - Usa yfinance (download)
-    - Applica una cache interna (TTL = YF_CACHE_TTL sec)
+    Restituisce un DataFrame compatibile con trend_logic:
+    colonne: open, high, low, close, volume
+    index: datetime (UTC)
     """
     yf_interval = _map_interval(interval)
     period = range_str or _default_period(yf_interval)
 
-    # 1) tenta cache
+    # 1) cache
     cached = _cache_get(symbol, yf_interval, period)
     if cached is not None:
         return cached
 
-    # 2) chiamata a yfinance
+    # 2) chiamata yfinance
     try:
-        df = yf.download(
+        raw = yf.download(
             tickers=symbol,
             period=period,
             interval=yf_interval,
@@ -111,62 +169,15 @@ def get_yahoo_df(
             prepost=False,
             progress=False,
             threads=False,
+            group_by="column",  # evita MultiIndex, ma gestiamo anche il caso opposto
         )
     except Exception as e:
-        logging.error(f"[YF] Eccezione durante download per {symbol}: {e}")
+        logger.warning(f"[YF] Errore download per {symbol}: {e}")
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
-    if df is None or df.empty:
-        logging.warning(
-            f"[YF] Nessun dato ricevuto da yfinance per {symbol} "
-            f"(period={period}, interval={yf_interval})"
-        )
-        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    df = _normalize_ohlc_df(raw, symbol)
 
-    # 2bis) Gestione MultiIndex (es. colonne ('Close','GC=F'))
-    if isinstance(df.columns, pd.MultiIndex):
-        try:
-            # se le colonne sono del tipo (field, ticker) prendiamo lo slice del ticker
-            df = df.xs(symbol, axis=1, level=-1)
-            logging.debug(f"[YF] MultiIndex rilevato per {symbol}, slice su livello ticker.")
-        except Exception as e:
-            # fallback: prendi il primo ticker disponibile
-            first = df.columns.get_level_values(-1)[0]
-            logging.warning(
-                f"[YF] Impossibile usare il livello ticker '{symbol}' "
-                f"(uso '{first}') per {symbol}: {e}"
-            )
-            df = df.xs(first, axis=1, level=-1)
-
-    # A questo punto ci aspettiamo colonne tipo: Open, High, Low, Close, Adj Close, Volume
-    df = df.rename(
-        columns={
-            "Open": "open",
-            "High": "high",
-            "Low": "low",
-            "Close": "close",
-            "Adj Close": "close",  # fallback se manca Close
-            "Volume": "volume",
-        }
-    )
-
-    # Teniamo solo le colonne che servono
-    for col in ["open", "high", "low", "close", "volume"]:
-        if col not in df.columns:
-            df[col] = pd.NA
-
-    df = df[["open", "high", "low", "close", "volume"]]
-
-    # pulizia NaN sul close
-    df = df.dropna(subset=["close"])
-
-    # indicizza per datetime (è già un DatetimeIndex, ma normalizziamo)
-    df.index = pd.to_datetime(df.index, utc=True)
-    df.rename_axis("datetime", inplace=True)
-
-    # 3) salva in cache
     _cache_set(symbol, yf_interval, period, df)
-
     return df
 
 
@@ -196,14 +207,14 @@ YAHOO_SYMBOL_MAP = {
     "NAS100": "^NDX",     # Nasdaq 100
     "DAX40":  "^GDAXI",   # DAX tedesco
 
-    # --- Crypto principali (ticker Yahoo) ---
+    # Crypto principali (ticker Yahoo)
     "BTCUSDT": "BTC-USD",
     "ETHUSDT": "ETH-USD",
     "SOLUSDT": "SOL-USD",
     "XRPUSDT": "XRP-USD",
     "ADAUSDT": "ADA-USD",
 
-    # Alias "senza USDT"
+    # Alias senza USDT
     "BTCUSD": "BTC-USD",
     "ETHUSD": "ETH-USD",
     "SOLUSD": "SOL-USD",
