@@ -56,13 +56,26 @@ QUOTES = ("USDT", "USDC")
 SIM_LOG_PATH = Path("simulazioni_chiuse_log.jsonl")
 
 # Asset “macro” da mostrare in /hotassets via Yahoo Finance
+# Asset Yahoo da mostrare in /hotassets (macro + crypto)
 YAHOO_HOT_LIST = [
+    # Macro / Indici / Commodities
     "XAUUSD",   # Oro
     "XAGUSD",   # Argento
     "SP500",    # S&P 500
     "NAS100",   # Nasdaq 100
     "DAX40",    # DAX tedesco
+
+    # Crypto principali via Yahoo (USD)
+    "BTCUSD",
+    "ETHUSD",
+    "BNBUSD",
+    "SOLUSD",
+    "XRPUSD",
+    "ADAUSD",
+    "DOGEUSD",
+    "LTCUSD",
 ]
+
 
 
 def _augment_with_whitelist(symbols: list[str]) -> list[str]:
