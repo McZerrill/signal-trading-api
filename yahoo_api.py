@@ -1,131 +1,185 @@
-import requests
-import pandas as pd
 import time
+from threading import RLock
+from typing import Optional
 
-# Cache semplice in memoria: (symbol, interval, range) -> (timestamp, df)
-_YAHOO_DF_CACHE: dict[tuple[str, str, str], tuple[float, pd.DataFrame]] = {}
+import pandas as pd
+import yfinance as yf
 
+# ============================================================
+#  Config
+# ============================================================
 
-YAHOO_BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/"
+# TTL cache per le chiamate Yahoo (in secondi)
+YF_CACHE_TTL = 60  # 1 minuto; riduce tantissimo il rischio di 429
+
+# Cache semplice in RAM
+# key: (symbol, interval, period) -> (df, timestamp)
+_YF_CACHE: dict[tuple[str, str, str], tuple[pd.DataFrame, float]] = {}
+_YF_LOCK = RLock()
 
 
 def _map_interval(interval: str) -> str:
-    interval = interval.lower()
-    if interval in ("1m", "2m", "5m", "15m", "30m", "60m", "90m", "1d"):
+    """
+    Normalizza gli intervalli in formato accettato da yfinance.
+    """
+    interval = interval.lower().strip()
+    # yfinance supporta direttamente questi
+    allowed = {
+        "1m", "2m", "5m", "15m", "30m",
+        "60m", "90m", "1h",
+        "1d", "5d", "1wk", "1mo", "3mo",
+    }
+    if interval in allowed:
         return interval
-    if interval in ("1h", "1H"):
+    if interval == "1h":
         return "60m"
+    if interval == "4h":
+        return "240m"
+    # fallback prudente
     return "1d"
 
 
-def _default_range(interval: str) -> str:
-    if interval.endswith("m"):
+def _default_period(interval: str) -> str:
+    """
+    Sceglie un periodo di default compatibile con l'intervallo.
+    (equivalente al vecchio range_str)
+    """
+    interval = interval.lower()
+    if interval.endswith("m") or interval in ("60m", "90m", "1h"):
+        # per intraday 15m/1h: 7 giorni bastano a trend_logic
         return "7d"
-    if interval.endswith("d"):
+    if interval in ("1d", "5d"):
         return "1y"
+    # fallback generico
     return "1y"
 
+
+def _cache_get(symbol: str, interval: str, period: str) -> Optional[pd.DataFrame]:
+    key = (symbol, interval, period)
+    now = time.time()
+    with _YF_LOCK:
+        entry = _YF_CACHE.get(key)
+        if not entry:
+            return None
+        df, ts = entry
+        if now - ts > YF_CACHE_TTL:
+            # scaduto
+            _YF_CACHE.pop(key, None)
+            return None
+        # ritorno una copia per evitare side-effect
+        return df.copy(deep=True)
+
+
+def _cache_set(symbol: str, interval: str, period: str, df: pd.DataFrame) -> None:
+    key = (symbol, interval, period)
+    with _YF_LOCK:
+        _YF_CACHE[key] = (df.copy(deep=True), time.time())
+
+
+# ============================================================
+#  API principali usate dal backend
+# ============================================================
 
 def get_yahoo_df(
     symbol: str,
     interval: str = "15m",
-    range_str: str | None = None,
-    ttl_seconds: int = 60,
+    range_str: Optional[str] = None,
 ) -> pd.DataFrame:
     """
-    Restituisce un DF con colonne: open, high, low, close, volume
+    Restituisce un DataFrame con colonne: open, high, low, close, volume
     compatibile con trend_logic.
 
-    Usa una cache in memoria con TTL per non stressare Yahoo
-    (evita errori 429 Too Many Requests).
+    - Usa yfinance (ticker.history / download)
+    - Applica una cache interna (TTL = YF_CACHE_TTL sec)
     """
-    y_interval = _map_interval(interval)
-    final_range = range_str or _default_range(y_interval)
+    yf_interval = _map_interval(interval)
+    period = range_str or _default_period(yf_interval)
 
-    # ---- CACHE ----
-    now = time.time()
-    cache_key = (symbol, y_interval, final_range)
-    cached = _YAHOO_DF_CACHE.get(cache_key)
+    # 1) tenta cache
+    cached = _cache_get(symbol, yf_interval, period)
     if cached is not None:
-        ts_cached, df_cached = cached
-        if now - ts_cached < ttl_seconds:
-            # ritorna una copia per sicurezza
-            return df_cached.copy()
+        return cached
 
-    # ---- HTTP CALL A YAHOO ----
-    params = {"interval": y_interval, "range": final_range}
-    url = f"{YAHOO_BASE_URL}{symbol}"
+    # 2) chiamata a yfinance
+    #    NB: usiamo download perché è semplice e robusto
+    df = yf.download(
+        tickers=symbol,
+        period=period,
+        interval=yf_interval,
+        auto_adjust=False,
+        prepost=False,
+        progress=False,
+        threads=False,
+    )
 
-    r = requests.get(url, params=params, timeout=5)
-    r.raise_for_status()
-    data = r.json()
+    if df is None or df.empty:
+        # restituisco comunque un DF con le colonne giuste
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
-    result_list = data.get("chart", {}).get("result")
-    if not result_list:
-        df = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
-        _YAHOO_DF_CACHE[cache_key] = (now, df)
-        return df
+    # yfinance in genere usa queste colonne: Open, High, Low, Close, Volume
+    df = df.rename(
+        columns={
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Adj Close": "close",  # fallback se manca Close
+            "Volume": "volume",
+        }
+    )
 
-    result = result_list[0]
-    ts = result.get("timestamp", [])
-    quote = result.get("indicators", {}).get("quote", [{}])[0]
+    # Teniamo solo le colonne che ci servono
+    for col in ["open", "high", "low", "close", "volume"]:
+        if col not in df.columns:
+            df[col] = pd.NA
 
-    if not ts or "close" not in quote:
-        df = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
-        _YAHOO_DF_CACHE[cache_key] = (now, df)
-        return df
+    df = df[["open", "high", "low", "close", "volume"]]
 
-    df = pd.DataFrame({
-        "open": quote.get("open", []),
-        "high": quote.get("high", []),
-        "low": quote.get("low", []),
-        "close": quote.get("close", []),
-        "volume": quote.get("volume", []),
-    })
-
-    if len(df) != len(ts):
-        m = min(len(df), len(ts))
-        df = df.iloc[:m]
-        ts = ts[:m]
-
-    df.index = pd.to_datetime(ts, unit="s", utc=True)
+    # pulizia NaN sul close
     df = df.dropna(subset=["close"])
+
+    # indicizza per datetime (già è un DatetimeIndex, ma normalizziamo)
+    df.index = pd.to_datetime(df.index, utc=True)
     df.rename_axis("datetime", inplace=True)
 
-    # Salva in cache
-    _YAHOO_DF_CACHE[cache_key] = (now, df.copy())
+    # 3) salva in cache
+    _cache_set(symbol, yf_interval, period, df)
+
     return df
 
 
 def get_yahoo_last_price(symbol: str) -> float:
+    """
+    Ultimo prezzo di chiusura recente.
+    Usa un daily 1d/5d (pochi dati, quasi zero rischio 429).
+    """
     df = get_yahoo_df(symbol, interval="1d", range_str="5d")
     if df.empty:
         return 0.0
-    return float(df["close"].iloc[-1])
+    try:
+        return float(df["close"].iloc[-1])
+    except Exception:
+        return 0.0
 
 
-# Mappa "nostri" simboli → ticker Yahoo
-YAHOO_SYMBOL_MAP = {
-    # ----- COMMODITIES / INDICI -----
-    "XAUUSD": "GC=F",     # Oro futures
-    "XAGUSD": "SI=F",     # Argento futures
-    "SP500": "^GSPC",     # S&P 500
-    "NAS100": "^NDX",     # Nasdaq 100
-    "DAX40": "^GDAXI",    # DAX
+# ============================================================
+#  Mappa simboli "logici" → ticker reali Yahoo
+# ============================================================
 
-    # ----- CRYPTO via Yahoo (USD) -----
-    # (chiavi "logiche" che userai nella app /hotassets)
+YAHOO_SYMBOL_MAP: dict[str, str] = {
+    # Oro / Argento (Futures COMEX)
+    "XAUUSD": "GC=F",   # Gold Futures
+    "XAGUSD": "SI=F",   # Silver Futures
+
+    # Indici principali
+    "SP500":  "^GSPC",   # S&P 500
+    "NAS100": "^NDX",    # Nasdaq 100
+    "DAX40":  "^GDAXI",  # DAX tedesco
+
+    # Crypto spot (se vuoi provarle via Yahoo)
     "BTCUSD": "BTC-USD",
     "ETHUSD": "ETH-USD",
     "BNBUSD": "BNB-USD",
     "SOLUSD": "SOL-USD",
     "XRPUSD": "XRP-USD",
-    "ADAUSD": "ADA-USD",
-    "DOGEUSD": "DOGE-USD",
-    "LTCUSD": "LTC-USD",
-
-    # ----- Esempi azioni, se ti servono -----
-    # "AAPL": "AAPL",
-    # "TSLA": "TSLA",
 }
-
