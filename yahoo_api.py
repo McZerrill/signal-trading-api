@@ -1,5 +1,10 @@
 import requests
 import pandas as pd
+import time
+
+# Cache semplice in memoria: (symbol, interval, range) -> (timestamp, df)
+_YAHOO_DF_CACHE: dict[tuple[str, str, str], tuple[float, pd.DataFrame]] = {}
+
 
 YAHOO_BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/"
 
@@ -21,16 +26,34 @@ def _default_range(interval: str) -> str:
     return "1y"
 
 
-def get_yahoo_df(symbol: str, interval: str = "15m", range_str: str | None = None) -> pd.DataFrame:
+def get_yahoo_df(
+    symbol: str,
+    interval: str = "15m",
+    range_str: str | None = None,
+    ttl_seconds: int = 60,
+) -> pd.DataFrame:
     """
     Restituisce un DF con colonne: open, high, low, close, volume
     compatibile con trend_logic.
+
+    Usa una cache in memoria con TTL per non stressare Yahoo
+    (evita errori 429 Too Many Requests).
     """
     y_interval = _map_interval(interval)
-    if range_str is None:
-        range_str = _default_range(y_interval)
+    final_range = range_str or _default_range(y_interval)
 
-    params = {"interval": y_interval, "range": range_str}
+    # ---- CACHE ----
+    now = time.time()
+    cache_key = (symbol, y_interval, final_range)
+    cached = _YAHOO_DF_CACHE.get(cache_key)
+    if cached is not None:
+        ts_cached, df_cached = cached
+        if now - ts_cached < ttl_seconds:
+            # ritorna una copia per sicurezza
+            return df_cached.copy()
+
+    # ---- HTTP CALL A YAHOO ----
+    params = {"interval": y_interval, "range": final_range}
     url = f"{YAHOO_BASE_URL}{symbol}"
 
     r = requests.get(url, params=params, timeout=5)
@@ -39,14 +62,18 @@ def get_yahoo_df(symbol: str, interval: str = "15m", range_str: str | None = Non
 
     result_list = data.get("chart", {}).get("result")
     if not result_list:
-        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        df = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        _YAHOO_DF_CACHE[cache_key] = (now, df)
+        return df
 
     result = result_list[0]
     ts = result.get("timestamp", [])
     quote = result.get("indicators", {}).get("quote", [{}])[0]
 
     if not ts or "close" not in quote:
-        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        df = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        _YAHOO_DF_CACHE[cache_key] = (now, df)
+        return df
 
     df = pd.DataFrame({
         "open": quote.get("open", []),
@@ -64,6 +91,9 @@ def get_yahoo_df(symbol: str, interval: str = "15m", range_str: str | None = Non
     df.index = pd.to_datetime(ts, unit="s", utc=True)
     df = df.dropna(subset=["close"])
     df.rename_axis("datetime", inplace=True)
+
+    # Salva in cache
+    _YAHOO_DF_CACHE[cache_key] = (now, df.copy())
     return df
 
 
