@@ -83,21 +83,21 @@ def _normalize_ohlc_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
-    # --- Gestione MultiIndex o single-level ---
+    # --- Gestione MultiIndex o livelli strani ---
     if isinstance(df.columns, pd.MultiIndex):
         lvl0 = df.columns.get_level_values(0)
         lvl1 = df.columns.get_level_values(1)
 
-        # caso classico: ('Open','BTC-USD') oppure ('Open','GC=F')
+        # Caso classico: ('Open','BTC-USD') o ('Open','GC=F')
         if symbol in lvl1:
             df = df.xs(symbol, axis=1, level=1)
         elif symbol in lvl0:
             df = df.xs(symbol, axis=1, level=0)
         else:
-            # nessun match → prova a prendere solo il primo livello
+            # Se il livello 1 è vuoto o uguale per tutti, prendo solo il primo livello
             df.columns = lvl0
     else:
-        # singolo livello (caso crypto)
+        # singolo livello: non serve toccare
         pass
 
     # --- Normalizza nomi colonne ---
@@ -109,20 +109,31 @@ def _normalize_ohlc_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         "Adj Close": "close",
         "Volume": "volume",
     }
+
+    # In caso di tuple residue, converti tutto a stringa
+    df.columns = [str(c[0]) if isinstance(c, tuple) else str(c) for c in df.columns]
     df = df.rename(columns=rename_map)
 
-    # --- Rimuovi colonne sconosciute, aggiungi mancanti ---
+    # --- Aggiungi colonne mancanti ---
     for col in ["open", "high", "low", "close", "volume"]:
         if col not in df.columns:
             df[col] = pd.NA
 
+    # --- Pulisci e mantieni solo le 5 ---
     df = df[["open", "high", "low", "close", "volume"]]
-    df = df.dropna(subset=["close"], how="any")
 
-    # --- Assicura tipi numerici ---
+    # --- Converti in float/num in modo sicuro ---
     for col in ["open", "high", "low", "close", "volume"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+        try:
+            # Se è una Series va bene; se è DataFrame, prendo la prima colonna
+            col_data = df[col]
+            if isinstance(col_data, pd.DataFrame):
+                col_data = col_data.iloc[:, 0]
+            df[col] = pd.to_numeric(col_data, errors="coerce")
+        except Exception:
+            df[col] = pd.NA
 
+    # --- Rimuovi righe senza close ---
     df = df.dropna(subset=["close"], how="any")
 
     # --- Index datetime ---
