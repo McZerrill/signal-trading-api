@@ -2,6 +2,7 @@ import time
 from threading import RLock
 from typing import Optional
 
+import logging
 import pandas as pd
 import yfinance as yf
 
@@ -89,7 +90,7 @@ def get_yahoo_df(
     Restituisce un DataFrame con colonne: open, high, low, close, volume
     compatibile con trend_logic.
 
-    - Usa yfinance (ticker.history / download)
+    - Usa yfinance (download)
     - Applica una cache interna (TTL = YF_CACHE_TTL sec)
     """
     yf_interval = _map_interval(interval)
@@ -101,27 +102,43 @@ def get_yahoo_df(
         return cached
 
     # 2) chiamata a yfinance
-    #    NB: usiamo download perché è semplice e robusto
-    df = yf.download(
-        tickers=symbol,
-        period=period,
-        interval=yf_interval,
-        auto_adjust=False,
-        prepost=False,
-        progress=False,
-        threads=False,
-    )
-
-    if df is None or df.empty:
-        # restituisco comunque un DF con le colonne giuste
+    try:
+        df = yf.download(
+            tickers=symbol,
+            period=period,
+            interval=yf_interval,
+            auto_adjust=False,
+            prepost=False,
+            progress=False,
+            threads=False,
+        )
+    except Exception as e:
+        logging.error(f"[YF] Eccezione durante download per {symbol}: {e}")
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
-    # 🔹 Se le colonne sono MultiIndex (es. ('GC=F', 'Open')), le schiacciamo
-    if isinstance(df.columns, pd.MultiIndex):
-        # prendo sempre il livello "interno" (Open/High/Low/Close/Adj Close/Volume)
-        df.columns = [str(c[-1]) for c in df.columns]
+    if df is None or df.empty:
+        logging.warning(
+            f"[YF] Nessun dato ricevuto da yfinance per {symbol} "
+            f"(period={period}, interval={yf_interval})"
+        )
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
-    # yfinance in genere usa queste colonne: Open, High, Low, Close, Volume
+    # 2bis) Gestione MultiIndex (es. colonne ('Close','GC=F'))
+    if isinstance(df.columns, pd.MultiIndex):
+        try:
+            # se le colonne sono del tipo (field, ticker) prendiamo lo slice del ticker
+            df = df.xs(symbol, axis=1, level=-1)
+            logging.debug(f"[YF] MultiIndex rilevato per {symbol}, slice su livello ticker.")
+        except Exception as e:
+            # fallback: prendi il primo ticker disponibile
+            first = df.columns.get_level_values(-1)[0]
+            logging.warning(
+                f"[YF] Impossibile usare il livello ticker '{symbol}' "
+                f"(uso '{first}') per {symbol}: {e}"
+            )
+            df = df.xs(first, axis=1, level=-1)
+
+    # A questo punto ci aspettiamo colonne tipo: Open, High, Low, Close, Adj Close, Volume
     df = df.rename(
         columns={
             "Open": "open",
@@ -133,7 +150,7 @@ def get_yahoo_df(
         }
     )
 
-    # Teniamo solo le colonne che ci servono
+    # Teniamo solo le colonne che servono
     for col in ["open", "high", "low", "close", "volume"]:
         if col not in df.columns:
             df[col] = pd.NA
@@ -143,7 +160,7 @@ def get_yahoo_df(
     # pulizia NaN sul close
     df = df.dropna(subset=["close"])
 
-    # indicizza per datetime (già è un DatetimeIndex, ma normalizziamo)
+    # indicizza per datetime (è già un DatetimeIndex, ma normalizziamo)
     df.index = pd.to_datetime(df.index, utc=True)
     df.rename_axis("datetime", inplace=True)
 
@@ -186,11 +203,10 @@ YAHOO_SYMBOL_MAP = {
     "XRPUSDT": "XRP-USD",
     "ADAUSDT": "ADA-USD",
 
-    # Alias "senza USDT" (se ti piace usarli così)
+    # Alias "senza USDT"
     "BTCUSD": "BTC-USD",
     "ETHUSD": "ETH-USD",
     "SOLUSD": "SOL-USD",
     "XRPUSD": "XRP-USD",
     "ADAUSD": "ADA-USD",
 }
-
