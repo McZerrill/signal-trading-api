@@ -7,6 +7,8 @@ import pandas as pd
 # Thread di monitoraggio attivo ogni 5 secondi
 import threading
 from binance_api import get_binance_df, get_best_symbols, get_bid_ask, get_symbol_tick_step
+# Supporto Yahoo Finance
+from yahoo_api import get_yahoo_df, get_yahoo_last_price, YAHOO_SYMBOL_MAP
 
 from trend_logic import analizza_trend, conta_candele_trend
 from indicators import calcola_rsi, calcola_macd, calcola_atr
@@ -52,6 +54,12 @@ HOT_WHITELIST_BASE = {
 QUOTES = ("USDT", "USDC")
 SIM_LOG_PATH = Path("simulazioni_chiuse_log.jsonl")
 
+# Asset “macro” da mostrare sempre in /hotassets via Yahoo Finance
+YAHOO_HOT_LIST = [
+    "XAUUSD",   # Oro
+    "XAGUSD",   # Argento
+    "SP500",    # Indice S&P 500 (es. ^GSPC)
+]
 
 def _augment_with_whitelist(symbols: list[str]) -> list[str]:
     """
@@ -168,6 +176,123 @@ def analyze(symbol: str):
 
     try:
         symbol = symbol.upper()
+
+        # ----------------------------------------------------------------
+        #  🔹 Se è un simbolo Yahoo (non Binance) → analizza via Yahoo
+        # ----------------------------------------------------------------
+        if not any(symbol.endswith(q) for q in ("USDT", "USDC")):
+            try:
+                y_symbol = YAHOO_SYMBOL_MAP.get(symbol, symbol)
+                spread = 0.0
+                prezzo_live = get_yahoo_last_price(y_symbol)
+                if prezzo_live == 0:
+                    prezzo_live = None
+
+                # Carica dati Yahoo (gli stessi timeframe)
+                df_15m = get_yahoo_df(y_symbol, "15m")
+                df_1h  = get_yahoo_df(y_symbol, "1h")
+                df_1d  = get_yahoo_df(y_symbol, "1d")
+
+                if df_15m is None or df_15m.empty:
+                    raise ValueError(f"Nessun dato disponibile da Yahoo per {symbol}")
+
+                segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread, None)
+
+                note = note15.split("\n") if note15 else []
+
+                # --- conferma 1h ---
+                try:
+                    if df_1h is not None and not df_1h.empty:
+                        segnale_1h, _, _, note1h, *_ = analizza_trend(df_1h, spread, None)
+                        note.append(f"🕒 1h: {segnale_1h}")
+                except Exception as e:
+                    note.append(f"⚠️ Analisi 1h fallita: {e}")
+
+                # --- controllo daily ---
+                try:
+                    from trend_logic import enrich_indicators
+                    if df_1d is not None and not df_1d.empty:
+                        df_1d_chk = enrich_indicators(df_1d.copy())
+                        e7d  = float(df_1d_chk["EMA_7"].iloc[-1])
+                        e25d = float(df_1d_chk["EMA_25"].iloc[-1])
+                        e99d = float(df_1d_chk["EMA_99"].iloc[-1])
+                        if e7d > e25d > e99d:
+                            note.append("📅 1d: BUY")
+                        elif e7d < e25d < e99d:
+                            note.append("📅 1d: SELL")
+                        else:
+                            note.append("📅 1d: HOLD")
+                except Exception as e:
+                    note.append(f"⚠️ Analisi daily fallita: {e}")
+
+                commento = "\n".join(note)
+
+                # --- estrai ultimi indicatori ---
+                close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
+                try:
+                    src = hist if isinstance(hist, pd.DataFrame) and not hist.empty else df_15m
+                    ultimo = src.iloc[-1]
+                    close = round(float(ultimo.get("close", 0.0)), 4)
+                    rsi = round(float(ultimo.get("RSI", 0.0)), 2)
+                    ema7 = round(float(ultimo.get("EMA_7", 0.0)), 2)
+                    ema25 = round(float(ultimo.get("EMA_25", 0.0)), 2)
+                    ema99 = round(float(ultimo.get("EMA_99", 0.0)), 2)
+                    atr = round(float(ultimo.get("ATR", 0.0)), 6)
+                    macd = round(float(ultimo.get("MACD", 0.0)), 4)
+                    macd_signal = round(float(ultimo.get("MACD_SIGNAL", 0.0)), 4)
+                except Exception as e:
+                    note.append(f"⚠️ Errore estrazione tecnici: {e}")
+
+                prezzo_output = round(prezzo_live or close, 4)
+
+                logging.info(f"📊 Yahoo analyze {symbol} – segnale={segnale}, prezzo={prezzo_output}")
+
+                return SignalResponse(
+                    symbol=symbol,
+                    segnale=segnale,
+                    commento=commento,
+                    prezzo=prezzo_output,
+                    take_profit=tp,
+                    stop_loss=sl,
+                    rsi=rsi,
+                    macd=macd,
+                    macd_signal=macd_signal,
+                    atr=atr,
+                    ema7=ema7,
+                    ema25=ema25,
+                    ema99=ema99,
+                    timeframe="15m",
+                    spread=spread,
+                    motivo=commento,
+                    chiusa_da_backend=False
+                )
+
+            except Exception as e:
+                logging.error(f"❌ Errore analisi Yahoo per {symbol}: {e}")
+                return SignalResponse(
+                    symbol=symbol,
+                    segnale="HOLD",
+                    commento=f"Errore Yahoo: {e}",
+                    prezzo=0.0,
+                    take_profit=0.0,
+                    stop_loss=0.0,
+                    rsi=0.0,
+                    macd=0.0,
+                    macd_signal=0.0,
+                    atr=0.0,
+                    ema7=0.0,
+                    ema25=0.0,
+                    ema99=0.0,
+                    timeframe="15m",
+                    spread=0.0,
+                    motivo="Errore Yahoo",
+                    chiusa_da_backend=False
+                )
+
+
+
+
+        
         with _pos_lock:
             posizione = posizioni_attive.get(symbol)
             motivo_attuale = (posizione or {}).get("motivo", "")
@@ -969,9 +1094,63 @@ def hot_assets():
             continue
 
 
+    # --- Aggiunta asset YAHOO Finance in coda alla lista HOT ---
+    for y_sym in YAHOO_HOT_LIST:
+        try:
+            # mappa simbolo “logico” -> ticker Yahoo reale
+            y_symbol = YAHOO_SYMBOL_MAP.get(y_sym, y_sym)
+
+            df_y = get_yahoo_df(y_symbol, "15m")
+            if df_y is None or df_y.empty:
+                logging.warning(f"[YAHOO hotassets] Nessun dato per {y_sym} ({y_symbol})")
+                continue
+
+            # Analisi con la stessa funzione del backend crypto
+            try:
+                segnale_y, hist_y, _, note15_y, *_ = analizza_trend(df_y, 0.0, None)
+            except Exception as e_y:
+                logging.warning(f"[YAHOO hotassets] analizza_trend fallita per {y_sym}: {e_y}")
+                continue
+
+            # Sorgente dati per gli ultimi indicatori
+            src_y = hist_y if isinstance(hist_y, pd.DataFrame) and not hist_y.empty else df_y
+            if src_y is None or src_y.empty:
+                continue
+
+            ultimo_y = src_y.iloc[-1]
+
+            prezzo_y = float(ultimo_y.get("close", 0.0))
+            ema7_y   = float(ultimo_y.get("EMA_7", 0.0))  if "EMA_7" in src_y.columns  else 0.0
+            ema25_y  = float(ultimo_y.get("EMA_25", 0.0)) if "EMA_25" in src_y.columns else 0.0
+            ema99_y  = float(ultimo_y.get("EMA_99", 0.0)) if "EMA_99" in src_y.columns else 0.0
+            rsi_y    = float(ultimo_y.get("RSI", 0.0))    if "RSI" in src_y.columns    else 0.0
+
+            # Candele in trend, come per le crypto
+            candele_trend_y = conta_candele_trend(src_y, rialzista=(segnale_y == "BUY"))
+
+            obj_y = {
+                "symbol": y_sym,  # es. "XAUUSD", "SP500"
+                "segnali": 1 if segnale_y in ("BUY", "SELL") else 0,
+                "trend": segnale_y if segnale_y in ("BUY", "SELL") else "HOLD",
+                "rsi": round(rsi_y, 2),
+                "ema7": round(ema7_y, 2),
+                "ema25": round(ema25_y, 2),
+                "ema99": round(ema99_y, 2),
+                "prezzo": round(prezzo_y, 4),
+                "candele_trend": candele_trend_y,
+                "note": "🌍 Yahoo Finance",
+            }
+
+            risultati.append(obj_y)
+
+        except Exception as e_yahoo:
+            logging.warning(f"[YAHOO hotassets] Errore per {y_sym}: {e_yahoo}")
+            continue
+
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
     return risultati
+
 
 
 
