@@ -56,25 +56,60 @@ QUOTES = ("USDT", "USDC")
 SIM_LOG_PATH = Path("simulazioni_chiuse_log.jsonl")
 
 # Asset “macro” da mostrare in /hotassets via Yahoo Finance
-# Asset Yahoo da mostrare in /hotassets (macro + crypto)
+# Asset “macro” + azioni da mostrare in /hotassets via Yahoo Finance
 YAHOO_HOT_LIST = [
-    # Macro / Indici / Commodities
+    # Macro / indici
     "XAUUSD",   # Oro
     "XAGUSD",   # Argento
     "SP500",    # S&P 500
     "NAS100",   # Nasdaq 100
     "DAX40",    # DAX tedesco
 
-    # Crypto principali via Yahoo (USD)
-    "BTCUSD",
-    "ETHUSD",
-    "BNBUSD",
-    "SOLUSD",
-    "XRPUSD",
-    "ADAUSD",
-    "DOGEUSD",
-    "LTCUSD",
+    # Titoli azionari (stessi simboli di Yahoo)
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "TSLA",
+    "META",
+    "GOOGL",
+    "AMZN",
+    "NFLX",
+    "JPM",
+    "BAC",
+    "DIS",
+    "NKE",
 ]
+
+# Nome leggibile per alcuni asset (mostrato accanto al simbolo)
+ASSET_NAME_MAP = {
+    # Macro / indici (Yahoo)
+    "XAUUSD": "Oro (Gold futures)",
+    "XAGUSD": "Argento (Silver futures)",
+    "SP500":  "S&P 500",
+    "NAS100": "Nasdaq 100",
+    "DAX40":  "DAX 40",
+
+    # Titoli azionari
+    "AAPL":  "Apple",
+    "MSFT":  "Microsoft",
+    "NVDA":  "NVIDIA",
+    "TSLA":  "Tesla",
+    "META":  "Meta Platforms",
+    "GOOGL": "Alphabet (Google)",
+    "AMZN":  "Amazon",
+    "NFLX":  "Netflix",
+    "JPM":   "JPMorgan Chase",
+    "BAC":   "Bank of America",
+    "DIS":   "Disney",
+    "NKE":   "Nike",
+}
+
+def _asset_display_name(symbol: str) -> str:
+    """
+    Restituisce un nome leggibile da affiancare al simbolo.
+    """
+    return ASSET_NAME_MAP.get(symbol, symbol)
+
 
 
 
@@ -945,7 +980,7 @@ def hot_assets():
                 if (COND_GAIN and COND_BODY and (COND_CORPO or COND_VOLUME)):
                     trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
                     risultati.append({
-                        "symbol": symbol,
+                        "symbol": f"{symbol} – {_asset_display_name(symbol)}",
                         "segnali": 1,
                         "trend": trend_pump,
                         "rsi": None,
@@ -1012,7 +1047,7 @@ def hot_assets():
                 trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
                 candele_trend = conta_candele_trend(df, rialzista=(trend_pump == "BUY"))
                 risultati.append({
-                    "symbol": symbol,
+                    "symbol": f"{symbol} – {_asset_display_name(symbol)}",
                     "segnali": 1,
                     "trend": trend_pump,
                     "rsi": round(rsi, 2),
@@ -1079,7 +1114,7 @@ def hot_assets():
                 segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
                 risultati.append({
-                    "symbol": symbol,
+                    "symbol": f"{symbol} – {_asset_display_name(symbol)}",
                     "segnali": 1,
                     "trend": segnale,
                     "rsi": round(rsi, 2),
@@ -1095,7 +1130,7 @@ def hot_assets():
             if is_whitelist and not added:
                 candele_trend = conta_candele_trend(df, rialzista=True)
                 risultati.append({
-                    "symbol": symbol,
+                    "symbol": f"{symbol} – {_asset_display_name(symbol)}",
                     "segnali": 0,
                     "trend": "HOLD",
                     "rsi": round(float(rsi), 2) if not pd.isna(rsi) else None,
@@ -1147,7 +1182,7 @@ def hot_assets():
             candele_trend_y = conta_candele_trend(src_y, rialzista=(segnale_y == "BUY"))
 
             obj_y = {
-                "symbol": y_sym,  # es. "XAUUSD", "SP500"
+                "symbol": f"{y_sym} – {_asset_display_name(y_sym)}",
                 "segnali": 1 if segnale_y in ("BUY", "SELL") else 0,
                 "trend": segnale_y if segnale_y in ("BUY", "SELL") else "HOLD",
                 "rsi": round(rsi_y, 2),
