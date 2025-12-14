@@ -55,41 +55,42 @@ HOT_WHITELIST_BASE = {
 QUOTES = ("USDT", "USDC")
 SIM_LOG_PATH = Path("simulazioni_chiuse_log.jsonl")
 
-# Asset “macro” da mostrare in /hotassets via Yahoo Finance
-# Asset “macro” + azioni da mostrare in /hotassets via Yahoo Finance
-YAHOO_HOT_LIST = [
-    # Macro / indici
-    "XAUUSD",   # Oro
-    "XAGUSD",   # Argento
-    "SP500",    # S&P 500
-    "NAS100",   # Nasdaq 100
-    "DAX40",    # DAX tedesco
-
-    # Titoli azionari (stessi simboli di Yahoo)
-    "AAPL",
-    "MSFT",
-    "NVDA",
-    "TSLA",
-    "META",
-    "GOOGL",
-    "AMZN",
-    "NFLX",
-    "JPM",
-    "BAC",
-    "DIS",
-    "NKE",
-]
-
-# Nome leggibile per alcuni asset (mostrato accanto al simbolo)
+# Nome leggibile per asset Binance (whitelist) + macro Yahoo + azioni
 ASSET_NAME_MAP = {
-    # Macro / indici (Yahoo)
+    # --- Binance crypto (base symbol) ---
+    "BTC":  "Bitcoin",
+    "ETH":  "Ethereum",
+    "SOL":  "Solana",
+    "XRP":  "XRP",
+    "ADA":  "Cardano",
+    "BNB":  "BNB",
+    "LTC":  "Litecoin",
+    "DOGE": "Dogecoin",
+    "AVAX": "Avalanche",
+    "ATOM": "Cosmos",
+    "MANA": "Decentraland",
+    "SAND": "The Sandbox",
+    "LINK": "Chainlink",
+    "DOT":  "Polkadot",
+    "NEAR": "NEAR Protocol",
+    "ETC":  "Ethereum Classic",
+    "DASH": "Dash",
+    "ZEC":  "Zcash",
+    "BCH":  "Bitcoin Cash",
+    "AXS":  "Axie Infinity",
+    "TRX":  "TRON",
+    "QTUM": "Qtum",
+    "APT":  "Aptos",
+    "A":    "Vaulta",
+
+    # --- Macro / indici (Yahoo) ---
     "XAUUSD": "Oro (Gold futures)",
     "XAGUSD": "Argento (Silver futures)",
     "SP500":  "S&P 500",
     "NAS100": "Nasdaq 100",
     "DAX40":  "DAX 40",
 
-    # Titoli azionari
+    # --- Titoli azionari (Yahoo) ---
     "AAPL":  "Apple",
     "MSFT":  "Microsoft",
     "NVDA":  "NVIDIA",
@@ -107,8 +108,14 @@ ASSET_NAME_MAP = {
 def _asset_display_name(symbol: str) -> str:
     """
     Restituisce un nome leggibile da affiancare al simbolo.
+    Gestisce sia coppie Binance (BTCUSDT, ETHUSDT...) che simboli secchi (AAPL, XAUUSD).
     """
-    return ASSET_NAME_MAP.get(symbol, symbol)
+    base = symbol
+    if symbol.endswith("USDT") or symbol.endswith("USDC"):
+        base = symbol[:-4]  # BTCUSDT -> BTC, ETHUSDT -> ETH
+
+    return ASSET_NAME_MAP.get(symbol, ASSET_NAME_MAP.get(base, base))
+
 
 
 
