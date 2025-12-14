@@ -167,7 +167,7 @@ def get_yahoo_df(
     colonne: open, high, low, close, volume
     index: datetime (UTC)
     """
-    logging.debug(f"[YAHOO_API] {symbol}: ricevuti {len(df)} dati ({interval})")
+
 
     yf_interval = _map_interval(interval)
     period = range_str or _default_period(yf_interval)
@@ -196,6 +196,12 @@ def get_yahoo_df(
     df = _normalize_ohlc_df(raw, symbol)
 
     _cache_set(symbol, yf_interval, period, df)
+
+    if 'df' in locals() and isinstance(df, pd.DataFrame):
+        logging.debug(f"[YAHOO_API] {symbol}: ricevuti {len(df)} dati ({interval})")
+    else:
+        logging.debug(f"[YAHOO_API] {symbol}: nessun dato ricevuto ({interval})")
+
     return df
 
 
