@@ -223,17 +223,18 @@ YAHOO_SYMBOL_MAP = {
     "NAS100": "^NDX",     # Nasdaq 100
     "DAX40":  "^GDAXI",   # DAX tedesco
 
-    # Crypto principali (ticker Yahoo)
-    "BTCUSDT": "BTC-USD",
-    "ETHUSDT": "ETH-USD",
-    "SOLUSDT": "SOL-USD",
-    "XRPUSDT": "XRP-USD",
-    "ADAUSDT": "ADA-USD",
-
-    # Alias senza USDT
-    "BTCUSD": "BTC-USD",
-    "ETHUSD": "ETH-USD",
-    "SOLUSD": "SOL-USD",
-    "XRPUSD": "XRP-USD",
-    "ADAUSD": "ADA-USD",
+    # Titoli azionari principali (USA)
+    "AAPL":  "AAPL",      # Apple
+    "MSFT":  "MSFT",      # Microsoft
+    "NVDA":  "NVDA",      # NVIDIA
+    "TSLA":  "TSLA",      # Tesla
+    "META":  "META",      # Meta Platforms
+    "GOOGL": "GOOGL",     # Alphabet (Google)
+    "AMZN":  "AMZN",      # Amazon
+    "NFLX":  "NFLX",      # Netflix
+    "JPM":   "JPM",       # JPMorgan Chase
+    "BAC":   "BAC",       # Bank of America
+    "DIS":   "DIS",       # Disney
+    "NKE":   "NKE",       # Nike
 }
+
