@@ -176,6 +176,7 @@ def get_yahoo_df(
     cached = _cache_get(symbol, yf_interval, period)
     if cached is not None:
         return cached
+    logging.debug(f"[YAHOO_API] FETCH REMOTO per {symbol} ({yf_interval}, period={period})")
 
     # 2) chiamata yfinance
     try:
