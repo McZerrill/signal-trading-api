@@ -774,16 +774,18 @@ def analyze(symbol: str):
                 else:
                     note.append(f"⚠️ Daily in conflitto ({daily_state})")
 
-        # testo completo della notifica (per app + per log simulazioni)
-        commento = "\n".join(note) if note else "Nessuna nota"
-
-        # denominazione SOLO nel testo (nessun cambio JSON)
+        # ✅ denominazione dentro le NOTE (così finisce in commento, motivo e note_notifica)
         try:
             dn = _asset_display_name(symbol)
             if dn and dn != symbol:
-                commento = f"🛈 {dn} ({symbol})\n{commento}"
+                note.insert(0, f"🛈 {dn} ({symbol})")
         except Exception:
             pass
+        
+        
+        # testo completo della notifica (per app + per log simulazioni)
+        commento = "\n".join(note) if note else "Nessuna nota"
+
 
         # apertura simulazione SOLO se c'è un vero segnale
         if segnale in ["BUY", "SELL"]:
@@ -801,7 +803,7 @@ def analyze(symbol: str):
                     "tick_size": tick_size,
                     "chiusa_da_backend": False,
                     "motivo": " | ".join(note),
-                    "note_notifica": commento,   # 👈 testo completo notifica
+                    "note_notifica": commento,  
                 }
 
         return SignalResponse(
