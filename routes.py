@@ -777,6 +777,14 @@ def analyze(symbol: str):
         # testo completo della notifica (per app + per log simulazioni)
         commento = "\n".join(note) if note else "Nessuna nota"
 
+        # denominazione SOLO nel testo (nessun cambio JSON)
+        try:
+            dn = _asset_display_name(symbol)
+            if dn and dn != symbol:
+                commento = f"🛈 {dn} ({symbol})\n{commento}"
+        except Exception:
+            pass
+
         # apertura simulazione SOLO se c'è un vero segnale
         if segnale in ["BUY", "SELL"]:
             logging.info(
