@@ -165,6 +165,31 @@ def _safe_div(num: float, den: float, eps: float = 1e-9) -> float:
     d = den if den and abs(den) > eps else eps
     return num / d
 
+def _volume_metrics(hist: pd.DataFrame, asset_class: str = "crypto"):
+    """
+    Ritorna: (vol_attuale, vol_medio, volume_affidabile)
+    - crypto: volume quasi sempre ok
+    - yahoo: spesso volume è 0/NaN (indici/metalli) => NON affidabile
+    """
+    asset_class = (asset_class or "crypto").lower()
+
+    # preferisci DOLLAR_VOL se c'è (più confrontabile tra asset)
+    if "DOLLAR_VOL" in hist.columns:
+        s = pd.to_numeric(hist["DOLLAR_VOL"], errors="coerce").fillna(0.0)
+    else:
+        s = pd.to_numeric(hist.get("volume", 0.0), errors="coerce").fillna(0.0)
+
+    vol_att = float(s.iloc[-1]) if len(s) else 0.0
+    vol_avg = float(s.iloc[-21:-1].mean()) if len(s) > 2 else 0.0
+
+    # affidabilità: per yahoo se 0/0 => non usare volume in gating/scoring
+    reliable = True
+    if asset_class == "yahoo":
+        reliable = (vol_att > 0.0 and vol_avg > 0.0)
+
+    return vol_att, vol_avg, reliable
+
+
 def _frac_of_close(value: float, close: float) -> float:
     """value / close in modo sicuro."""
     return _safe_div(value, _safe_close(close))
@@ -193,6 +218,17 @@ def enrich_indicators(hist: pd.DataFrame) -> pd.DataFrame:
     # ATR
     if "ATR" not in hist.columns:
         hist["ATR"] = calcola_atr(hist)
+
+    # -----------------------------
+    # Dollar Volume (robusto cross-asset)
+    # -----------------------------
+    try:
+        v = pd.to_numeric(hist.get("volume", 0.0), errors="coerce").fillna(0.0)
+        c = pd.to_numeric(hist.get("close", 0.0), errors="coerce").fillna(0.0)
+        hist["DOLLAR_VOL"] = v * c
+        hist["DOLLAR_VOL_MA20"] = hist["DOLLAR_VOL"].rolling(20).mean()
+    except Exception as e:
+        logging.debug(f"[enrich_indicators] dollar vol skip: {e}")
 
     return hist
 
@@ -565,15 +601,17 @@ def calcola_punteggio_trend(
         punteggio -= 1
 
 
-    # 4. Volume
-    if volume_attuale > volume_medio * _p("volume_alto"):
-        punteggio += 2
-    elif volume_attuale > volume_medio * _p("volume_medio"):
-        punteggio += 1
-    elif volume_attuale < volume_medio * _p("volume_molto_basso"):
-        punteggio -= 2
-    elif volume_attuale < volume_medio * _p("volume_basso"):
-        punteggio -= 1
+    # 4. Volume (se non affidabile -> neutro)
+    if volume_medio and volume_medio > 0:
+        if volume_attuale > volume_medio * _p("volume_alto"):
+            punteggio += 2
+        elif volume_attuale > volume_medio * _p("volume_medio"):
+            punteggio += 1
+        elif volume_attuale < volume_medio * _p("volume_molto_basso"):
+            punteggio -= 2
+        elif volume_attuale < volume_medio * _p("volume_basso"):
+            punteggio -= 1
+
 
     # 5. Distanza EMA
     distanza_pct = _frac_of_close(distanza_ema, close)
@@ -658,11 +696,12 @@ def calcola_probabilita_successo(
             punteggio -= 5
 
 
-    # 4. Volume coerente
-    if volume_attuale > volume_medio * _p("volume_alto"):
-        punteggio += 10
-    elif volume_attuale < volume_medio * _p("volume_basso"):
-        punteggio -= 5
+    # 4. Volume coerente (se non affidabile -> neutro)
+    if volume_medio and volume_medio > 0:
+        if volume_attuale > volume_medio * _p("volume_alto"):
+            punteggio += 10
+        elif volume_attuale < volume_medio * _p("volume_basso"):
+            punteggio -= 5
 
     # 5. Breakout forte
     if breakout:
@@ -816,7 +855,9 @@ def calcola_probabilita_successo(
 # -----------------------------------------------------------------------------
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
                    hist_1m: pd.DataFrame = None, sistema: str = "EMA",
-                   asset_name: str | None = None):   # ✅ nuovo
+                   asset_name: str | None = None,
+                   asset_class: str = "crypto"):
+
 
 
     logging.debug("🔍 Inizio analisi trend")
@@ -927,8 +968,15 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
 
 
 
-    volume_attuale = hist["volume"].iloc[-1]
-    volume_medio = hist["volume"].iloc[-21:-1].mean()
+    volume_attuale, volume_medio, volume_affidabile = _volume_metrics(hist, asset_class)
+
+    # Se NON affidabile (Yahoo indici/metalli), forziamo neutralità volume:
+    # - niente blocchi per volume
+    # - niente bonus/malus nel punteggio (vedi patch sotto)
+    if not volume_affidabile:
+        volume_medio = 0.0
+
+                       
     if pd.isna(volume_medio) or volume_medio <= 0:
         k = min(5, max(1, len(hist)-1))
         finestra = hist["volume"].iloc[-k:-1]
@@ -993,9 +1041,10 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
         note.append("⚠️ ATR Basso: poco volatile")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
 
-    if volume_attuale < _p("volume_soglia") and not MODALITA_TEST and not pump_flag:
+    if volume_affidabile and volume_attuale < _p("volume_soglia") and (not MODALITA_TEST) and (not pump_flag):
         note.append(f"⚠️ Vol↓ {volume_attuale:.0f} < min")
         return "HOLD", hist, 0.0, "\n".join(note).strip(), 0.0, 0.0, supporto
+
 
     # ------------------------------------------------------------------
     # Punteggio complessivo + descrizione
@@ -1039,16 +1088,18 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
     breakout_valido = False
     corpo_candela = abs(ultimo["close"] - ultimo["open"])
 
-    if close > massimo_20 and volume_attuale > volume_medio * 1.5:
+    if close > massimo_20 and (not volume_affidabile or (volume_medio > 0 and volume_attuale > volume_medio * 1.5)):
         note.append("💥 Breakout↑ Vol alto")
         if corpo_candela > atr:
             note.append("🚀 Spike↑ con Breakout")
             breakout_valido = True
-    elif close < minimo_20 and volume_attuale > volume_medio * 1.5:
+
+    elif close < minimo_20 and (not volume_affidabile or (volume_medio > 0 and volume_attuale > volume_medio * 1.5)):
         note.append("💥 Breakout↓ Vol alto")
         if corpo_candela > atr:
             note.append("🚨 Spike↓ con Breakout")
             breakout_valido = True
+
     elif (close > massimo_20 or close < minimo_20) and volume_attuale < volume_medio:
         note.append("⚠️ Breakout? Vol↓")
 
@@ -1067,16 +1118,23 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
 
         # Serie su 20 candele precedenti (esclude l'ultima)
         body_series = (hist["close"] - hist["open"]).iloc[-21:-1].abs()
-        vol_series  = hist["volume"].iloc[-21:-1]
+
+        # Volume: preferisci DOLLAR_VOL se presente (più robusto cross-asset)
+        if "DOLLAR_VOL" in hist.columns:
+            vol_series = pd.to_numeric(hist["DOLLAR_VOL"], errors="coerce").fillna(0.0).iloc[-21:-1]
+            vol_attuale_eff = float(pd.to_numeric(hist["DOLLAR_VOL"].iloc[-1], errors="coerce") or 0.0)
+        else:
+            vol_series = pd.to_numeric(hist["volume"], errors="coerce").fillna(0.0).iloc[-21:-1]
+            vol_attuale_eff = float(pd.to_numeric(hist["volume"].iloc[-1], errors="coerce") or 0.0)
 
         # Riferimenti robusti (mediana)
-        corpo_ref  = body_series.median() if len(body_series) else 0.0
-        volume_ref = vol_series.median()  if len(vol_series)  else 0.0
+        corpo_ref = float(body_series.median()) if len(body_series) else 0.0
+        volume_ref = float(vol_series.median()) if len(vol_series) else 0.0
 
         # Parametri (tienili qui per tuning rapido)
         BODY_MULT = 2.5      # corpo > 2.5× mediana corpi precedenti
         RANGE_ATR = 1.8      # range > 1.8× ATR
-        VOL_MULT  = 2.0      # volume > 2× mediana
+        VOL_MULT  = 2.0      # volume > 2× mediana (solo se volume_affidabile)
         WICK_MAX  = 0.35     # wicks totali < 35% del range
         BODY_FRAC = 0.65     # corpo ≥ 65% del range
 
@@ -1087,14 +1145,19 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
 
         atr_eff = atr if atr > 0 else max(escursione_media, close_s * 0.003)
         cond_range = range_candela > RANGE_ATR * atr_eff
-      
-        cond_corpo    = corpo_candela > BODY_MULT * max(corpo_ref, 1e-9)
-        cond_volume   = volume_attuale > VOL_MULT * max(volume_ref, 1e-9)
-        cond_wick     = wick_ratio < WICK_MAX
-        cond_bodyfrac = body_frac  >= BODY_FRAC
 
-        # Richiedi sempre: volume alto + candela "piena"
-        # Poi: o corpo enorme, oppure range enorme (vs ATR) con wicks contenute
+        cond_corpo = corpo_candela > BODY_MULT * max(corpo_ref, 1e-9)
+        cond_wick = wick_ratio < WICK_MAX
+        cond_bodyfrac = body_frac >= BODY_FRAC
+
+        # Se il volume non è affidabile (Yahoo indici/metalli), fai pump "price-only"
+        if volume_affidabile:
+            cond_volume = vol_attuale_eff > VOL_MULT * max(volume_ref, 1e-9)
+        else:
+            cond_volume = True
+
+        # Richiedi sempre: candela "piena" + (corpo enorme o range enorme con wicks contenute)
+        # + volume alto SOLO se affidabile
         cond_pump = cond_volume and cond_bodyfrac and (cond_corpo or (cond_range and cond_wick))
 
         if cond_pump:
@@ -1114,14 +1177,19 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
 
     try:
         chan_15 = detect_price_channel(
-            hist, lookback=200, min_touches_side=2,
-            parallel_tolerance=0.20, touch_tol_mult_atr=0.55,
-            min_confidence=0.55, require_volume_for_breakout=True,
-            breakout_vol_mult=1.30
+            hist,
+            lookback=200,
+            min_touches_side=2,
+            parallel_tolerance=0.20,
+            touch_tol_mult_atr=0.55,
+            min_confidence=0.55,
+            require_volume_for_breakout=volume_affidabile,
+            breakout_vol_mult=1.30,
         )
     except Exception as e:
         logging.warning(f"⚠️ Errore channel detection 15m: {e}")
         chan_15 = {}
+
 
     # Prova a costruire un 1h dal 15m (se non disponi già di hist_1h)
     try:
@@ -1130,7 +1198,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
             chan_1h = detect_price_channel(
                 df_1h, lookback=200, min_touches_side=3,
                 parallel_tolerance=0.15, touch_tol_mult_atr=0.50,
-                min_confidence=0.65, require_volume_for_breakout=True,
+                min_confidence=0.65, require_volume_for_breakout=volume_affidabile,
                 breakout_vol_mult=1.30
             )
         else:
@@ -1138,6 +1206,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
     except Exception as e:
         logging.warning(f"⚠️ Errore channel detection 1h: {e}")
         chan_1h = {}
+
 
     if chan_15.get("found"):
         # allinea la tua logica esistente per il breakout 15m
@@ -1246,7 +1315,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
         and p_tri.get("confidence", 0) >= CONF_MIN_PATTERN
         and _pattern_recent(p_tri, max_age=40)
         and p_tri.get("breakout_confirmed", False)
-        and (volume_attuale > volume_medio * VOL_MULT_TRIANGLE)
+        and (not volume_affidabile or (volume_medio > 0 and volume_attuale > volume_medio * VOL_MULT_TRIANGLE))
         and (trend_up or recupero_buy)
     )
 
