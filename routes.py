@@ -59,7 +59,7 @@ SIM_LOG_PATH = Path("simulazioni_chiuse_log.jsonl")
 # WHITELIST Yahoo (macro/indici + azioni) da mostrare in coda a /hotassets
 # ------------------------------------------------------------------
 # Whitelist Yahoo: sempre coerente con YAHOO_SYMBOL_MAP
-YAHOO_HOT_LIST = list(YAHOO_SYMBOL_MAP.keys())
+YAHOO_HOT_LIST = [ "XAUUSD", "XAGUSD", "SP500", "NAS100", "DAX40", "AAPL", "MSFT", "NVDA", "TSLA", ]
 
 
 
