@@ -148,14 +148,21 @@ ASSET_NAME_MAP = {
 
 def _asset_display_name(symbol: str) -> str:
     """
-    Restituisce un nome leggibile da affiancare al simbolo.
-    Gestisce sia coppie Binance (BTCUSDT, ETHUSDT...) che simboli secchi (AAPL, XAUUSD).
+    Restituisce un nome leggibile per:
+    - crypto Binance (BTCUSDT → BTC)
+    - simboli Yahoo (AAPL, XAUUSD, ecc.)
     """
-    base = symbol
-    if symbol.endswith("USDT") or symbol.endswith("USDC"):
-        base = symbol[:-4]  # BTCUSDT -> BTC, ETHUSDT -> ETH
+    if not symbol:
+        return symbol
 
-    return ASSET_NAME_MAP.get(symbol, ASSET_NAME_MAP.get(base, base))
+    base = symbol
+
+    if symbol.endswith("USDT") or symbol.endswith("USDC"):
+        base = symbol[:-4]
+
+    # 🔴 FIX: prova SEMPRE prima con base, poi con symbol
+    return ASSET_NAME_MAP.get(base) or ASSET_NAME_MAP.get(symbol) or base
+
 
 
 
