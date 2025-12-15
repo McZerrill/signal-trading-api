@@ -274,8 +274,10 @@ def analyze(symbol: str):
 
                 segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
                     df_15m, spread, None,
-                    asset_name=f"{_asset_display_name(symbol)} ({symbol})"
+                    asset_name=f"{_asset_display_name(symbol)} ({symbol})",
+                    asset_class="yahoo"
                 )
+
 
 
                 note = note15.split("\n") if note15 else []
@@ -283,7 +285,7 @@ def analyze(symbol: str):
                 # --- conferma 1h ---
                 try:
                     if df_1h is not None and not df_1h.empty:
-                        segnale_1h, _, _, note1h, *_ = analizza_trend(df_1h, spread, None)
+                        segnale_1h, _, _, note1h, *_ = analizza_trend(df_1h, spread, None, asset_class="yahoo")
                         note.append(f"🕒 1h: {segnale_1h}")
                 except Exception as e:
                     note.append(f"⚠️ Analisi 1h fallita: {e}")
@@ -1213,7 +1215,8 @@ def hot_assets():
             try:
                 segnale_y, hist_y, _, note15_y, *_ = analizza_trend(
                     df_y, 0.0, None,
-                    asset_name=f"{_asset_display_name(y_sym)} ({y_sym})"
+                    asset_name=f"{_asset_display_name(y_sym)} ({y_sym})",
+                    asset_class="yahoo"
                 )
             except Exception as e_y:
                 logging.warning(f"[YAHOO hotassets] analizza_trend fallita per {y_sym}: {e_y}")
