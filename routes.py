@@ -55,6 +55,22 @@ HOT_WHITELIST_BASE = {
 QUOTES = ("USDT", "USDC")
 SIM_LOG_PATH = Path("simulazioni_chiuse_log.jsonl")
 
+# ------------------------------------------------------------------
+# WHITELIST Yahoo (macro/indici + azioni) da mostrare in coda a /hotassets
+# ------------------------------------------------------------------
+YAHOO_HOT_LIST = [
+    "XAUUSD",
+    "XAGUSD",
+    "SP500",
+    "NAS100",
+    "DAX40",
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "TSLA",
+]
+
+
 # Nome leggibile per asset Binance (whitelist) + macro Yahoo + azioni
 ASSET_NAME_MAP = {
     # --- Binance crypto (base symbol) ---
@@ -237,15 +253,16 @@ def analyze(symbol: str):
         symbol = symbol.upper()
 
         # ----------------------------------------------------------------
-        #  🔹 Se è un simbolo Yahoo (non Binance) → analizza via Yahoo
+        #  🔹 Se è un simbolo Yahoo (whitelist) → analizza via Yahoo
         # ----------------------------------------------------------------
-        if not any(symbol.endswith(q) for q in ("USDT", "USDC")):
+        if symbol in YAHOO_SYMBOL_MAP:
             try:
-                y_symbol = YAHOO_SYMBOL_MAP.get(symbol, symbol)
+                y_symbol = YAHOO_SYMBOL_MAP[symbol]
                 spread = 0.0
                 prezzo_live = get_yahoo_last_price(y_symbol)
                 if prezzo_live == 0:
                     prezzo_live = None
+
 
                 # Carica dati Yahoo (gli stessi timeframe)
                 df_15m = get_yahoo_df(y_symbol, "15m")
