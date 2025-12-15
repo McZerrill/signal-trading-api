@@ -1354,7 +1354,6 @@ def verifica_posizioni_attive():
                             )
                             append_simulazione_chiusa(symbol, sim)
 
-                        
                         continue
 
                     # ===== retracement verso SL? =====
@@ -1383,8 +1382,38 @@ def verifica_posizioni_attive():
                                     sim["tp"] = nuovo_tp
                                     sim["motivo"] = "📈 TP aggiornato (trend 15m)"
 
+                    # ===== REVERSAL detector veloce su 1m (solo per cambiare motivo) =====
+                    reversal_msg = None
+                    try:
+                        df_1m_rev = get_binance_df(symbol, "1m", limit=60)
+                        if isinstance(df_1m_rev, pd.DataFrame) and len(df_1m_rev) >= 30:
+                            df_1m_rev["EMA_7"]  = df_1m_rev["close"].ewm(span=7).mean()
+                            df_1m_rev["EMA_25"] = df_1m_rev["close"].ewm(span=25).mean()
+
+                            c0    = float(df_1m_rev["close"].iloc[-1])
+                            c1    = float(df_1m_rev["close"].iloc[-2])
+                            e7_0  = float(df_1m_rev["EMA_7"].iloc[-1])
+                            e7_1  = float(df_1m_rev["EMA_7"].iloc[-2])
+                            e25_0 = float(df_1m_rev["EMA_25"].iloc[-1])
+                            e25_1 = float(df_1m_rev["EMA_25"].iloc[-2])
+
+                            # 2 barre consecutive opposte + prezzo oltre EMA7
+                            if tipo == "SELL":
+                                opp = (e7_0 > e25_0 and e7_1 > e25_1 and c0 > e7_0 and c1 > e7_1)
+                                if opp:
+                                    reversal_msg = "🔄 Inversione 1m contro SELL"
+                            else:  # BUY
+                                opp = (e7_0 < e25_0 and e7_1 < e25_1 and c0 < e7_0 and c1 < e7_1)
+                                if opp:
+                                    reversal_msg = "🔄 Inversione 1m contro BUY"
+                    except Exception:
+                        pass
+
                     # ===== messaggio di stato =====
-                    if not trend_ok:
+                    if reversal_msg:
+                        with _pos_lock:
+                            sim["motivo"] = reversal_msg
+                    elif not trend_ok:
                         with _pos_lock:
                             sim["motivo"] = "⚠️ Trend 15m incerto"
                     elif verso_sl:
