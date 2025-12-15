@@ -987,14 +987,14 @@ def hot_assets():
                 if (COND_GAIN and COND_BODY and (COND_CORPO or COND_VOLUME)):
                     trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
                     risultati.append({
-                        "symbol": f"{symbol} – {_asset_display_name(symbol)}",
+                        "symbol": symbol,
                         "segnali": 1,
                         "trend": trend_pump,
                         "rsi": None,
                         "ema7": 0.0, "ema25": 0.0, "ema99": 0.0,
                         "prezzo": round(float(ultimo["close"]), 4),
                         "candele_trend": 1,
-                        "note": "🚀 Listing pump (storico corto)"
+                        "note": f"🚀 Listing pump (storico corto) • 🛈 {_asset_display_name(symbol)}"
                     })
                     added = True
                     continue  # salta i filtri classici e marca come hot
@@ -1054,7 +1054,7 @@ def hot_assets():
                 trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
                 candele_trend = conta_candele_trend(df, rialzista=(trend_pump == "BUY"))
                 risultati.append({
-                    "symbol": f"{symbol} – {_asset_display_name(symbol)}",
+                    "symbol": symbol,
                     "segnali": 1,
                     "trend": trend_pump,
                     "rsi": round(rsi, 2),
@@ -1062,7 +1062,8 @@ def hot_assets():
                     "ema25": round(ema25, 2),
                     "ema99": round(ema99, 2),
                     "prezzo": round(prezzo, 4),
-                    "candele_trend": candele_trend
+                    "candele_trend": candele_trend,
+                    "note": f"🛈 {_asset_display_name(symbol)}"
                 })
                 added = True
                 continue  # salta i filtri successivi: la coin è "hot" per pump
@@ -1121,7 +1122,7 @@ def hot_assets():
                 segnale = "BUY" if (trend_buy or presegnale_buy) else "SELL"
                 candele_trend = conta_candele_trend(df, rialzista=(segnale == "BUY"))
                 risultati.append({
-                    "symbol": f"{symbol} – {_asset_display_name(symbol)}",
+                    "symbol": symbol,
                     "segnali": 1,
                     "trend": segnale,
                     "rsi": round(rsi, 2),
@@ -1129,7 +1130,8 @@ def hot_assets():
                     "ema25": round(ema25, 2),
                     "ema99": round(ema99, 2),
                     "prezzo": round(prezzo, 4),
-                    "candele_trend": candele_trend
+                    "candele_trend": candele_trend,
+                    "note": f"🛈 {_asset_display_name(symbol)}"
                 })
                 added = True
 
@@ -1137,7 +1139,7 @@ def hot_assets():
             if is_whitelist and not added:
                 candele_trend = conta_candele_trend(df, rialzista=True)
                 risultati.append({
-                    "symbol": f"{symbol} – {_asset_display_name(symbol)}",
+                    "symbol": symbol,
                     "segnali": 0,
                     "trend": "HOLD",
                     "rsi": round(float(rsi), 2) if not pd.isna(rsi) else None,
@@ -1146,7 +1148,7 @@ def hot_assets():
                     "ema99": round(float(ema99), 2),
                     "prezzo": round(float(prezzo), 4),
                     "candele_trend": candele_trend,
-                    "note": "🎯 Whitelist asset (monitoraggio)"
+                    "note": f"🎯 Whitelist asset (monitoraggio) • 🛈 {_asset_display_name(symbol)}"
                 })
 
         except Exception:
@@ -1189,7 +1191,7 @@ def hot_assets():
             candele_trend_y = conta_candele_trend(src_y, rialzista=(segnale_y == "BUY"))
 
             obj_y = {
-                "symbol": f"{y_sym} – {_asset_display_name(y_sym)}",
+                "symbol": y_sym,
                 "segnali": 1 if segnale_y in ("BUY", "SELL") else 0,
                 "trend": segnale_y if segnale_y in ("BUY", "SELL") else "HOLD",
                 "rsi": round(rsi_y, 2),
@@ -1198,7 +1200,7 @@ def hot_assets():
                 "ema99": round(ema99_y, 2),
                 "prezzo": round(prezzo_y, 4),
                 "candele_trend": candele_trend_y,
-                "note": "🌍 Yahoo Finance",
+                "note": f"🌍 Yahoo Finance • 🛈 {_asset_display_name(y_sym)}",
             }
 
             risultati.append(obj_y)
