@@ -778,7 +778,7 @@ def analyze(symbol: str):
         try:
             dn = _asset_display_name(symbol)
             if dn and dn != symbol:
-                note.append(f"🛈 Asset: {dn}")
+                note.insert(0, f"ASSET: {dn} ({symbol})")
         except Exception:
             pass
         
