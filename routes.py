@@ -521,10 +521,10 @@ def analyze(symbol: str):
 
         try:
             segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
-                df_15m,
-                spread,
-                df_1m
+                df_15m, spread, df_1m,
+                asset_name=f"{_asset_display_name(symbol)} ({symbol})"
             )
+
         except KeyError as e:
             # 👉 Non facciamo più fallire /analyze: trasformiamo in HOLD di sicurezza
             cols = list(df_15m.columns) if isinstance(df_15m, pd.DataFrame) else []
