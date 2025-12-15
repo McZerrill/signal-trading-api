@@ -272,7 +272,11 @@ def analyze(symbol: str):
                 if df_15m is None or df_15m.empty:
                     raise ValueError(f"Nessun dato disponibile da Yahoo per {symbol}")
 
-                segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(df_15m, spread, None)
+                segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
+                    df_15m, spread, None,
+                    asset_name=f"{_asset_display_name(symbol)} ({symbol})"
+                )
+
 
                 note = note15.split("\n") if note15 else []
 
@@ -1207,7 +1211,10 @@ def hot_assets():
 
             # Analisi con la stessa funzione del backend crypto
             try:
-                segnale_y, hist_y, _, note15_y, *_ = analizza_trend(df_y, 0.0, None)
+                segnale_y, hist_y, _, note15_y, *_ = analizza_trend(
+                    df_y, 0.0, None,
+                    asset_name=f"{_asset_display_name(y_sym)} ({y_sym})"
+                )
             except Exception as e_y:
                 logging.warning(f"[YAHOO hotassets] analizza_trend fallita per {y_sym}: {e_y}")
                 continue
