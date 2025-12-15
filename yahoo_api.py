@@ -27,18 +27,23 @@ def _map_interval(interval: str) -> str:
     Normalizza gli intervalli in formato accettato da yfinance.
     """
     interval = interval.lower().strip()
-    allowed = {
-        "1m", "2m", "5m", "15m", "30m",
-        "60m", "90m", "1h",
-        "1d", "5d", "1wk", "1mo", "3mo",
-    }
-    if interval in allowed:
-        return interval
+
+    # normalizzazioni esplicite
     if interval == "1h":
         return "60m"
     if interval == "4h":
         return "240m"
+
+    allowed = {
+        "1m", "2m", "5m", "15m", "30m",
+        "60m", "90m",
+        "1d", "5d", "1wk", "1mo", "3mo",
+    }
+    if interval in allowed:
+        return interval
+
     return "1d"
+
 
 
 def _default_period(interval: str) -> str:
