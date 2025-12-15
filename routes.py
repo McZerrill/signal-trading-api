@@ -774,13 +774,23 @@ def analyze(symbol: str):
                 else:
                     note.append(f"⚠️ Daily in conflitto ({daily_state})")
 
-        # ✅ denominazione dentro le NOTE (così finisce in commento, motivo e note_notifica)
+        # ✅ denominazione subito sotto "📊 Trend score:" (così la card la vede anche se salta la prima riga)
         try:
             dn = _asset_display_name(symbol)
             if dn and dn != symbol:
-                note.insert(0, f"ASSET: {dn} ({symbol})")
+                label = f"ASSET: {dn} ({symbol})"
+
+                # cerca la riga del trend score
+                idx = next((i for i, s in enumerate(note) if isinstance(s, str) and s.startswith("📊 Trend score:")), None)
+
+                if idx is None:
+                    # fallback: se per qualche motivo non c'è, mettila all'inizio
+                    note.insert(0, label)
+                else:
+                    note.insert(idx + 1, label)
         except Exception:
             pass
+
         
         
         # testo completo della notifica (per app + per log simulazioni)
