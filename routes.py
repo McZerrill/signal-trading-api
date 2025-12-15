@@ -58,17 +58,9 @@ SIM_LOG_PATH = Path("simulazioni_chiuse_log.jsonl")
 # ------------------------------------------------------------------
 # WHITELIST Yahoo (macro/indici + azioni) da mostrare in coda a /hotassets
 # ------------------------------------------------------------------
-YAHOO_HOT_LIST = [
-    "XAUUSD",
-    "XAGUSD",
-    "SP500",
-    "NAS100",
-    "DAX40",
-    "AAPL",
-    "MSFT",
-    "NVDA",
-    "TSLA",
-]
+# Whitelist Yahoo: sempre coerente con YAHOO_SYMBOL_MAP
+YAHOO_HOT_LIST = list(YAHOO_SYMBOL_MAP.keys())
+
 
 
 # Nome leggibile per asset Binance (whitelist) + macro Yahoo + azioni
@@ -99,26 +91,59 @@ ASSET_NAME_MAP = {
     "APT":  "Aptos",
     "A":    "Vaulta",
 
-    # --- Macro / indici (Yahoo) ---
-    "XAUUSD": "Oro (Gold futures)",
-    "XAGUSD": "Argento (Silver futures)",
-    "SP500":  "S&P 500",
-    "NAS100": "Nasdaq 100",
-    "DAX40":  "DAX 40",
+    # --- Macro/Indici/FX (Yahoo) ---
+    "DJI": "Dow Jones",
+    "VIX": "VIX (Volatility Index)",
+    "RUS2000": "Russell 2000",
+    "OIL": "Crude Oil (WTI futures)",
+    "NGAS": "Natural Gas (futures)",
+    "EURUSD": "EUR/USD",
+    "GBPUSD": "GBP/USD",
+    "USDJPY": "USD/JPY",
+    "MAG7": "Magnificent 7 (ETF proxy)",
 
-    # --- Titoli azionari (Yahoo) ---
-    "AAPL":  "Apple",
-    "MSFT":  "Microsoft",
-    "NVDA":  "NVIDIA",
-    "TSLA":  "Tesla",
-    "META":  "Meta Platforms",
-    "GOOGL": "Alphabet (Google)",
-    "AMZN":  "Amazon",
-    "NFLX":  "Netflix",
-    "JPM":   "JPMorgan Chase",
-    "BAC":   "Bank of America",
-    "DIS":   "Disney",
-    "NKE":   "Nike",
+    # --- Azioni Yahoo (nuove) ---
+    "ORCL": "Oracle",
+    "AMD": "Advanced Micro Devices",
+    "AVGO": "Broadcom",
+    "MU": "Micron Technology",
+    "KO": "Coca-Cola",
+    "MCD": "McDonald's",
+    "COST": "Costco",
+    "WMT": "Walmart",
+    "V": "Visa",
+    "MA": "Mastercard",
+    "UPS": "United Parcel Service",
+    "QCOM": "Qualcomm",
+    "ADBE": "Adobe",
+    "INTC": "Intel",
+    "JNJ": "Johnson & Johnson",
+    "LLY": "Eli Lilly",
+    "ABBV": "AbbVie",
+    "ABT": "Abbott Laboratories",
+    "BRKB": "Berkshire Hathaway (B)",
+    "BABA": "Alibaba",
+    "MELI": "MercadoLibre",
+    "COIN": "Coinbase",
+    "RDDT": "Reddit",
+    "GME": "GameStop",
+    "CAT": "Caterpillar",
+    "FCX": "Freeport-McMoRan",
+    "AA": "Alcoa",
+    "GOLD": "Barrick Gold",
+    "BYND": "Beyond Meat",
+    "SPCE": "Virgin Galactic",
+    "LYFT": "Lyft",
+    "SEDG": "SolarEdge",
+    "FSLR": "First Solar",
+    "AAL": "American Airlines",
+    "LUV": "Southwest Airlines",
+    "CCL": "Carnival",
+    "DAL": "Delta Air Lines",
+    "AMC": "AMC Entertainment",
+    "ACB": "Aurora Cannabis",
+    "FERRARI": "Ferrari N.V.",
+
 }
 
 def _asset_display_name(symbol: str) -> str:
