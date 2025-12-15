@@ -815,7 +815,9 @@ def calcola_probabilita_successo(
 # Funzione principale: analizza_trend
 # -----------------------------------------------------------------------------
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
-                   hist_1m: pd.DataFrame = None, sistema: str = "EMA"):
+                   hist_1m: pd.DataFrame = None, sistema: str = "EMA",
+                   asset_name: str | None = None):   # ✅ nuovo
+
 
     logging.debug("🔍 Inizio analisi trend")
 
@@ -1002,8 +1004,14 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
         ema7, ema25, ema99, rsi, macd, macd_signal,
         volume_attuale, volume_medio, distanza_ema, atr, close,
     )
-    note.append(f"📊 Trend score: {punteggio_trend}")
+    # Se presente, appendiamo denominazione sulla stessa riga del Trend score (così la vede anche l'app)
+    if asset_name:
+        note.append(f"📊 Trend score: {punteggio_trend}  |  🛈 {asset_name}")
+    else:
+        note.append(f"📊 Trend score: {punteggio_trend}")
+
     logging.debug(f"[TREND_SCORE] score={punteggio_trend} rsi={rsi:.2f} macd_gap={(macd - macd_signal):.6f} atr={atr:.6f}")
+
 
     # --- etichetta trend più realistica: evita "Forte" se EMA ancora compresse ---
     dist_7_99_pct = _frac_of_close(abs(ema7 - ema99), close_s)
