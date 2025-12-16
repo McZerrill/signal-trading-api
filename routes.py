@@ -919,7 +919,7 @@ def _ensure_scanner():
     except Exception as e:
         logging.error(f"❌ Impossibile avviare lo scanner: {e}")
 
-_ensure_scanner()
+#_ensure_scanner()
 # =========================================================
 
 
