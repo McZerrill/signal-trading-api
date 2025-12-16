@@ -1215,63 +1215,83 @@ def hot_assets():
             continue
 
 
-    # --- Aggiunta asset YAHOO Finance in coda alla lista HOT ---
-    for y_sym in YAHOO_HOT_LIST:
-        try:
-            time.sleep(1.5)
-            # Mappa simbolo “logico” -> ticker Yahoo reale
-            y_symbol = YAHOO_SYMBOL_MAP.get(y_sym, y_sym)
+# --- Costruzione lista completa Yahoo da scansionare ---
+yahoo_symbols_to_scan = []
 
-            # Dati 15m da Yahoo, compatibili con trend_logic
-            df_y = get_yahoo_df(y_symbol, interval="15m")
-            if df_y is None or df_y.empty:
-                logging.warning(f"[YAHOO hotassets] Nessun dato per {y_sym} ({y_symbol})")
-                continue
+# 1) priorità agli asset espliciti
+yahoo_symbols_to_scan.extend(YAHOO_HOT_LIST)
 
-            # Analisi con la stessa funzione del backend crypto
-            try:
-                segnale_y, hist_y, _, note15_y, *_ = analizza_trend(
-                    df_y, 0.0, None,
-                    asset_name=f"{_asset_display_name(y_sym)} ({y_sym})",
-                    asset_class="yahoo"
-                )
-            except Exception as e_y:
-                logging.warning(f"[YAHOO hotassets] analizza_trend fallita per {y_sym}: {e_y}")
-                continue
+# 2) aggiungi tutti i simboli Yahoo noti (ASSET_NAME_MAP ∩ YAHOO_SYMBOL_MAP)
+for sym in ASSET_NAME_MAP.keys():
+    if sym in YAHOO_SYMBOL_MAP and sym not in yahoo_symbols_to_scan:
+        yahoo_symbols_to_scan.append(sym)
 
-            # Sorgente dati per gli ultimi indicatori
-            src_y = hist_y if isinstance(hist_y, pd.DataFrame) and not hist_y.empty else df_y
-            if src_y is None or src_y.empty:
-                continue
 
-            ultimo_y = src_y.iloc[-1]
+# --- Costruzione lista completa Yahoo da scansionare ---
+yahoo_symbols_to_scan = []
 
-            prezzo_y = float(ultimo_y.get("close", 0.0))
-            ema7_y   = float(ultimo_y.get("EMA_7", 0.0))  if "EMA_7" in src_y.columns  else 0.0
-            ema25_y  = float(ultimo_y.get("EMA_25", 0.0)) if "EMA_25" in src_y.columns else 0.0
-            ema99_y  = float(ultimo_y.get("EMA_99", 0.0)) if "EMA_99" in src_y.columns else 0.0
-            rsi_y    = float(ultimo_y.get("RSI", 0.0))    if "RSI" in src_y.columns    else 0.0
+# 1) priorità agli asset espliciti
+yahoo_symbols_to_scan.extend(YAHOO_HOT_LIST)
 
-            candele_trend_y = conta_candele_trend(src_y, rialzista=(segnale_y == "BUY"))
+# 2) aggiungi tutti i simboli Yahoo noti (ASSET_NAME_MAP ∩ YAHOO_SYMBOL_MAP)
+for sym in ASSET_NAME_MAP.keys():
+    if sym in YAHOO_SYMBOL_MAP and sym not in yahoo_symbols_to_scan:
+        yahoo_symbols_to_scan.append(sym)
 
-            obj_y = {
-                "symbol": y_sym,
-                "segnali": 1 if segnale_y in ("BUY", "SELL") else 0,
-                "trend": segnale_y if segnale_y in ("BUY", "SELL") else "HOLD",
-                "rsi": round(rsi_y, 2),
-                "ema7": round(ema7_y, 2),
-                "ema25": round(ema25_y, 2),
-                "ema99": round(ema99_y, 2),
-                "prezzo": round(prezzo_y, 4),
-                "candele_trend": candele_trend_y,
-                "note": f"🌍 Yahoo Finance • 🛈 {_asset_display_name(y_sym)}",
-            }
 
-            risultati.append(obj_y)
+# --- Costruzione lista completa Yahoo da scansionare ---
+yahoo_symbols_to_scan = []
 
-        except Exception as e_yahoo:
-            logging.warning(f"[YAHOO hotassets] Errore per {y_sym}: {e_yahoo}")
+# 1) priorità agli asset espliciti
+yahoo_symbols_to_scan.extend(YAHOO_HOT_LIST)
+
+# 2) aggiungi tutti i simboli Yahoo noti (ASSET_NAME_MAP ∩ YAHOO_SYMBOL_MAP)
+for sym in ASSET_NAME_MAP.keys():
+    if sym in YAHOO_SYMBOL_MAP and sym not in yahoo_symbols_to_scan:
+        yahoo_symbols_to_scan.append(sym)
+
+
+# --- Aggiunta asset YAHOO Finance in coda alla lista HOT ---
+for y_sym in yahoo_symbols_to_scan:
+    try:
+        time.sleep(1.5)
+
+        # Mappa simbolo “logico” -> ticker Yahoo reale
+        y_symbol = YAHOO_SYMBOL_MAP.get(y_sym, y_sym)
+
+        df_y = get_yahoo_df(y_symbol, interval="15m")
+        if df_y is None or df_y.empty:
             continue
+
+        segnale_y, hist_y, _, note15_y, *_ = analizza_trend(
+            df_y, 0.0, None,
+            asset_name=f"{_asset_display_name(y_sym)} ({y_sym})",
+            asset_class="yahoo"
+        )
+
+        src_y = hist_y if isinstance(hist_y, pd.DataFrame) and not hist_y.empty else df_y
+        if src_y.empty:
+            continue
+
+        ultimo_y = src_y.iloc[-1]
+
+        risultati.append({
+            "symbol": y_sym,
+            "segnali": 1 if segnale_y in ("BUY", "SELL") else 0,
+            "trend": segnale_y if segnale_y in ("BUY", "SELL") else "HOLD",
+            "rsi": round(float(ultimo_y.get("RSI", 0.0)), 2),
+            "ema7": round(float(ultimo_y.get("EMA_7", 0.0)), 2),
+            "ema25": round(float(ultimo_y.get("EMA_25", 0.0)), 2),
+            "ema99": round(float(ultimo_y.get("EMA_99", 0.0)), 2),
+            "prezzo": round(float(ultimo_y.get("close", 0.0)), 4),
+            "candele_trend": conta_candele_trend(src_y, rialzista=(segnale_y == "BUY")),
+            "note": f"🌍 Yahoo Finance • 🛈 {_asset_display_name(y_sym)}",
+        })
+
+    except Exception:
+        continue
+
+
 
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
