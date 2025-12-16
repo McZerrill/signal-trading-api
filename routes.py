@@ -144,6 +144,20 @@ ASSET_NAME_MAP = {
     "ACB": "Aurora Cannabis",
     "FERRARI": "Ferrari N.V.",
 
+        # --- Macro / indici (Yahoo) ---
+    "XAUUSD": "Oro (Gold futures)",
+    "XAGUSD": "Argento (Silver futures)",
+    "SP500":  "S&P 500",
+    "NAS100": "Nasdaq 100",
+    "DAX40":  "DAX 40",
+
+    # --- Titoli azionari (Yahoo) ---
+    "AAPL":  "Apple",
+    "MSFT":  "Microsoft",
+    "NVDA":  "NVIDIA",
+    "TSLA":  "Tesla",
+
+
 }
 
 def _asset_display_name(symbol: str) -> str:
