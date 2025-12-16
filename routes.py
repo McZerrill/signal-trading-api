@@ -1218,43 +1218,58 @@ def hot_assets():
     # --- Aggiunta asset YAHOO Finance in coda alla lista HOT ---
     for y_sym in YAHOO_HOT_LIST:
         try:
-            time.sleep(1.5)
-            # Mappa simbolo “logico” -> ticker Yahoo reale
-            y_symbol = YAHOO_SYMBOL_MAP.get(y_sym, y_sym)
+            # (facoltativo) piccola pausa per non martellare Yahoo
+            time.sleep(0.8)
 
-            # Dati 15m da Yahoo, compatibili con trend_logic
-            df_y = get_yahoo_df(y_symbol, interval="15m")
-            if df_y is None or df_y.empty:
-                logging.warning(f"[YAHOO hotassets] Nessun dato per {y_sym} ({y_symbol})")
+            # simbolo logico -> ticker Yahoo reale
+            y_sym = (y_sym or "").upper().strip()
+            y_ticker = YAHOO_SYMBOL_MAP.get(y_sym, y_sym)
+
+            # OHLCV 15m da Yahoo (normalizzato in yahoo_api)
+            df_y = get_yahoo_df(y_ticker, interval="15m")
+            if not isinstance(df_y, pd.DataFrame) or df_y.empty:
+                logging.warning(f"[YAHOO hotassets] Nessun dato per {y_sym} ({y_ticker})")
                 continue
 
-            # Analisi con la stessa funzione del backend crypto
+            # Analisi con trend_logic (stesso motore delle crypto)
             try:
                 segnale_y, hist_y, _, note15_y, *_ = analizza_trend(
-                    df_y, 0.0, None,
+                    df_y,
+                    0.0,
+                    None,
                     asset_name=f"{_asset_display_name(y_sym)} ({y_sym})",
-                    asset_class="yahoo"
+                    asset_class="yahoo",
                 )
-            except Exception as e_y:
-                logging.warning(f"[YAHOO hotassets] analizza_trend fallita per {y_sym}: {e_y}")
+            except Exception as e:
+                logging.warning(f"[YAHOO hotassets] analizza_trend fallita per {y_sym}: {e}")
                 continue
 
-            # Sorgente dati per gli ultimi indicatori
             src_y = hist_y if isinstance(hist_y, pd.DataFrame) and not hist_y.empty else df_y
             if src_y is None or src_y.empty:
                 continue
 
-            ultimo_y = src_y.iloc[-1]
+            last = src_y.iloc[-1]
 
-            prezzo_y = float(ultimo_y.get("close", 0.0))
-            ema7_y   = float(ultimo_y.get("EMA_7", 0.0))  if "EMA_7" in src_y.columns  else 0.0
-            ema25_y  = float(ultimo_y.get("EMA_25", 0.0)) if "EMA_25" in src_y.columns else 0.0
-            ema99_y  = float(ultimo_y.get("EMA_99", 0.0)) if "EMA_99" in src_y.columns else 0.0
-            rsi_y    = float(ultimo_y.get("RSI", 0.0))    if "RSI" in src_y.columns    else 0.0
+            def _f(key: str) -> float:
+                try:
+                    v = last.get(key, 0.0)
+                    return 0.0 if pd.isna(v) else float(v)
+                except Exception:
+                    return 0.0
 
-            candele_trend_y = conta_candele_trend(src_y, rialzista=(segnale_y == "BUY"))
+            prezzo_y = _f("close")
+            ema7_y   = _f("EMA_7")
+            ema25_y  = _f("EMA_25")
+            ema99_y  = _f("EMA_99")
+            rsi_y    = _f("RSI")
 
-            obj_y = {
+            candele_trend_y = 0
+            try:
+                candele_trend_y = conta_candele_trend(src_y, rialzista=(segnale_y == "BUY"))
+            except Exception:
+                candele_trend_y = 0
+
+            risultati.append({
                 "symbol": y_sym,
                 "segnali": 1 if segnale_y in ("BUY", "SELL") else 0,
                 "trend": segnale_y if segnale_y in ("BUY", "SELL") else "HOLD",
@@ -1265,13 +1280,12 @@ def hot_assets():
                 "prezzo": round(prezzo_y, 4),
                 "candele_trend": candele_trend_y,
                 "note": f"🌍 Yahoo Finance • 🛈 {_asset_display_name(y_sym)}",
-            }
+            })
 
-            risultati.append(obj_y)
-
-        except Exception as e_yahoo:
-            logging.warning(f"[YAHOO hotassets] Errore per {y_sym}: {e_yahoo}")
+        except Exception as e:
+            logging.warning(f"[YAHOO hotassets] Errore per {y_sym}: {e}")
             continue
+
 
 
 
