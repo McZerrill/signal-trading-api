@@ -1775,6 +1775,8 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
 
         tp = _round_tick(tp_raw)
         sl = _round_tick(sl_raw)
+        note.append(f"🎯 TP {tp:.6g} • 🛡️ SL {sl:.6g}")
+
 
         if segnale == "BUY" and not (sl < close < tp):
             note.append("⚠️ TP/SL BUY incoerenti")
