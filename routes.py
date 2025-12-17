@@ -1085,7 +1085,10 @@ def hot_assets():
             # --- Flag whitelist per simbolo corrente ---
             base = symbol[:-4] if (symbol.endswith("USDT") or symbol.endswith("USDC")) else symbol
             is_whitelist = base in HOT_WHITELIST_BASE
+            logging.debug(f"[HOTASSETS] consider {symbol} base={base} whitelist={is_whitelist}")
+
             added = False  # diventa True quando il symbol entra in risultati
+            
 
             df = get_binance_df(symbol, "15m", 100)
 
