@@ -369,7 +369,6 @@ def analyze(symbol: str):
                     
 
                 logging.info(f"[CALL analizza_trend] YAHOO symbol={symbol} ticker={y_symbol}")
-                logging.info(f"[CALL analizza_trend] BINANCE symbol={symbol}")
 
                 # Se i dati sono freschi → ok, fai analisi
                 segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
@@ -475,6 +474,31 @@ def analyze(symbol: str):
 
 
                 
+        # ----------------------------------------------------------------
+        #  🔒 HARD BLOCK: simbolo Yahoo NON deve mai cadere nel ramo BINANCE
+        # ----------------------------------------------------------------
+        if symbol in YAHOO_SYMBOL_MAP:
+            logging.error(f"[FLOW BLOCK] Yahoo symbol arrivato al ramo BINANCE: {symbol}")
+            return SignalResponse(
+                symbol=symbol,
+                segnale="HOLD",
+                commento=f"FLOW BLOCK: {symbol} è Yahoo ma è arrivato al ramo Binance (bug a monte).",
+                prezzo=0.0,
+                take_profit=0.0,
+                stop_loss=0.0,
+                rsi=0.0,
+                macd=0.0,
+                macd_signal=0.0,
+                atr=0.0,
+                ema7=0.0,
+                ema25=0.0,
+                ema99=0.0,
+                timeframe="15m",
+                spread=0.0,
+                motivo="FLOW BLOCK: Yahoo symbol in ramo Binance",
+                chiusa_da_backend=False
+            )
+
         # BINANCE: accetta solo simboli completi (USDT/USDC)
         if not (symbol.endswith("USDT") or symbol.endswith("USDC")):
             logging.warning(f"[BINANCE BLOCK] symbol non USDT/USDC: {symbol}")
@@ -650,6 +674,7 @@ def analyze(symbol: str):
         df_1m  = get_binance_df(symbol, "1m", 100)
 
         try:
+            logging.info(f"[CALL analizza_trend] BINANCE symbol={symbol}")
             segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
                 df_15m, spread, df_1m,
                 asset_name=f"{_asset_display_name(symbol)} ({symbol})"
@@ -990,26 +1015,107 @@ def analyze(symbol: str):
 # ===== Avvio scanner Top Movers (evita doppio avvio) =====
 _SCANNER_STARTED = False
 
+# =========================
+# BLOCCO NUOVO (def _ensure_scanner() completo e corretto)
+# =========================
 def _ensure_scanner():
     global _SCANNER_STARTED
     if _SCANNER_STARTED:
         return
     try:
-        # puoi cambiare gli intervalli/soglie come preferisci
+        # Wrapper HARD: lo scanner deve chiamare SOLO BINANCE (USDT/USDC) e MAI Yahoo
+        def _analyze_scanner(symbol: str):
+            s = (symbol or "").upper()
+
+            # 1) blocco diretto: simbolo "logico" Yahoo (AAPL, TSLA, META, SP500, ecc.)
+            if s in YAHOO_SYMBOL_MAP:
+                logging.error(f"[SCANNER FLOW BLOCK] Yahoo symbol passato allo scanner BINANCE: {s}")
+                return SignalResponse(
+                    symbol=s,
+                    segnale="HOLD",
+                    commento="SCANNER FLOW BLOCK: Yahoo symbol nello scanner BINANCE",
+                    prezzo=0.0,
+                    take_profit=0.0,
+                    stop_loss=0.0,
+                    rsi=0.0,
+                    macd=0.0,
+                    macd_signal=0.0,
+                    atr=0.0,
+                    ema7=0.0,
+                    ema25=0.0,
+                    ema99=0.0,
+                    timeframe="15m",
+                    spread=0.0,
+                    motivo="SCANNER FLOW BLOCK: Yahoo symbol",
+                    chiusa_da_backend=False
+                )
+
+            # 2) lo scanner BINANCE accetta solo simboli completi (USDT/USDC)
+            if not (s.endswith("USDT") or s.endswith("USDC")):
+                logging.warning(f"[SCANNER SKIP] non BINANCE (no quote): {s}")
+                return SignalResponse(
+                    symbol=s,
+                    segnale="HOLD",
+                    commento="SCANNER SKIP: non BINANCE (no quote USDT/USDC)",
+                    prezzo=0.0,
+                    take_profit=0.0,
+                    stop_loss=0.0,
+                    rsi=0.0,
+                    macd=0.0,
+                    macd_signal=0.0,
+                    atr=0.0,
+                    ema7=0.0,
+                    ema25=0.0,
+                    ema99=0.0,
+                    timeframe="15m",
+                    spread=0.0,
+                    motivo="SCANNER SKIP: non BINANCE",
+                    chiusa_da_backend=False
+                )
+
+            # 3) blocco robusto: anche se arriva roba tipo AAPLUSDT, blocchiamo lo stesso
+            base = s[:-4]  # qui è garantito USDT/USDC
+            if base in YAHOO_SYMBOL_MAP:
+                logging.error(f"[SCANNER FLOW BLOCK] Yahoo base passato allo scanner BINANCE: {s} (base={base})")
+                return SignalResponse(
+                    symbol=s,
+                    segnale="HOLD",
+                    commento=f"SCANNER FLOW BLOCK: Yahoo base nello scanner BINANCE ({base})",
+                    prezzo=0.0,
+                    take_profit=0.0,
+                    stop_loss=0.0,
+                    rsi=0.0,
+                    macd=0.0,
+                    macd_signal=0.0,
+                    atr=0.0,
+                    ema7=0.0,
+                    ema25=0.0,
+                    ema99=0.0,
+                    timeframe="15m",
+                    spread=0.0,
+                    motivo="SCANNER FLOW BLOCK: Yahoo base",
+                    chiusa_da_backend=False
+                )
+
+            return analyze(s)
+
+        # Avvio scanner
         start_top_mover_scanner(
-            analyze_fn=analyze,
+            analyze_fn=_analyze_scanner,
             interval_sec=30,
             gain_threshold_normale=0.10,
             gain_threshold_listing=1.00,
-            quote_suffix=("USDC","USDT"),
+            quote_suffix=("USDC", "USDT"),
             top_n_24h=80,
             cooldown_sec=90,
         )
 
         _SCANNER_STARTED = True
         logging.info("✅ Top Mover Scanner avviato da routes.py")
+
     except Exception as e:
         logging.error(f"❌ Impossibile avviare lo scanner: {e}")
+
 
 _ensure_scanner()
 # =========================================================
@@ -1082,6 +1188,13 @@ def hot_assets():
     symbols = get_best_symbols(limit=120)
     symbols = _augment_with_whitelist(symbols)
 
+    # 🔒 HARD: /hotassets ramo BINANCE -> solo USDT/USDC e MAI simboli Yahoo
+    symbols = [
+        s for s in symbols
+        if (s.endswith("USDT") or s.endswith("USDC"))
+        and ( (s[:-4] if (s.endswith("USDT") or s.endswith("USDC")) else s) not in YAHOO_SYMBOL_MAP )
+    ]    
+
     risultati = []
 
     # --- Soglie radar HOT vs trend_logic (imbuto crescente) ---
@@ -1109,13 +1222,21 @@ def hot_assets():
 
     for symbol in symbols:
         try:
+            # --- HARD guard BINANCE ---
+            if not (symbol.endswith("USDT") or symbol.endswith("USDC")):
+                logging.warning(f"[HOTASSETS SKIP] non BINANCE (no quote): {symbol}")
+                continue
+
+            base = symbol[:-4]  # qui è garantito USDT/USDC
+            if base in YAHOO_SYMBOL_MAP:
+                logging.error(f"[HOTASSETS FLOW BLOCK] Yahoo base arrivato in BINANCE list: {symbol}")
+                continue
+
             # --- Flag whitelist per simbolo corrente ---
-            base = symbol[:-4] if (symbol.endswith("USDT") or symbol.endswith("USDC")) else symbol
             is_whitelist = base in HOT_WHITELIST_BASE
             logging.debug(f"[HOTASSETS] consider {symbol} base={base} whitelist={is_whitelist}")
 
             added = False  # diventa True quando il symbol entra in risultati
-            
 
             df = get_binance_df(symbol, "15m", 100)
 
