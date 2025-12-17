@@ -366,6 +366,9 @@ def analyze(symbol: str):
                         )
                 except Exception as e:
                     logging.warning(f"[YAHOO STALE CHECK] fallito per {symbol}: {e}")
+                    
+
+                logging.info(f"[CALL analizza_trend] BINANCE symbol={symbol}")
 
                 # Se i dati sono freschi → ok, fai analisi
                 segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
