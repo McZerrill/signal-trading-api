@@ -368,6 +368,7 @@ def analyze(symbol: str):
                     logging.warning(f"[YAHOO STALE CHECK] fallito per {symbol}: {e}")
                     
 
+                logging.info(f"[CALL analizza_trend] YAHOO symbol={symbol} ticker={y_symbol}")
                 logging.info(f"[CALL analizza_trend] BINANCE symbol={symbol}")
 
                 # Se i dati sono freschi → ok, fai analisi
@@ -473,11 +474,34 @@ def analyze(symbol: str):
 
 
 
+                
+        # BINANCE: accetta solo simboli completi (USDT/USDC)
+        if not (symbol.endswith("USDT") or symbol.endswith("USDC")):
+            logging.warning(f"[BINANCE BLOCK] symbol non USDT/USDC: {symbol}")
+            return SignalResponse(
+                symbol=symbol,
+                segnale="HOLD",
+                commento=f"Symbol non valido per Binance: {symbol}",
+                prezzo=0.0,
+                take_profit=0.0,
+                stop_loss=0.0,
+                rsi=0.0,
+                macd=0.0,
+                macd_signal=0.0,
+                atr=0.0,
+                ema7=0.0,
+                ema25=0.0,
+                ema99=0.0,
+                timeframe="15m",
+                spread=0.0,
+                motivo="BINANCE BLOCK: symbol non USDT/USDC",
+                chiusa_da_backend=False
+            )
 
-        
         with _pos_lock:
             posizione = posizioni_attive.get(symbol)
             motivo_attuale = (posizione or {}).get("motivo", "")
+
 
         # Tick size reale di Binance (serve al monitor 15m)
         try:
@@ -1184,6 +1208,7 @@ def hot_assets():
             if (cond_corpo and cond_volume) or (cond_range and cond_volume and cond_wick):
                 trend_pump = "BUY" if ultimo["close"] >= ultimo["open"] else "SELL"
                 candele_trend = conta_candele_trend(df, rialzista=(trend_pump == "BUY"))
+                logging.info(f"[HOTASSETS BINANCE ADD] {symbol} reason=pump trend={trend_pump}")
                 risultati.append({
                     "symbol": symbol,
                     "segnali": 1,
@@ -1269,6 +1294,7 @@ def hot_assets():
             # --- Fallback: i simboli in whitelist devono comparire comunque ---
             if is_whitelist and not added:
                 candele_trend = conta_candele_trend(df, rialzista=True)
+                logging.info(f"[HOTASSETS BINANCE ADD] {symbol} reason=whitelist_fallback trend=HOLD")
                 risultati.append({
                     "symbol": symbol,
                     "segnali": 0,
@@ -1339,6 +1365,7 @@ def hot_assets():
             
             # Analisi con la stessa funzione del backend crypto
             try:
+                logging.info(f"[CALL analizza_trend] HOTASSETS YAHOO symbol={y_sym} ticker={y_ticker}")
                 segnale_y, hist_y, _, note15_y, *_ = analizza_trend(
                     df_y, 0.0, None,
                     asset_name=f"{_asset_display_name(y_sym)} ({y_sym})",
@@ -1363,6 +1390,7 @@ def hot_assets():
 
             candele_trend_y = conta_candele_trend(src_y, rialzista=(segnale_y == "BUY"))
 
+            logging.info(f"[HOTASSETS YAHOO ADD] {y_sym} trend={segnale_y}")
             risultati.append({
                 "symbol": y_sym,
                 "segnali": 1 if segnale_y in ("BUY", "SELL") else 0,
