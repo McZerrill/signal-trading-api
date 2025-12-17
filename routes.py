@@ -39,8 +39,8 @@ logging.warning("🚀 BACKEND RIAVVIATO — routes.py ricaricato")
 router = APIRouter()
 utc = dt_timezone.utc
 
-router = APIRouter()
-utc = dt_timezone.utc
+# Yahoo: soglia freschezza dati (minuti)
+YAHOO_STALE_MAX_MIN = 25   # 25m: tollera 15m + ritardo + jitter
 
 
 # ------------------------------------------------------------------
@@ -318,11 +318,62 @@ def analyze(symbol: str):
                 if df_15m is None or df_15m.empty:
                     raise ValueError(f"Nessun dato disponibile da Yahoo per {symbol}")
 
+                # ----------------------------------------------------------------
+                # ✅ FRESHNESS CHECK (Yahoo): se l'ultima candela è troppo vecchia,
+                #    NON fare analisi e NON far partire simulazioni.
+                # ----------------------------------------------------------------
+                try:
+                    last_ts = df_15m.index[-1]
+
+                    # df index può essere Timestamp pandas
+                    if hasattr(last_ts, "to_pydatetime"):
+                        last_ts = last_ts.to_pydatetime()
+
+                    # rendi timezone-aware
+                    if getattr(last_ts, "tzinfo", None) is None:
+                        last_ts = last_ts.replace(tzinfo=dt_timezone.utc)
+
+                    now_utc = datetime.now(dt_timezone.utc)
+                    age_min = (now_utc - last_ts).total_seconds() / 60.0
+
+                    if age_min > YAHOO_STALE_MAX_MIN:
+                        msg = (
+                            f"⏸️ Yahoo dati non aggiornati per {symbol}: "
+                            f"ultima candela {last_ts.isoformat()} (≈{age_min:.1f} min fa). "
+                            "Mercato chiuso/ritardo feed → analisi e simulazione bloccate."
+                        )
+                        logging.warning(f"[YAHOO STALE] {symbol} age_min={age_min:.1f} last_ts={last_ts}")
+
+                        # ritorna HOLD subito, senza analizza_trend
+                        return SignalResponse(
+                            symbol=symbol,
+                            segnale="HOLD",
+                            commento=msg,
+                            prezzo=0.0,          # oppure close se preferisci mostrare l'ultimo close
+                            take_profit=0.0,
+                            stop_loss=0.0,
+                            rsi=0.0,
+                            macd=0.0,
+                            macd_signal=0.0,
+                            atr=0.0,
+                            ema7=0.0,
+                            ema25=0.0,
+                            ema99=0.0,
+                            timeframe="15m",
+                            spread=0.0,
+                            motivo=msg,
+                            chiusa_da_backend=False
+                        )
+                except Exception as e:
+                    logging.warning(f"[YAHOO STALE CHECK] fallito per {symbol}: {e}")
+
+                # Se i dati sono freschi → ok, fai analisi
                 segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
                     df_15m, spread, None,
                     asset_name=f"{_asset_display_name(symbol)} ({symbol})",
                     asset_class="yahoo"
                 )
+
 
 
 
@@ -1260,6 +1311,26 @@ def hot_assets():
                 logging.warning(f"[YAHOO hotassets] Nessun dato per {y_sym} ({y_ticker})")
                 continue
 
+            # ✅ FRESHNESS CHECK (Yahoo) anche in /hotassets: se è stale -> skip
+            try:
+                last_ts = df_y.index[-1]
+                if hasattr(last_ts, "to_pydatetime"):
+                    last_ts = last_ts.to_pydatetime()
+                if getattr(last_ts, "tzinfo", None) is None:
+                    last_ts = last_ts.replace(tzinfo=dt_timezone.utc)
+
+                now_utc = datetime.now(dt_timezone.utc)
+                age_min = (now_utc - last_ts).total_seconds() / 60.0
+
+                if age_min > YAHOO_STALE_MAX_MIN:
+                    logging.debug(f"[YAHOO hotassets] skip STALE {y_sym} age_min={age_min:.1f} last_ts={last_ts}")
+                    continue
+            except Exception as e:
+                logging.debug(f"[YAHOO hotassets] freshness check fail {y_sym}: {e}")
+
+
+
+            
             # Analisi con la stessa funzione del backend crypto
             try:
                 segnale_y, hist_y, _, note15_y, *_ = analizza_trend(
@@ -1302,7 +1373,6 @@ def hot_assets():
         except Exception as e_yahoo:
             logging.warning(f"[YAHOO hotassets] Errore per {y_sym}: {e_yahoo}")
             continue
-
 
 
 
