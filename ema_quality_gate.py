@@ -65,12 +65,16 @@ def ema_quality_buy_gate(
     sep_25_99_old  = abs(e25[0]  - e99[0])  / c
     sep_grow_25_99 = sep_25_99_now - sep_25_99_old
 
+    # EMA25 “retta” anche come progressione: evita zig-zag (rumore)
+    d25 = np.diff(e25) / c
+    ema25_monotone = bool(np.all(d25 >= 0))
     metrics = {
         "slope7": slope7,
         "slope25": slope25,
         "curv25": curv25,
         "sep_grow_7_25": sep_grow_7_25,
         "sep_grow_25_99": sep_grow_25_99,
+        "ema25_monotone": ema25_monotone,
     }
 
     # check step-by-step (reason utile nei log)
@@ -78,6 +82,8 @@ def ema_quality_buy_gate(
         return False, "slope7 low", metrics
     if slope25 < min_slope25:
         return False, "slope25 low", metrics
+    if not ema25_monotone:
+        return False, "ema25 not monotone", metrics
     if curv25 > max_curv25:
         return False, "ema25 too curvy", metrics
     if sep_grow_7_25 < min_sep_growth_7_25:
@@ -86,3 +92,5 @@ def ema_quality_buy_gate(
         return False, "25-99 not separating", metrics
 
     return True, "ok", metrics
+    
+__all__ = ["ema_quality_buy_gate"]
