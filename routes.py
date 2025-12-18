@@ -1014,14 +1014,17 @@ def analyze(symbol: str):
 
 # ===== Avvio scanner Top Movers (evita doppio avvio) =====
 _SCANNER_STARTED = False
+_SCANNER_LOCK = threading.Lock()
 
-# =========================
-# BLOCCO NUOVO (def _ensure_scanner() completo e corretto)
-# =========================
 def _ensure_scanner():
     global _SCANNER_STARTED
-    if _SCANNER_STARTED:
-        return
+
+    # ✅ Lock reale: impedisce race condition in startup/reload/multi-thread
+    with _SCANNER_LOCK:
+        if _SCANNER_STARTED:
+            return
+        _SCANNER_STARTED = True  # prenota SUBITO (prima di avviare lo scanner)
+
     try:
         # Wrapper HARD: lo scanner deve chiamare SOLO BINANCE (USDT/USDC) e MAI Yahoo
         def _analyze_scanner(symbol: str):
@@ -1110,15 +1113,15 @@ def _ensure_scanner():
             cooldown_sec=90,
         )
 
-        _SCANNER_STARTED = True
         logging.info("✅ Top Mover Scanner avviato da routes.py")
 
     except Exception as e:
+        # ✅ Se fallisce l’avvio, permetti retry futuro
+        with _SCANNER_LOCK:
+            _SCANNER_STARTED = False
         logging.error(f"❌ Impossibile avviare lo scanner: {e}")
 
 
-_ensure_scanner()
-# =========================================================
 
 
 @router.get("/price")
@@ -1579,6 +1582,9 @@ def verifica_posizioni_attive():
 
                     # prezzo live usato solo per progress/stato
                     prezzo_live = float(book["ask"] if tipo == "BUY" else book["bid"])
+                    with _pos_lock:
+                        sim["prezzo_attuale"] = round(prezzo_live, 10)
+                    
                     distanza_entry = abs(prezzo_live - entry)
                     progresso = abs(prezzo_live - entry) / abs(tp - entry) if tp != entry else 0.0
 
@@ -1648,7 +1654,7 @@ def verifica_posizioni_attive():
                         continue
 
                     # ===== retracement verso SL? =====
-                    if sl != 0:
+                    if sl and sl > 0:
                         if tipo == "BUY":
                             verso_sl = c <= entry - SL_BUFFER_PERC * abs(entry - sl)
                         else:
@@ -1660,59 +1666,68 @@ def verifica_posizioni_attive():
                     if GESTIONE_ATTIVA and trend_ok and not verso_sl:
                         with _pos_lock:
                             sim.setdefault("tp_esteso", 1)
+
                         if tipo == "BUY":
                             nuovo_tp = round(entry + distanza_entry * TP_TRAIL_FACTOR, 6)
                             if nuovo_tp > tp:
                                 with _pos_lock:
                                     sim["tp"] = nuovo_tp
                                     sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                                tp = nuovo_tp
                         else:
                             nuovo_tp = round(entry - distanza_entry * TP_TRAIL_FACTOR, 6)
                             if nuovo_tp < tp:
                                 with _pos_lock:
                                     sim["tp"] = nuovo_tp
                                     sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                                tp = nuovo_tp
 
-                    # ===== REVERSAL detector veloce su 1m (solo per cambiare motivo) =====
+
+                    # ===== REVERSAL detector su 1m (robusto: 6 barre) =====
                     reversal_msg = None
                     try:
                         df_1m_rev = get_binance_df(symbol, "1m", limit=60)
-                        if isinstance(df_1m_rev, pd.DataFrame) and len(df_1m_rev) >= 30:
+                        if isinstance(df_1m_rev, pd.DataFrame) and len(df_1m_rev) >= 40:
                             df_1m_rev["EMA_7"]  = df_1m_rev["close"].ewm(span=7).mean()
                             df_1m_rev["EMA_25"] = df_1m_rev["close"].ewm(span=25).mean()
 
-                            c0    = float(df_1m_rev["close"].iloc[-1])
-                            c1    = float(df_1m_rev["close"].iloc[-2])
-                            e7_0  = float(df_1m_rev["EMA_7"].iloc[-1])
-                            e7_1  = float(df_1m_rev["EMA_7"].iloc[-2])
-                            e25_0 = float(df_1m_rev["EMA_25"].iloc[-1])
-                            e25_1 = float(df_1m_rev["EMA_25"].iloc[-2])
+                            tail = df_1m_rev.tail(6)
+                            reds   = int((tail["close"] < tail["open"]).sum())
+                            greens = int((tail["close"] > tail["open"]).sum())
 
-                            # 2 barre consecutive opposte + prezzo oltre EMA7
-                            if tipo == "SELL":
-                                opp = (e7_0 > e25_0 and e7_1 > e25_1 and c0 > e7_0 and c1 > e7_1)
-                                if opp:
-                                    reversal_msg = "🔄 Inversione 1m contro SELL"
-                            else:  # BUY
-                                opp = (e7_0 < e25_0 and e7_1 < e25_1 and c0 < e7_0 and c1 < e7_1)
-                                if opp:
-                                    reversal_msg = "🔄 Inversione 1m contro BUY"
+                            e7  = float(df_1m_rev["EMA_7"].iloc[-1])
+                            e25 = float(df_1m_rev["EMA_25"].iloc[-1])
+                            c0  = float(df_1m_rev["close"].iloc[-1])
+
+                            if tipo == "BUY":
+                                if (reds >= 4) and (e7 < e25) and (c0 < e7):
+                                    reversal_msg = "⬇️ 1m contro BUY"
+                            else:  # SELL
+                                if (greens >= 4) and (e7 > e25) and (c0 > e7):
+                                    reversal_msg = "⬆️ 1m contro SELL"
                     except Exception:
                         pass
 
                     # ===== messaggio di stato =====
-                    if reversal_msg:
-                        with _pos_lock:
-                            sim["motivo"] = reversal_msg
-                    elif not trend_ok:
-                        with _pos_lock:
-                            sim["motivo"] = "⚠️ Trend 15m incerto"
-                    elif verso_sl:
-                        with _pos_lock:
-                            sim["motivo"] = "⏸️ Ritracciamento, TP stabile"
-                    elif "TP aggiornato" not in sim.get("motivo", ""):
-                        with _pos_lock:
-                            sim["motivo"] = "✅ Trend 15m in linea"
+                    with _pos_lock:
+                        base_msg = None
+                        if not trend_ok:
+                            base_msg = "⚠️ Trend 15m incerto"
+                        elif verso_sl:
+                            base_msg = "⏸️ Ritracciamento, TP stabile"
+                        else:
+                            if "TP aggiornato" not in sim.get("motivo", ""):
+                                base_msg = "✅ Trend 15m in linea"
+
+                        overlay = reversal_msg or ""
+
+                        if overlay and base_msg:
+                            sim["motivo"] = f"{overlay} • {base_msg}"
+                        elif overlay:
+                            sim["motivo"] = overlay
+                        elif base_msg:
+                            sim["motivo"] = base_msg
+
 
                     logging.info(
                         f"[15m] {symbol} {tipo} Entry={entry:.6f} Price={c:.6f} "
@@ -1739,9 +1754,32 @@ def verifica_posizioni_attive():
             time.sleep(1)   # evita loop immediato
 
 
-# Thread monitor
-monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
-monitor_thread.start()
+# =========================================================
+#  STARTUP controllato (evita doppio avvio con reload/workers)
+# =========================================================
+_BG_STARTED = False
+_BG_LOCK = threading.Lock()
+_monitor_thread = None
+
+def start_background_tasks():
+    global _BG_STARTED, _monitor_thread
+
+    with _BG_LOCK:
+        if _BG_STARTED:
+            return
+
+        # 1) Scanner
+        _ensure_scanner()
+
+        # 2) Monitor
+        if _monitor_thread is None or not _monitor_thread.is_alive():
+            _monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
+            _monitor_thread.start()
+            logging.info("✅ Monitor posizioni_attive avviato (thread)")
+
+        _BG_STARTED = True
+
+
 
     
 @router.get("/simulazioni_attive")
@@ -1759,4 +1797,5 @@ def simulazioni_attive():
         }
 
 
-__all__ = ["router"]
+__all__ = ["router", "start_background_tasks"]
+
