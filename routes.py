@@ -725,11 +725,18 @@ def analyze(symbol: str):
         try:
             df_1m_p = get_binance_df(symbol, "1m", 25)
             r = detect_pre_pump_1m(df_1m_p)
+
             if r.triggered:
+                dn = _asset_display_name(symbol)
+                motivo = (
+                    f"PRE-PUMP 1m • {r.reason} • "
+                    f"g5={r.gain_5m*100:.1f}% g10={r.gain_10m*100:.1f}% volx={r.vol_mult:.1f}"
+                )
+
                 return SignalResponse(
                     symbol=symbol,
                     segnale="BUY",
-                    commento="⚡ PRE-PUMP 1m: accelerazione precoce (alert anticipato, rischio alto)",
+                    commento=f"⚡ PRE-PUMP 1m: alert anticipato (rischio alto) • 🛈 {dn}",
                     prezzo=round(float(r.last_price), 6),
                     take_profit=0.0,
                     stop_loss=0.0,
@@ -737,13 +744,11 @@ def analyze(symbol: str):
                     ema7=0.0, ema25=0.0, ema99=0.0,
                     timeframe="1m",
                     spread=spread,
-                    motivo=f"PRE-PUMP 1m (gain5m={r.gain_5m*100:.1f}%, gain10m={r.gain_10m*100:.1f}%, volx={r.vol_mult:.1f})",
+                    motivo=motivo,
                     chiusa_da_backend=False
                 )
         except Exception:
             pass
-
-
 
 
         
@@ -1312,29 +1317,24 @@ def hot_assets():
 
             # --- PRE-PUMP 1m fast-track (prima del 15m) ---
             try:
-                df1 = get_binance_df(symbol, "1m", 20)
-                if isinstance(df1, pd.DataFrame) and len(df1) >= 12:
-                    t = df1.tail(10)
-                    p0 = float(t["close"].iloc[0])
-                    p9 = float(t["close"].iloc[-1])
-                    gain = (p9 / max(p0, 1e-9)) - 1.0
+                df1 = get_binance_df(symbol, "1m", 25)
+                r = detect_pre_pump_1m(df1)
 
-                    v_last3 = float(t["volume"].tail(3).mean())
-                    v_prev7 = float(t["volume"].head(7).mean())
-                    volx = v_last3 / max(v_prev7, 1e-9)
-
-                    if gain >= 0.06 and volx >= 2.0:
-                        risultati.append(
-                            make_hotassets_entry_pre_pump(
-                                symbol=symbol,
-                                price=p9,
-                                volx=volx,
-                                gain=gain,
-                                display_name=_asset_display_name(symbol)
-                            )
+                if r.triggered:
+                    risultati.append(
+                        make_hotassets_entry_pre_pump(
+                            symbol=symbol,
+                            price=r.last_price,
+                            volx=r.vol_mult,
+                            gain=r.gain_10m,
+                            display_name=_asset_display_name(symbol),
+                            reason=r.reason,
+                            gain5=r.gain_5m,
+                            gain10=r.gain_10m,
                         )
-                        added = True
-                        continue
+                    )
+                    added = True
+                    continue
             except Exception:
                 pass
 
