@@ -6,6 +6,8 @@ import logging
 import pandas as pd
 # Thread di monitoraggio attivo ogni 5 secondi
 import threading
+from pump_detector import detect_pre_pump_1m, make_hotassets_entry_pre_pump
+
 from binance_api import get_binance_df, get_best_symbols, get_bid_ask, get_symbol_tick_step
 # Supporto Yahoo Finance
 from yahoo_api import get_yahoo_df, get_yahoo_last_price, YAHOO_SYMBOL_MAP
@@ -551,32 +553,6 @@ def analyze(symbol: str):
 
 
 
-                
-        # ----------------------------------------------------------------
-        #  🔒 HARD BLOCK: simbolo Yahoo NON deve mai cadere nel ramo BINANCE
-        # ----------------------------------------------------------------
-        if symbol in YAHOO_SYMBOL_MAP:
-            logging.error(f"[FLOW BLOCK] Yahoo symbol arrivato al ramo BINANCE: {symbol}")
-            return SignalResponse(
-                symbol=symbol,
-                segnale="HOLD",
-                commento=f"FLOW BLOCK: {symbol} è Yahoo ma è arrivato al ramo Binance (bug a monte).",
-                prezzo=0.0,
-                take_profit=0.0,
-                stop_loss=0.0,
-                rsi=0.0,
-                macd=0.0,
-                macd_signal=0.0,
-                atr=0.0,
-                ema7=0.0,
-                ema25=0.0,
-                ema99=0.0,
-                timeframe="15m",
-                spread=0.0,
-                motivo="FLOW BLOCK: Yahoo symbol in ramo Binance",
-                chiusa_da_backend=False
-            )
-
         # BINANCE: accetta solo simboli completi (USDT/USDC)
         if not (symbol.endswith("USDT") or symbol.endswith("USDC")):
             logging.warning(f"[BINANCE BLOCK] symbol non USDT/USDC: {symbol}")
@@ -745,6 +721,32 @@ def analyze(symbol: str):
                 chiusa_da_backend=False
             )
 
+        # ===== PRE-PUMP 1m (segnale anticipato) =====
+        try:
+            df_1m_p = get_binance_df(symbol, "1m", 25)
+            r = detect_pre_pump_1m(df_1m_p)
+            if r.triggered:
+                return SignalResponse(
+                    symbol=symbol,
+                    segnale="BUY",
+                    commento="⚡ PRE-PUMP 1m: accelerazione precoce (alert anticipato, rischio alto)",
+                    prezzo=round(float(r.last_price), 6),
+                    take_profit=0.0,
+                    stop_loss=0.0,
+                    rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
+                    ema7=0.0, ema25=0.0, ema99=0.0,
+                    timeframe="1m",
+                    spread=spread,
+                    motivo=f"PRE-PUMP 1m (gain5m={r.gain_5m*100:.1f}%, gain10m={r.gain_10m*100:.1f}%, volx={r.vol_mult:.1f})",
+                    chiusa_da_backend=False
+                )
+        except Exception:
+            pass
+
+
+
+
+        
         # 2) Dati Binance (dopo lo spread) + analisi
         df_15m = get_binance_df(symbol, "15m", 300)
         df_1h  = get_binance_df(symbol, "1h", 300)
@@ -1248,16 +1250,9 @@ def get_price(symbol: str):
             "tempo": elapsed
         }
 
-# Cache e log filtri
+# Cache hotassets
 _hot_cache = {"time": 0, "data": []}
-_filtro_log = {
-    "totali": 0,
-    "atr": 0,
-    "ema_flat": 0,
-    "volume_basso": 0,
-    "prezzo_piattissimo": 0,
-    "macd_rsi_neutri": 0
-}
+
 MODALITA_TEST = True
 
 @router.get("/hotassets")
@@ -1315,6 +1310,35 @@ def hot_assets():
 
             df = get_binance_df(symbol, "15m", 100)
 
+            # --- PRE-PUMP 1m fast-track (prima del 15m) ---
+            try:
+                df1 = get_binance_df(symbol, "1m", 20)
+                if isinstance(df1, pd.DataFrame) and len(df1) >= 12:
+                    t = df1.tail(10)
+                    p0 = float(t["close"].iloc[0])
+                    p9 = float(t["close"].iloc[-1])
+                    gain = (p9 / max(p0, 1e-9)) - 1.0
+
+                    v_last3 = float(t["volume"].tail(3).mean())
+                    v_prev7 = float(t["volume"].head(7).mean())
+                    volx = v_last3 / max(v_prev7, 1e-9)
+
+                    if gain >= 0.06 and volx >= 2.0:
+                        risultati.append(
+                            make_hotassets_entry_pre_pump(
+                                symbol=symbol,
+                                price=p9,
+                                volx=volx,
+                                gain=gain,
+                                display_name=_asset_display_name(symbol)
+                            )
+                        )
+                        added = True
+                        continue
+            except Exception:
+                pass
+
+
             # --- Fast-path per LISTING PUMP anche con storico corto (<40 barre) ---
             if len(df) >= 2 and len(df) < 40:
                 ultimo = df.iloc[-1]
@@ -1354,14 +1378,11 @@ def hot_assets():
             if df.empty or (len(df) < 40 and not is_whitelist):
                 continue
 
-            _filtro_log["totali"] += 1
-
             prezzo = float(df["close"].iloc[-1])
             volume_quote_medio = float((df["volume"].tail(20) * df["close"].tail(20)).mean())
             soglia_quote = 75_000 if MODALITA_TEST else 300_000  # es.: 50k$/candela su 15m
 
             if pd.isna(volume_quote_medio) or volume_quote_medio < soglia_quote:
-                _filtro_log["volume_basso"] += 1
                 if not is_whitelist:
                     continue  # i whitelist non vengono scartati per volume basso
 
@@ -1382,7 +1403,6 @@ def hot_assets():
             prezzo = df["close"].iloc[-1]
 
             if (prezzo <= 0 or pd.isna(atr) or atr < atr_minimo) and not is_whitelist:
-                _filtro_log["atr"] += 1
                 continue
 
             # --- Pump fast-track: non blocca le hot durante spike ---
@@ -1423,12 +1443,10 @@ def hot_assets():
 
             distanza_relativa = abs(ema7 - ema99) / max(abs(ema99), 1e-9)
             if distanza_relativa < distanza_minima and prezzo < 1000 and not is_whitelist:
-                _filtro_log["ema_flat"] += 1
                 continue
 
             oscillazione = df["close"].diff().abs().tail(10).sum()
             if oscillazione < 0.001 and prezzo < 50 and not is_whitelist:
-                _filtro_log["prezzo_piattissimo"] += 1
                 continue
 
             # --- Kill switch solo per asset DAVVERO piatti (MACD/RSI neutri + EMA schiacciate) ---
@@ -1439,7 +1457,6 @@ def hot_assets():
                 and distanza_relativa < distanza_flat_max    # EMA 7–99 troppo vicine
             ):
                 if not is_whitelist:
-                    _filtro_log["macd_rsi_neutri"] += 1
                     continue
 
 
