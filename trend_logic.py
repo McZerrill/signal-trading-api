@@ -1,5 +1,5 @@
 import pandas as pd
-from ema_quality_buy_gate import ema_quality_buy_gate
+from ema_quality_gate import ema_quality_buy_gate
 
 
 from patterns import (
