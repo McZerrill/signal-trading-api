@@ -1,4 +1,6 @@
 import pandas as pd
+from ema_quality_gate import ema_quality_buy_gate
+
 from patterns import (
     detect_double_bottom,
     detect_ascending_triangle,
@@ -1380,6 +1382,18 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
             else:
                 durata_trend = candele_reali_up
                 rsi_in_crescita = (rsi > penultimo["RSI"] > antepenultimo["RSI"])
+        
+
+                # --- Gate qualità EMA (BUY netto: rette + separazione) ---
+                ok_ema, why_ema, m_ema = ema_quality_buy_gate(
+                    hist,
+                    w=8,
+                    require_25_99=True
+                )
+                if not ok_ema:
+                    note.append(f"🧊 EMA Gate: {why_ema}")
+                    # opzionale debug numeri (se vuoi):
+                    # note.append(f"dbg s7={m_ema.get('slope7',0):.5f} sep={m_ema.get('sep_grow_7_25',0):.5f} curv={m_ema.get('curv25',0):.5f}")
 
                 # --- Setup anticipati su incrocio EMA7/25 + primo pullback ---
                 cross_7_25_recent = (
@@ -1396,7 +1410,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
                 )
 
                 # 1) BUY early sull'incrocio recente 7/25
-                if segnale == "HOLD" and cross_7_25_recent and early_trend:
+                if segnale == "HOLD" and cross_7_25_recent and early_trend and ok_ema:
                     if (
                         rsi > 50
                         and macd_buy_debole
@@ -1406,7 +1420,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
                         note.append("⚡ BUY early: incrocio EMA7/25 recente")
 
                 # 2) BUY sul primo pullback dopo l'incrocio
-                if segnale == "HOLD" and pullback_su_ema:
+                if segnale == "HOLD" and pullback_su_ema and ok_ema:
                     if (
                         rsi > 52
                         and macd > 0
@@ -1414,6 +1428,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
                     ):
                         segnale = "BUY"
                         note.append("🎯 BUY su pullback EMA7/25")
+
+                # 3) Regole standard (come prima), solo se non è già scattato un BUY early
+
 
                 # 3) Regole standard (come prima), solo se non è già scattato un BUY early
                 if segnale == "HOLD":
@@ -1430,8 +1447,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
                         if durata_trend >= LIM_MATURITA and not (breakout_valido or pump_flag):
                             note.append(f"⛔ Trend↑ Maturo ({durata_trend} candele)")
                         else:
-                            segnale = "BUY"
-                            note.append("✅ BUY confermato")
+                            if ok_ema:
+                                segnale = "BUY"
+                                note.append("✅ BUY confermato (EMA Gate OK)")
+                            else:
+                                note.append("🧊 BUY filtrato: EMA Gate KO")
+
 
                     elif (
                         rsi >= _p("rsi_buy_debole")
@@ -1439,8 +1460,12 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
                         and rsi_in_crescita
                     ):
                         if punteggio_trend >= SOGLIA_PUNTEGGIO + 1 and durata_trend <= 12:
-                            segnale = "BUY"
-                            note.append("✅ BUY confermato Moderato")
+                            if ok_ema:
+                                segnale = "BUY"
+                                note.append("✅ BUY confermato Moderato (EMA Gate OK)")
+                            else:
+                                note.append("🧊 BUY moderato filtrato: EMA Gate KO")
+
                         else:
                             note.append("🤔 Segnale↑ Debole")
 
