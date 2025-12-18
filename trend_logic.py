@@ -1,5 +1,6 @@
 import pandas as pd
-from ema_quality_gate import ema_quality_buy_gate
+from ema_quality_buy_gate import ema_quality_buy_gate
+
 
 from patterns import (
     detect_double_bottom,
@@ -920,14 +921,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
             if cond_quick_pump:
                 pump_flag = True
                 pump_msg  = "🚀 Possibile Pump (listing)"
-               
-            else:
-                logging.warning("⚠️ Dati insufficienti per l'analisi")
-                return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, None
         except Exception as e:
             logging.warning(f"Quick-pump listing check error: {e}")
-            logging.warning("⚠️ Dati insufficienti per l'analisi")
-            return "HOLD", hist, 0.0, "Dati insufficienti", 0.0, 0.0, None
+            # NON bloccare l'analisi: prosegui normalmente
+            pass
+
 
 
 
