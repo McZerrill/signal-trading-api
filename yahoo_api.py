@@ -249,9 +249,67 @@ YAHOO_SYMBOL_MAP = {
     "GRANO":    "ZW=F",       # Grano futures
     "MAIS":     "ZC=F",       # Mais futures
 
-    "EURUSD":   "EURUSD=X",   # FX (Yahoo)
+    # -----------------------------
+    # Forex (Yahoo)
+    # -----------------------------
+    "EURUSD":   "EURUSD=X",
     "GBPUSD":   "GBPUSD=X",
     "USDJPY":   "JPY=X",
+
+    "NOKJPY":   "NOKJPY=X",
+    "AUDDKK":   "AUDDKK=X",
+    "NZDJPY":   "NZDJPY=X",
+    "AUDJPY":   "AUDJPY=X",
+    "USDDKK":   "USDDKK=X",
+    "SGDJPY":   "SGDJPY=X",
+    "NZDCHF":   "NZDCHF=X",
+    "PLNJPY":   "PLNJPY=X",
+    "AUDCHF":   "AUDCHF=X",
+    "NZDUSD":   "NZDUSD=X",
+    "CADCHF":   "CADCHF=X",
+    "AUDUSD":   "AUDUSD=X",
+    "NZDCAD":   "NZDCAD=X",
+    "USDCHF":   "USDCHF=X",
+    "EURCZK":   "EURCZK=X",
+    "NZDMXN":   "NZDMXN=X",
+    "NZDSGD":   "NZDSGD=X",
+    "AUDCAD":   "AUDCAD=X",
+    "CHFJPY":   "CHFJPY=X",
+    "AUDSGD":   "AUDSGD=X",
+    "USDTHB":   "USDTHB=X",
+    "USDSEK":   "USDSEK=X",
+    "USDHKD":   "USDHKD=X",
+    "EURDKK":   "EURDKK=X",
+    "USDPLN":   "USDPLN=X",
+    "AUDNZD":   "AUDNZD=X",
+    "USDCAD":   "USDCAD=X",
+    "EURGBP":   "EURGBP=X",
+    "USDZAR":   "USDZAR=X",
+    "USDSGD":   "USDSGD=X",
+    "USDMXN":   "USDMXN=X",
+    "GBPJPY":   "GBPJPY=X",
+    "EURJPY":   "EURJPY=X",
+    "CHFSEK":   "CHFSEK=X",
+    "GBPCHF":   "GBPCHF=X",
+    "CHFSGD":   "CHFSGD=X",
+    "EURCHF":   "EURCHF=X",
+    "AUDNOK":   "AUDNOK=X",
+    "GBPHKD":   "GBPHKD=X",
+    "EURSEK":   "EURSEK=X",
+    "EURHKD":   "EURHKD=X",
+    "GBPCAD":   "GBPCAD=X",
+    "GBPSGD":   "GBPSGD=X",
+    "EURCAD":   "EURCAD=X",
+    "GBPZAR":   "GBPZAR=X",
+    "EURPLN":   "EURPLN=X",
+    "EURSGD":   "EURSGD=X",
+    "EURZAR":   "EURZAR=X",
+    "EURCNH":   "EURCNH=X",
+    "GBPAUD":   "GBPAUD=X",
+    "GBPNZD":   "GBPNZD=X",
+    "EURAUD":   "EURAUD=X",
+    "EURNZD":   "EURNZD=X",
+    "EURNOK":   "EURNOK=X",
 
     # -----------------------------
     # Basket / ETF (opzionali)
@@ -272,59 +330,58 @@ YAHOO_SYMBOL_MAP = {
 
     "ORCL":     "ORCL",
     "AMD":      "AMD",
-    "AVGO":     "AVGO",       # Broadcom
-    "MU":       "MU",         # Micron
+    "AVGO":     "AVGO",
+    "MU":       "MU",
 
-    "KO":       "KO",         # Coca-Cola
-    "MCD":      "MCD",        # McDonald's
-    "COST":     "COST",       # Costco
-    "WMT":      "WMT",        # Walmart
-    "V":        "V",          # Visa
-    "MA":       "MA",         # Mastercard
-    "UPS":      "UPS",        # United Parcel Service
+    "KO":       "KO",
+    "MCD":      "MCD",
+    "COST":     "COST",
+    "WMT":      "WMT",
+    "V":        "V",
+    "MA":       "MA",
+    "UPS":      "UPS",
 
-    "QCOM":     "QCOM",       # Qualcomm
-    "ADBE":     "ADBE",       # Adobe
-    "NKE":      "NKE",        # Nike
-    "INTC":     "INTC",       # Intel
+    "QCOM":     "QCOM",
+    "ADBE":     "ADBE",
+    "NKE":      "NKE",
+    "INTC":     "INTC",
 
-    "JNJ":      "JNJ",        # Johnson & Johnson
-    "LLY":      "LLY",        # Eli Lilly
-    "ABBV":     "ABBV",       # AbbVie
-    "ABT":      "ABT",        # Abbott
+    "JNJ":      "JNJ",
+    "LLY":      "LLY",
+    "ABBV":     "ABBV",
+    "ABT":      "ABT",
 
-    "BRKB":     "BRK-B",      # Berkshire Hathaway (Class B)
-    "BABA":     "BABA",       # Alibaba
-    "MELI":     "MELI",       # MercadoLibre
+    "BRKB":     "BRK-B",
+    "BABA":     "BABA",
+    "MELI":     "MELI",
 
-    "COIN":     "COIN",       # Coinbase
-    "RDDT":     "RDDT",       # Reddit
-    "GME":      "GME",        # GameStop
+    "COIN":     "COIN",
+    "RDDT":     "RDDT",
+    "GME":      "GME",
 
-    "CAT":      "CAT",        # Caterpillar
-    "FCX":      "FCX",        # Freeport-McMoRan
-    "AA":       "AA",         # Alcoa
-    "GOLD":     "GOLD",       # Barrick Gold
+    "CAT":      "CAT",
+    "FCX":      "FCX",
+    "AA":       "AA",
+    "GOLD":     "GOLD",
 
-    "BYND":     "BYND",       # Beyond Meat
-    "SPCE":     "SPCE",       # Virgin Galactic
-    "LYFT":     "LYFT",       # Lyft
+    "BYND":     "BYND",
+    "SPCE":     "SPCE",
+    "LYFT":     "LYFT",
 
-    "SEDG":     "SEDG",       # SolarEdge
-    "FSLR":     "FSLR",       # First Solar
-    "AAL":      "AAL",        # American Airlines
-    "LUV":      "LUV",        # Southwest
-    "CCL":      "CCL",        # Carnival
-    "DAL":      "DAL",        # Delta Air Lines
-    "AMC":      "AMC",        # AMC Entertainment
-    "ACB":      "ACB",        # Aurora Cannabis
+    "SEDG":     "SEDG",
+    "FSLR":     "FSLR",
+    "AAL":      "AAL",
+    "LUV":      "LUV",
+    "CCL":      "CCL",
+    "DAL":      "DAL",
+    "AMC":      "AMC",
+    "ACB":      "ACB",
 
     "DIS":      "DIS",
     "JPM":      "JPM",
     "BAC":      "BAC",
 
-    # Nota: Ferrari su Yahoo è "RACE" (NYSE)
-    "FERRARI":  "RACE",
+    "FERRARI":  "RACE",       # Ferrari (NYSE)
 }
 
 
