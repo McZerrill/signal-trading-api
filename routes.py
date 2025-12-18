@@ -91,7 +91,7 @@ ASSET_NAME_MAP = {
     "APT":      "Aptos",
     "A":        "Vaulta",
 
-    # --- Macro / futures / indici / FX (Yahoo - keys come YAHOO_SYMBOL_MAP) ---
+    # --- Macro / futures / indici ---
     "XAUUSD":   "Oro (Gold futures)",
     "XAGUSD":   "Argento (Silver futures)",
     "SP500":    "S&P 500",
@@ -106,9 +106,68 @@ ASSET_NAME_MAP = {
     "SOIA":     "Soia (Soybean futures)",
     "GRANO":    "Grano (Wheat futures)",
     "MAIS":     "Mais (Corn futures)",
+
+    # --- Forex ---
     "EURUSD":   "EUR/USD",
     "GBPUSD":   "GBP/USD",
     "USDJPY":   "USD/JPY",
+
+    "NOKJPY":   "NOK/JPY",
+    "AUDDKK":   "AUD/DKK",
+    "NZDJPY":   "NZD/JPY",
+    "AUDJPY":   "AUD/JPY",
+    "USDDKK":   "USD/DKK",
+    "SGDJPY":   "SGD/JPY",
+    "NZDCHF":   "NZD/CHF",
+    "PLNJPY":   "PLN/JPY",
+    "AUDCHF":   "AUD/CHF",
+    "NZDUSD":   "NZD/USD",
+    "CADCHF":   "CAD/CHF",
+    "AUDUSD":   "AUD/USD",
+    "NZDCAD":   "NZD/CAD",
+    "USDCHF":   "USD/CHF",
+    "EURCZK":   "EUR/CZK",
+    "NZDMXN":   "NZD/MXN",
+    "NZDSGD":   "NZD/SGD",
+    "AUDCAD":   "AUD/CAD",
+    "CHFJPY":   "CHF/JPY",
+    "AUDSGD":   "AUD/SGD",
+    "USDTHB":   "USD/THB",
+    "USDSEK":   "USD/SEK",
+    "USDHKD":   "USD/HKD",
+    "EURDKK":   "EUR/DKK",
+    "USDPLN":   "USD/PLN",
+    "AUDNZD":   "AUD/NZD",
+    "USDCAD":   "USD/CAD",
+    "EURGBP":   "EUR/GBP",
+    "USDZAR":   "USD/ZAR",
+    "USDSGD":   "USD/SGD",
+    "USDMXN":   "USD/MXN",
+    "GBPJPY":   "GBP/JPY",
+    "EURJPY":   "EUR/JPY",
+    "CHFSEK":   "CHF/SEK",
+    "GBPCHF":   "GBP/CHF",
+    "CHFSGD":   "CHF/SGD",
+    "EURCHF":   "EUR/CHF",
+    "AUDNOK":   "AUD/NOK",
+    "GBPHKD":   "GBP/HKD",
+    "EURSEK":   "EUR/SEK",
+    "EURHKD":   "EUR/HKD",
+    "GBPCAD":   "GBP/CAD",
+    "GBPSGD":   "GBP/SGD",
+    "EURCAD":   "EUR/CAD",
+    "GBPZAR":   "GBP/ZAR",
+    "EURPLN":   "EUR/PLN",
+    "EURSGD":   "EUR/SGD",
+    "EURZAR":   "EUR/ZAR",
+    "EURCNH":   "EUR/CNH",
+    "GBPAUD":   "GBP/AUD",
+    "GBPNZD":   "GBP/NZD",
+    "EURAUD":   "EUR/AUD",
+    "EURNZD":   "EUR/NZD",
+    "EURNOK":   "EUR/NOK",
+
+    # --- Basket / ETF ---
     "MAG7":     "Magnificent 7 (ETF proxy)",
 
     # --- Azioni Yahoo (USA) ---
@@ -176,6 +235,7 @@ ASSET_NAME_MAP = {
 
     "FERRARI":  "Ferrari N.V.",
 }
+
 
 
 def _asset_display_name(symbol: str) -> str:
@@ -1220,25 +1280,19 @@ def hot_assets():
 
     # --- Soglie radar HOT vs trend_logic (imbuto crescente) ---
     if MODALITA_TEST:
-        # Radar più permissivo di trend_logic:
-        # trend_logic TEST: volume_soglia=120, atr_minimo=0.0005, distanza_minima=0.0008,
-        #                   macd_rsi_range=(45,55), macd_signal_threshold=0.00015
-        volume_soglia = 50          # quantità scambiata minima per non essere "morta"
-        atr_minimo = 0.0003         # un po' sotto 0.0005 → passa roba più "timida"
-        distanza_minima = 0.0004    # metà della soglia di analizza_trend
-        macd_rsi_range = (47, 53)   # zona neutra più stretta del (45,55)
-        macd_signal_threshold = 0.00010  # MACD davvero incollato al segnale
-        distanza_flat_max = 0.0012       # EMA 7–99 quasi sovrapposte = mercato piatto
+        volume_soglia = 70          # + da 50
+        atr_minimo = 0.0004         # + da 0.0003
+        distanza_minima = 0.00055   # + da 0.0004
+        macd_rsi_range = (46, 54)   # range neutro un filo più largo (kill-switch più severo)
+        macd_signal_threshold = 0.00012  # + da 0.00010
+        distanza_flat_max = 0.00135      # + da 0.0012
     else:
-        # Radar PROD, sempre più permissivo di trend_logic PROD:
-        # trend_logic PROD: volume_soglia=300, atr_minimo=0.0009, distanza_minima=0.0012,
-        #                   macd_rsi_range=(47,53), macd_signal_threshold=0.0006
-        volume_soglia = 200
-        atr_minimo = 0.0007
-        distanza_minima = 0.0008
-        macd_rsi_range = (48, 52)   # ancora più centrale
-        macd_signal_threshold = 0.00040
-        distanza_flat_max = 0.0010
+        volume_soglia = 240         # + da 200
+        atr_minimo = 0.0008         # + da 0.0007
+        distanza_minima = 0.00095   # + da 0.0008
+        macd_rsi_range = (47, 53)   # da (48,52) -> più severo sul “piatto”
+        macd_signal_threshold = 0.00045  # + da 0.00040
+        distanza_flat_max = 0.00115      # + da 0.0010
 
 
     for symbol in symbols:
@@ -1304,7 +1358,7 @@ def hot_assets():
 
             prezzo = float(df["close"].iloc[-1])
             volume_quote_medio = float((df["volume"].tail(20) * df["close"].tail(20)).mean())
-            soglia_quote = 50_000 if MODALITA_TEST else 250_000  # es.: 50k$/candela su 15m
+            soglia_quote = 75_000 if MODALITA_TEST else 300_000  # es.: 50k$/candela su 15m
 
             if pd.isna(volume_quote_medio) or volume_quote_medio < soglia_quote:
                 _filtro_log["volume_basso"] += 1
