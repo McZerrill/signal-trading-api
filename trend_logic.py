@@ -893,7 +893,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
     pump_msg  = None
   
 
-    if len(hist) < 22:
+    if len(hist) >= 3:
         try:
             ultimo = hist.iloc[-1]
             close_s = _safe_close(ultimo["close"])
@@ -964,7 +964,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
 
     except Exception as e:
         logging.error(f"❌ Errore nell'accesso ai dati finali: {e}")
-        return "HOLD", hist, 0.0, "Errore su iloc finali", 0.0, 0.0, 0.0
+        return "HOLD", hist, 0.0, "Errore su iloc finali", 0.0, 0.0, None
 
 
 
