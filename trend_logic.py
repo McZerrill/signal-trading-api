@@ -200,11 +200,72 @@ def _frac_of_close(value: float, close: float) -> float:
 
 def enrich_indicators(hist: pd.DataFrame) -> pd.DataFrame:
     """Aggiunge EMA, RSI, ATR, MACD (se mancanti) al DataFrame."""
+    # ---------------------------------------------------------
+    # Normalizzazione colonne (Yahoo spesso: Open/High/Low/Close, Adj Close)
+    # Garantisce: open/high/low/close/volume
+    # ---------------------------------------------------------
+    try:
+        if hist is None or hist.empty:
+            return hist
+
+        # rename soft: gestisce Open/High/Low/Close/Volume, Adj Close
+        rename_map = {}
+        for c in list(hist.columns):
+            lc = str(c).strip().lower()
+            if lc == "adj close":
+                rename_map[c] = "close"   # preferiamo close unico
+            elif lc in ("open", "high", "low", "close", "volume"):
+                rename_map[c] = lc
+            elif lc == "adj_close":
+                rename_map[c] = "close"
+        if rename_map:
+            hist = hist.rename(columns=rename_map)
+
+        # se arrivano colonne con maiuscole standard (Open/High/Low/Close/Volume)
+        # e non sono state catturate sopra (casi strani), fallback:
+        if "close" not in hist.columns:
+            for cand in ("Close", "CLOSE"):
+                if cand in hist.columns:
+                    hist = hist.rename(columns={cand: "close"})
+                    break
+        if "open" not in hist.columns:
+            for cand in ("Open", "OPEN"):
+                if cand in hist.columns:
+                    hist = hist.rename(columns={cand: "open"})
+                    break
+        if "high" not in hist.columns:
+            for cand in ("High", "HIGH"):
+                if cand in hist.columns:
+                    hist = hist.rename(columns={cand: "high"})
+                    break
+        if "low" not in hist.columns:
+            for cand in ("Low", "LOW"):
+                if cand in hist.columns:
+                    hist = hist.rename(columns={cand: "low"})
+                    break
+        if "volume" not in hist.columns:
+            for cand in ("Volume", "VOLUME"):
+                if cand in hist.columns:
+                    hist = hist.rename(columns={cand: "volume"})
+                    break
+
+        # volume spesso assente su indici/metalli → default 0.0
+        if "volume" not in hist.columns:
+            hist["volume"] = 0.0
+
+        # cast numerici robusti (RSI/MACD/ATR vogliono float)
+        for col in ("open", "high", "low", "close", "volume"):
+            if col in hist.columns:
+                hist[col] = pd.to_numeric(hist[col], errors="coerce")
+
+        hist = hist.dropna(subset=["open", "high", "low", "close"])
+    except Exception as e:
+        logging.debug(f"[enrich_indicators] normalize skip: {e}")
+
     # ➕ EMA_200 per filtro trend globale
     ema_missing = {7, 25, 99, 200}
     ema_missing = {p for p in ema_missing if f"EMA_{p}" not in hist.columns}
     if ema_missing:
-        # ⬇️ QUI LA FIX: passo il DataFrame intero, non la Series "close"
         periods = sorted(ema_missing)
         ema_dict = calcola_ema(hist, periods)
         for p in periods:
@@ -234,6 +295,7 @@ def enrich_indicators(hist: pd.DataFrame) -> pd.DataFrame:
         logging.debug(f"[enrich_indicators] dollar vol skip: {e}")
 
     return hist
+
 
 
 
