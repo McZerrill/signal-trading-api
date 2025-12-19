@@ -608,10 +608,8 @@ def analyze(symbol: str):
                 chiusa_da_backend=False
             )
 
-        with _pos_lock:
-            posizione = posizioni_attive.get(symbol)
-            motivo_attuale = (posizione or {}).get("motivo", "")
-
+        posizione = None
+        motivo_attuale = ""
 
         # Tick size reale di Binance (serve al monitor 15m)
         try:
@@ -794,6 +792,9 @@ def analyze(symbol: str):
 
         note = note15.split("\n") if note15 else []
 
+        with _pos_lock:
+            posizione = posizioni_attive.get(symbol)
+            motivo_attuale = (posizione or {}).get("motivo", "")
 
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
@@ -810,6 +811,7 @@ def analyze(symbol: str):
                     posizione["esito"] = "Annullata"
                     posizione["chiusa_da_backend"] = True
                     posizione["motivo"] = note15
+                    posizione["ora_chiusura"] = datetime.now(tz=utc).isoformat(timespec="seconds")
                 return SignalResponse(
                     symbol=symbol,
                     segnale="HOLD",
