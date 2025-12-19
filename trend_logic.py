@@ -859,7 +859,8 @@ def calcola_probabilita_successo(
 def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
                    hist_1m: pd.DataFrame = None, sistema: str = "EMA",
                    asset_name: str | None = None,
-                   asset_class: str = "crypto"):
+                   asset_class: str = "crypto",
+                   tick_size: float = 0.0):
 
 
 
@@ -975,12 +976,11 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
     # - niente bonus/malus nel punteggio (vedi patch sotto)
     if not volume_affidabile:
         volume_medio = 0.0
-
-                       
-    if pd.isna(volume_medio) or volume_medio <= 0:
+    elif pd.isna(volume_medio) or volume_medio <= 0:
         k = min(5, max(1, len(hist)-1))
         finestra = hist["volume"].iloc[-k:-1]
         volume_medio = finestra.mean() if len(finestra) else volume_attuale
+
 
 
     n = min(21, max(1, len(hist)-1))
@@ -1691,7 +1691,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
         SL_BASE, SL_SPAN = 1.6, 0.35    # SL meno stretto → meno stop-loss immediati
         RR_MIN = 1.2
         DELTA_MINIMO = 0.1
-        TICK = 0.0001  # TODO: sostituire con tick_size reale del symbol (passalo da fuori se puoi)
 
         atr_eff = atr if atr and atr > 0 else close_s * ATR_MIN_FRAC
 
@@ -1718,20 +1717,28 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
 
         # Enforce RR minimo (prima allargo TP)
         rr_note_added = False
-        EPS = 1e-9
+        # EPS/step robusto: usa tick_size quando c’è, altrimenti fallback diverso per crypto/yahoo
+        base_tick = float(tick_size) if tick_size and tick_size > 0 else 0.0
+        eps = max(base_tick, close_s * (1e-8 if asset_class == "crypto" else 1e-6))
+
         risk = abs(close - sl_raw)
-        if risk < EPS:
-            step = max(TICK, 0.2 * (atr_eff if atr_eff > 0 else close_s * 0.003))
+        if risk < eps:
+            # step minimo: almeno 1 tick; se manca tick_size → usa ATR (crypto) o frazione close (yahoo)
+            fallback_step = (0.2 * atr_eff) if (asset_class == "crypto" and atr_eff > 0) else (close_s * 0.001)
+            step = max(base_tick, fallback_step)
+
             sl_raw = sl_raw - step if segnale == "BUY" else sl_raw + step
             risk = abs(close - sl_raw)
 
+
         reward = abs(tp_raw - close)
-        if risk < EPS or _safe_div(reward, risk) < RR_MIN:
+        if risk < eps or _safe_div(reward, risk) < RR_MIN:
             needed_tp = (close + (RR_MIN * risk)) if segnale == "BUY" else (close - (RR_MIN * risk))
             tp_raw = needed_tp
             if not rr_note_added:
                 note.append("ℹ️ TP adjusted (RR ≥ {:.1f})".format(RR_MIN))
                 rr_note_added = True
+
 
         # Stima tempi TP
         # (timeframe 15m => 0.25h per candela)
@@ -1790,14 +1797,18 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
         if pump_flag and pump_msg:
             note.append(pump_msg)
 
-        # Rounding a tick e safety finale
-        def _round_tick(x, tick=TICK):
-            if tick and tick > 0:
-                return round(round(x / tick) * tick, 10)
+        # Rounding a tick e safety finale (usa tick_size passato a analizza_trend)
+        def _round_tick(x, tick: float):
+            try:
+                t = float(tick)
+            except Exception:
+                t = 0.0
+            if t and t > 0:
+                return round(round(x / t) * t, 10)
             return round(x, 10)
 
-        tp = _round_tick(tp_raw)
-        sl = _round_tick(sl_raw)
+        tp = _round_tick(tp_raw, tick_size)
+        sl = _round_tick(sl_raw, tick_size)
         note.append(f"🎯 TP {tp:.6g} • 🛡️ SL {sl:.6g}")
 
 
@@ -1805,6 +1816,7 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
             note.append("⚠️ TP/SL BUY incoerenti")
         if segnale == "SELL" and not (tp < close < sl):
             note.append("⚠️ TP/SL SELL incoerenti")
+
 
     logging.debug("✅ Analisi completata")
 
