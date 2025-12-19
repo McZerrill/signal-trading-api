@@ -1,6 +1,6 @@
 import pandas as pd
 from ema_quality_gate import ema_quality_buy_gate
-from typing import Optional
+
 
 from patterns import (
     detect_double_bottom,
@@ -168,17 +168,13 @@ def _safe_div(num: float, den: float, eps: float = 1e-9) -> float:
     d = den if den and abs(den) > eps else eps
     return num / d
 
-def _volume_metrics(hist: pd.DataFrame, asset_class: str = "binance"):
+def _volume_metrics(hist: pd.DataFrame, asset_class: str = "crypto"):
     """
     Ritorna: (vol_attuale, vol_medio, volume_affidabile)
-    - binance/crypto: volume quasi sempre ok
+    - crypto: volume quasi sempre ok
     - yahoo: spesso volume è 0/NaN (indici/metalli) => NON affidabile
     """
-    asset_class = (asset_class or "binance").lower()
-
-    # normalizza alias: routes usa "binance" e "yahoo"
-    if asset_class == "crypto":
-        asset_class = "binance"
+    asset_class = (asset_class or "crypto").lower()
 
     # preferisci DOLLAR_VOL se c'è (più confrontabile tra asset)
     if "DOLLAR_VOL" in hist.columns:
@@ -197,7 +193,6 @@ def _volume_metrics(hist: pd.DataFrame, asset_class: str = "binance"):
     return vol_att, vol_avg, reliable
 
 
-
 def _frac_of_close(value: float, close: float) -> float:
     """value / close in modo sicuro."""
     return _safe_div(value, _safe_close(close))
@@ -205,72 +200,11 @@ def _frac_of_close(value: float, close: float) -> float:
 
 def enrich_indicators(hist: pd.DataFrame) -> pd.DataFrame:
     """Aggiunge EMA, RSI, ATR, MACD (se mancanti) al DataFrame."""
-    # ---------------------------------------------------------
-    # Normalizzazione colonne (Yahoo spesso: Open/High/Low/Close, Adj Close)
-    # Garantisce: open/high/low/close/volume
-    # ---------------------------------------------------------
-    try:
-        if hist is None or hist.empty:
-            return hist
-
-        # rename soft: gestisce Open/High/Low/Close/Volume, Adj Close
-        rename_map = {}
-        for c in list(hist.columns):
-            lc = str(c).strip().lower()
-            if lc == "adj close":
-                rename_map[c] = "close"   # preferiamo close unico
-            elif lc in ("open", "high", "low", "close", "volume"):
-                rename_map[c] = lc
-            elif lc == "adj_close":
-                rename_map[c] = "close"
-        if rename_map:
-            hist = hist.rename(columns=rename_map)
-
-        # se arrivano colonne con maiuscole standard (Open/High/Low/Close/Volume)
-        # e non sono state catturate sopra (casi strani), fallback:
-        if "close" not in hist.columns:
-            for cand in ("Close", "CLOSE"):
-                if cand in hist.columns:
-                    hist = hist.rename(columns={cand: "close"})
-                    break
-        if "open" not in hist.columns:
-            for cand in ("Open", "OPEN"):
-                if cand in hist.columns:
-                    hist = hist.rename(columns={cand: "open"})
-                    break
-        if "high" not in hist.columns:
-            for cand in ("High", "HIGH"):
-                if cand in hist.columns:
-                    hist = hist.rename(columns={cand: "high"})
-                    break
-        if "low" not in hist.columns:
-            for cand in ("Low", "LOW"):
-                if cand in hist.columns:
-                    hist = hist.rename(columns={cand: "low"})
-                    break
-        if "volume" not in hist.columns:
-            for cand in ("Volume", "VOLUME"):
-                if cand in hist.columns:
-                    hist = hist.rename(columns={cand: "volume"})
-                    break
-
-        # volume spesso assente su indici/metalli → default 0.0
-        if "volume" not in hist.columns:
-            hist["volume"] = 0.0
-
-        # cast numerici robusti (RSI/MACD/ATR vogliono float)
-        for col in ("open", "high", "low", "close", "volume"):
-            if col in hist.columns:
-                hist[col] = pd.to_numeric(hist[col], errors="coerce")
-
-        hist = hist.dropna(subset=["open", "high", "low", "close"])
-    except Exception as e:
-        logging.debug(f"[enrich_indicators] normalize skip: {e}")
-
     # ➕ EMA_200 per filtro trend globale
     ema_missing = {7, 25, 99, 200}
     ema_missing = {p for p in ema_missing if f"EMA_{p}" not in hist.columns}
     if ema_missing:
+        # ⬇️ QUI LA FIX: passo il DataFrame intero, non la Series "close"
         periods = sorted(ema_missing)
         ema_dict = calcola_ema(hist, periods)
         for p in periods:
@@ -300,7 +234,6 @@ def enrich_indicators(hist: pd.DataFrame) -> pd.DataFrame:
         logging.debug(f"[enrich_indicators] dollar vol skip: {e}")
 
     return hist
-
 
 
 
@@ -923,14 +856,11 @@ def calcola_probabilita_successo(
 # -----------------------------------------------------------------------------
 # Funzione principale: analizza_trend
 # -----------------------------------------------------------------------------
-def analizza_trend(
-    hist: pd.DataFrame,
-    spread: float = 0.0,
-    hist_1m: Optional[pd.DataFrame] = None,
-    sistema: str = "EMA",
-    asset_name: Optional[str] = None,
-    asset_class: str = "binance",
-):
+def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
+                   hist_1m: pd.DataFrame = None, sistema: str = "EMA",
+                   asset_name: str | None = None,
+                   asset_class: str = "crypto"):
+
 
 
     logging.debug("🔍 Inizio analisi trend")
@@ -952,16 +882,11 @@ def analizza_trend(
         logging.warning(f"⚠️ analizza_trend: colonna 'close' assente. Colonne: {list(hist.columns)}")
         return "HOLD", hist, 0.0, "Dati incompleti (manca colonna close)", 0.0, 0.0, None
 
-    # normalizza alias come in routes
-    if asset_class == "crypto":
-        asset_class = "binance"
-
     hist = hist.copy()
     if "volume" not in hist.columns:
         hist["volume"] = 0.0
 
     # ... resto della funzione come ce l’hai ...
-
 
 
     pump_flag = False
@@ -1025,11 +950,8 @@ def analizza_trend(
 
         # ➕ Filtro EMA200 globale (se disponibile)
         ema200_available = (ema200 is not None) and pd.notna(ema200)
-        ema200_val = float(ema200) if ema200_available else None
-
-        buy_allowed  = (not ema200_available) or (close > ema200_val)
-        sell_allowed = (not ema200_available) or (close < ema200_val)
-
+        buy_allowed  = (not ema200_available) or (close > ema200)
+        sell_allowed = (not ema200_available) or (close < ema200)
 
         # ➕ Nota compatta per notifiche Android (1 rigo)
         if ema200_available:
@@ -1042,7 +964,8 @@ def analizza_trend(
 
     except Exception as e:
         logging.error(f"❌ Errore nell'accesso ai dati finali: {e}")
-        return "HOLD", hist, 0.0, "Errore su iloc finali", 0.0, 0.0, None
+        return "HOLD", hist, 0.0, "Errore su iloc finali", 0.0, 0.0, 0.0
+
 
 
     volume_attuale, volume_medio, volume_affidabile = _volume_metrics(hist, asset_class)
@@ -1053,13 +976,11 @@ def analizza_trend(
     if not volume_affidabile:
         volume_medio = 0.0
 
-    # Fallback volume_medio SOLO se il volume è affidabile
-    if volume_affidabile:
-        if pd.isna(volume_medio) or volume_medio <= 0:
-            k = min(5, max(1, len(hist) - 1))
-            finestra = hist["volume"].iloc[-k:-1]
-            volume_medio = finestra.mean() if len(finestra) else volume_attuale
-
+                       
+    if pd.isna(volume_medio) or volume_medio <= 0:
+        k = min(5, max(1, len(hist)-1))
+        finestra = hist["volume"].iloc[-k:-1]
+        volume_medio = finestra.mean() if len(finestra) else volume_attuale
 
 
     n = min(21, max(1, len(hist)-1))
@@ -1097,16 +1018,16 @@ def analizza_trend(
 
     # MACD: gap normalizzato sul prezzo → robusto a simboli diversi
     macd_gap = macd - macd_signal
-    gap_rel = _frac_of_close(macd_gap, close_s)  # con segno
+    gap_rel = _frac_of_close(abs(macd_gap), close_s)
 
     gap_rel_forte  = _p("macd_gap_rel_forte")
     gap_rel_debole = _p("macd_gap_rel_debole")
 
-    macd_buy_ok      = (macd > macd_signal) and (gap_rel >  gap_rel_forte)
-    macd_buy_debole  = (macd > 0)           and (gap_rel >  gap_rel_debole)
+    macd_buy_ok      = (macd > macd_signal) and (gap_rel > gap_rel_forte)
+    macd_buy_debole  = (macd > 0)            and (gap_rel > gap_rel_debole)
 
-    macd_sell_ok     = (macd < macd_signal) and (gap_rel < -gap_rel_forte)
-    macd_sell_debole = (macd < 0)           and (gap_rel < -gap_rel_debole)
+    macd_sell_ok     = (macd < macd_signal)  and (gap_rel > gap_rel_forte)
+    macd_sell_debole = (macd < 0)            and (gap_rel > gap_rel_debole)
 
     pattern_buy_override = False
 
@@ -1360,12 +1281,9 @@ def analizza_trend(
             pts.get("bottom2_idx"),
             pts.get("bottom1_idx"),
         ]
-        found_any = False
-
         for idx in candidates:
             if idx is None:
                 continue
-            found_any = True
             try:
                 pos = hist.index.get_loc(idx)
             except Exception:
@@ -1375,17 +1293,8 @@ def analizza_trend(
                     continue
             if (len(hist) - 1 - pos) <= max_age:
                 return True
-
-        # se non databile: accetta solo se c'è una conferma "forte" nel dict
-        if not found_any:
-            if p.get("breakout_confirmed", False):
-                return True
-            if p.get("neckline_confirmed", False) or p.get("neckline_breakout", False):
-                return True
-            return False
-
-        return False
-
+        # se non databile, mantieni permissivo come ora
+        return True
 
 
     
@@ -1474,55 +1383,15 @@ def analizza_trend(
         
 
                 # --- Gate qualità EMA (BUY netto: rette + separazione) ---
-                # Super-safe: su Yahoo spesso ci sono NaN/buchi → non bloccare BUY solo per gate instabile.
-                ok_ema = True
-                why_ema = ""
-                m_ema = {}
-
-                try:
-                    need_cols = {"EMA_7", "EMA_25", "EMA_99"}
-                    has_cols = need_cols.issubset(hist.columns)
-                    min_len = 12  # >= w + qualche candela per slope/curvatura
-
-                    if (not has_cols) or (len(hist) < min_len):
-                        ok_ema = True
-                        why_ema = "skip (dati insufficienti)"
-                    else:
-                        tail = hist[["EMA_7", "EMA_25", "EMA_99"]].tail(12)
-                        has_nan = tail.isna().any().any()
-
-                        # Su Yahoo: se NaN/buchi, bypass (non bloccare il segnale)
-                        if asset_class == "yahoo" and has_nan:
-                            ok_ema = True
-                            why_ema = "skip (EMA NaN su Yahoo)"
-                        else:
-                            ok_ema, why_ema, m_ema = ema_quality_buy_gate(
-                                hist,
-                                w=8,
-                                require_25_99=True
-                            )
-
-                except Exception as e:
-                    # fallback ultra-safe: non far saltare l’analisi
-                    ok_ema = True
-                    why_ema = f"skip (gate error: {e})"
-
-                gate_skipped = False
-                try:
-                    wtxt = (why_ema or "").strip().lower()
-                    gate_skipped = wtxt.startswith("skip") or wtxt.startswith("skipped")
-                except Exception:
-                    gate_skipped = False
-
-                if gate_skipped:
-                    ok_ema = True  # non filtrare su skip
-                    # opzionale: nota leggera
-                    note.append(f"🧩 EMA Gate: {why_ema}")
-                elif (not ok_ema) and why_ema:
-                    # KO solo se davvero calcolato
+                ok_ema, why_ema, m_ema = ema_quality_buy_gate(
+                    hist,
+                    w=8,
+                    require_25_99=True
+                )
+                if not ok_ema:
                     note.append(f"🧊 EMA Gate: {why_ema}")
-
-
+                    # opzionale debug numeri (se vuoi):
+                    # note.append(f"dbg s7={m_ema.get('slope7',0):.5f} sep={m_ema.get('sep_grow_7_25',0):.5f} curv={m_ema.get('curv25',0):.5f}")
 
                 # --- Setup anticipati su incrocio EMA7/25 + primo pullback ---
                 cross_7_25_recent = (
@@ -1691,9 +1560,7 @@ def analizza_trend(
     # Invalidation per pattern contrario
     if pattern_contrario(segnale, pattern):
         note.append("⚠️ Pattern contrario, segnale OFF")
-        note.append("Segnale annullato: Pattern contrario")
         return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
-
 
     # RSI/MACD neutri → solo warning (la penalità è già gestita in calcola_probabilita_successo)
     low, high = _p("macd_rsi_range")
@@ -1710,9 +1577,7 @@ def analizza_trend(
         n_check_ema = 5 if MODALITA_TEST else 15
         if not ema_in_movimento_coerente(hist_1m, rialzista=(segnale == "BUY"), n_candele=n_check_ema):
             note.append("⛔ EMA 1m fuori trend 15m")
-            note.append("Segnale annullato: EMA 1m")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
-
 
     # BUY forzato su incrocio progressivo (rispetta EMA200)
     if sistema == "EMA" and segnale == "HOLD" and rileva_incrocio_progressivo(hist):
@@ -1805,9 +1670,7 @@ def analizza_trend(
         prob_fusa = max(0.0, min(1.0, prob_fusa + channel_prob_adj))
         if gate_buy_canale and segnale == "BUY" and not pump_flag:
             note.append("⛔ Gate TF1h: canale↓ forte")
-            note.append("Segnale annullato: Gate TF1h")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
-
 
         note.append(f"🧪 Affidabilità: {round(prob_fusa*100)}%")
 
@@ -1820,7 +1683,6 @@ def analizza_trend(
 
         if prob_fusa < P_ENTER:
             note.append(f"⏸️ Gate KO ({prob_fusa:.2f})")
-            note.append("Segnale annullato: Gate probabilità")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
         # TP/SL proporzionale alla probabilità fusa
@@ -1829,7 +1691,7 @@ def analizza_trend(
         SL_BASE, SL_SPAN = 1.6, 0.35    # SL meno stretto → meno stop-loss immediati
         RR_MIN = 1.2
         DELTA_MINIMO = 0.1
-        TICK = float(tick_size or 0.0001)
+        TICK = 0.0001  # TODO: sostituire con tick_size reale del symbol (passalo da fuori se puoi)
 
         atr_eff = atr if atr and atr > 0 else close_s * ATR_MIN_FRAC
 
