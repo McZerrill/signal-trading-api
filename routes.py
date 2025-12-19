@@ -758,7 +758,7 @@ def analyze(symbol: str):
         df_1d  = get_binance_df(symbol, "1d", 300)
         df_1m  = get_binance_df(symbol, "1m", 100)
 
-        try:
+
         try:
             logging.info(f"[CALL analizza_trend] BINANCE symbol={symbol}")
             segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
