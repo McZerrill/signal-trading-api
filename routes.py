@@ -759,10 +759,13 @@ def analyze(symbol: str):
         df_1m  = get_binance_df(symbol, "1m", 100)
 
         try:
+        try:
             logging.info(f"[CALL analizza_trend] BINANCE symbol={symbol}")
             segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
                 df_15m, spread, df_1m,
-                asset_name=f"{_asset_display_name(symbol)} ({symbol})"
+                asset_name=f"{_asset_display_name(symbol)} ({symbol})",
+                asset_class="crypto",
+                tick_size=tick_size
             )
 
         except KeyError as e:
@@ -796,6 +799,7 @@ def analyze(symbol: str):
                 0.0,
                 None,
             )
+
 
         note = note15.split("\n") if note15 else []
 
@@ -906,7 +910,11 @@ def analyze(symbol: str):
 
         # 1h: ok usare ancora analizza_trend come conferma "soft"
         try:
-            segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(df_1h, spread)
+            segnale_1h, hist_1h, _, note1h, *_ = analizza_trend(
+                df_1h, spread,
+                asset_class="crypto",
+                tick_size=tick_size
+            )
         except KeyError as e:
             logging.error(
                 f"[analizza_trend 1h] KeyError {e} per {symbol} – colonne df_1h: {list(df_1h.columns)}"
@@ -915,6 +923,7 @@ def analyze(symbol: str):
             hist_1h = enrich_indicators(df_1h.copy()) if isinstance(df_1h, pd.DataFrame) and not df_1h.empty else df_1h
             segnale_1h = "HOLD"
             note1h = f"Errore analisi 1h: {e}"
+
 
         logging.debug(f"[1h] {symbol} – Segnale: {segnale_1h}")
 
