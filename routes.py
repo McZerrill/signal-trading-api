@@ -385,8 +385,11 @@ def analyze(symbol: str):
             try:
                 y_symbol = YAHOO_SYMBOL_MAP[symbol]
                 spread = 0.0
+
+                # Prezzo live Yahoo (coerente con Binance: live -> fallback close)
                 prezzo_live = get_yahoo_last_price(y_symbol)
-                if prezzo_live == 0:
+                prezzo_live = float(prezzo_live or 0.0)
+                if prezzo_live <= 0:
                     prezzo_live = None
 
 
@@ -397,6 +400,28 @@ def analyze(symbol: str):
 
                 if df_15m is None or df_15m.empty:
                     raise ValueError(f"Nessun dato disponibile da Yahoo per {symbol}")
+
+
+                # -------------------------------------------------------------
+                # ✅ Estrai SUBITO tecnici da 15m (fallback-safe)
+                #    così anche in STALE non restituiamo 0.0 inutili.
+                # -------------------------------------------------------------
+                close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
+                try:
+                    ultimo_15m = df_15m.iloc[-1]
+                    close = round(float(ultimo_15m.get("close", 0.0)), 4)
+                    rsi = round(float(ultimo_15m.get("RSI", 0.0)), 2)
+                    ema7 = round(float(ultimo_15m.get("EMA_7", 0.0)), 2)
+                    ema25 = round(float(ultimo_15m.get("EMA_25", 0.0)), 2)
+                    ema99 = round(float(ultimo_15m.get("EMA_99", 0.0)), 2)
+                    atr = round(float(ultimo_15m.get("ATR", 0.0)), 6)
+                    macd = round(float(ultimo_15m.get("MACD", 0.0)), 4)
+                    macd_signal = round(float(ultimo_15m.get("MACD_SIGNAL", 0.0)), 4)
+                except Exception as e:
+                    logging.debug(f"[YAHOO] estrazione tecnici base fallita per {symbol}: {e}")
+
+                prezzo_output = round(float(prezzo_live or close or 0.0), 4)
+
 
                 # ----------------------------------------------------------------
                 # ✅ FRESHNESS CHECK (Yahoo): se l'ultima candela è troppo vecchia,
@@ -424,24 +449,28 @@ def analyze(symbol: str):
                         )
                         logging.warning(f"[YAHOO STALE] {symbol} age_min={age_min:.1f} last_ts={last_ts}")
 
-                        # ritorna HOLD subito, senza analizza_trend
+                        # ✅ Ritorna HOLD con prezzo/indicatori coerenti (non 0.0)
+                        note = [msg]
+                        commento = "\n".join(note)
+                        motivo = " | ".join(note)
+
                         return SignalResponse(
                             symbol=symbol,
                             segnale="HOLD",
-                            commento=msg,
-                            prezzo=0.0,          # oppure close se preferisci mostrare l'ultimo close
+                            commento=commento,
+                            prezzo=prezzo_output,
                             take_profit=0.0,
                             stop_loss=0.0,
-                            rsi=0.0,
-                            macd=0.0,
-                            macd_signal=0.0,
-                            atr=0.0,
-                            ema7=0.0,
-                            ema25=0.0,
-                            ema99=0.0,
+                            rsi=rsi,
+                            macd=macd,
+                            macd_signal=macd_signal,
+                            atr=atr,
+                            ema7=ema7,
+                            ema25=ema25,
+                            ema99=ema99,
                             timeframe="15m",
                             spread=0.0,
-                            motivo=msg,
+                            motivo=motivo,
                             chiusa_da_backend=False
                         )
                 except Exception as e:
@@ -456,8 +485,6 @@ def analyze(symbol: str):
                     asset_name=f"{_asset_display_name(symbol)} ({symbol})",
                     asset_class="yahoo"
                 )
-
-
 
 
                 note = note15.split("\n") if note15 else []
@@ -487,25 +514,29 @@ def analyze(symbol: str):
                 except Exception as e:
                     note.append(f"⚠️ Analisi daily fallita: {e}")
 
-                commento = "\n".join(note)
+                # ✅ Rifinitura: commento multi-line + motivo breve (come Binance)
+                commento = "\n".join(note) if note else "Nessuna nota"
+                motivo = " | ".join(note) if note else ""
 
-                # --- estrai ultimi indicatori ---
-                close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
+                # --- estrai ultimi indicatori (preferisci hist se disponibile) ---
                 try:
                     src = hist if isinstance(hist, pd.DataFrame) and not hist.empty else df_15m
                     ultimo = src.iloc[-1]
-                    close = round(float(ultimo.get("close", 0.0)), 4)
-                    rsi = round(float(ultimo.get("RSI", 0.0)), 2)
-                    ema7 = round(float(ultimo.get("EMA_7", 0.0)), 2)
-                    ema25 = round(float(ultimo.get("EMA_25", 0.0)), 2)
-                    ema99 = round(float(ultimo.get("EMA_99", 0.0)), 2)
-                    atr = round(float(ultimo.get("ATR", 0.0)), 6)
-                    macd = round(float(ultimo.get("MACD", 0.0)), 4)
-                    macd_signal = round(float(ultimo.get("MACD_SIGNAL", 0.0)), 4)
+                    close = round(float(ultimo.get("close", close)), 4)
+                    rsi = round(float(ultimo.get("RSI", rsi)), 2)
+                    ema7 = round(float(ultimo.get("EMA_7", ema7)), 2)
+                    ema25 = round(float(ultimo.get("EMA_25", ema25)), 2)
+                    ema99 = round(float(ultimo.get("EMA_99", ema99)), 2)
+                    atr = round(float(ultimo.get("ATR", atr)), 6)
+                    macd = round(float(ultimo.get("MACD", macd)), 4)
+                    macd_signal = round(float(ultimo.get("MACD_SIGNAL", macd_signal)), 4)
                 except Exception as e:
                     note.append(f"⚠️ Errore estrazione tecnici: {e}")
+                    commento = "\n".join(note)
+                    motivo = " | ".join(note)
 
-                prezzo_output = round(prezzo_live or close, 4)
+                # ✅ Prezzo coerente: live se c’è, fallback close (aggiorna dopo hist)
+                prezzo_output = round(float(prezzo_live or close or 0.0), 4)
 
                 logging.info(f"📊 Yahoo analyze {symbol} – segnale={segnale}, prezzo={prezzo_output}")
 
@@ -525,7 +556,7 @@ def analyze(symbol: str):
                     ema99=ema99,
                     timeframe="15m",
                     spread=spread,
-                    motivo=commento,
+                    motivo=motivo,
                     chiusa_da_backend=False
                 )
 
@@ -550,6 +581,7 @@ def analyze(symbol: str):
                     motivo="Errore Yahoo",
                     chiusa_da_backend=False
                 )
+
 
 
 
@@ -605,7 +637,11 @@ def analyze(symbol: str):
         spread = book["spread"]
 
         # Prezzo live (mid tra bid e ask) per allineare l'app a Binance
+        
         prezzo_live = round(((bid + ask) / 2), 6) if bid > 0 and ask > 0 else 0.0
+
+        # Flag: se spread è alto, NON apriamo simulazioni (ma facciamo comunque analisi)
+        spread_block = False
 
         logging.debug(
             f"[SPREAD] {symbol} – Spread attuale: {spread:.4f}% | "
@@ -613,15 +649,16 @@ def analyze(symbol: str):
         )
         
         if spread > 5.0:
+            spread_block = True
+
             try:
                 df_15m_tmp = get_binance_df(symbol, "15m", 50)
 
-                # calcolo prudente del close per eventuale notifica
+                # calcolo prudente del close per eventuale notifica/log
                 close_tmp = 0.0
                 if not df_15m_tmp.empty:
                     close_tmp = round(float(df_15m_tmp.iloc[-1]["close"]), 6)
 
-                
                 # --- eccezione: listing pump rilevato -> notifica comunque con warning ---
                 try:
                     n = len(df_15m_tmp)
@@ -670,56 +707,14 @@ def analyze(symbol: str):
                 except Exception:
                     pass
 
-
                 if df_15m_tmp.empty:
                     raise ValueError("DataFrame vuoto")
-                ultimo_tmp = df_15m_tmp.iloc[-1]
-                close_tmp = round(ultimo_tmp["close"], 6)
             except Exception as e:
-                logging.warning(f"⚠️ Errore nel recupero del prezzo per {symbol} con spread alto: {e}")
-                close_tmp = 0.0  # fallback
+                logging.warning(f"⚠️ Spread alto: impossibile validare df_15m_tmp per {symbol}: {e}")
 
-            if close_tmp == 0.0:
-                logging.warning(f"⛔ Nessun prezzo disponibile per {symbol} (spread alto), risposta ignorata")
-                return SignalResponse(
-                    symbol=symbol,
-                    segnale="HOLD",
-                    commento=f"⚠️ Nessun prezzo disponibile per {symbol}.",
-                    prezzo=0.0,
-                    take_profit=0.0,
-                    stop_loss=0.0,
-                    rsi=0.0,
-                    macd=0.0,
-                    macd_signal=0.0,
-                    atr=0.0,
-                    ema7=0.0,
-                    ema25=0.0,
-                    ema99=0.0,
-                    timeframe="",
-                    spread=spread,
-                    motivo="Prezzo non disponibile",
-                    chiusa_da_backend=False
-                )
+            # ✅ NON facciamo return: continuiamo con analisi 15m/1h/1d
+            logging.warning(f"⛔ Spread alto su {symbol}: {spread:.2f}% -> simulazioni bloccate, analisi continua")
 
-            return SignalResponse(
-                symbol=symbol,
-                segnale="HOLD",
-                commento=f"Simulazione ignorata per {symbol} a causa di spread eccessivo.\nSpread: {spread:.2f}%",
-                prezzo=close_tmp,
-                take_profit=0.0,
-                stop_loss=0.0,
-                rsi=0.0,
-                macd=0.0,
-                macd_signal=0.0,
-                atr=0.0,
-                ema7=0.0,
-                ema25=0.0,
-                ema99=0.0,
-                timeframe="15m",
-                spread=spread,
-                motivo="Spread eccessivo",
-                chiusa_da_backend=False
-            )
 
         # ===== PRE-PUMP 1m (segnale anticipato) =====
         try:
@@ -838,7 +833,7 @@ def analyze(symbol: str):
                     f"\u23f3 Simulazione gi\u00e0 attiva su {symbol} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
                     f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
                 ),
-                prezzo=posizione["entry"],
+                prezzo=prezzo_output,
                 take_profit=posizione["tp"],
                 stop_loss=posizione["sl"],
                 rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
@@ -999,6 +994,57 @@ def analyze(symbol: str):
                 logging.warning(f"⚠️ Errore descrizione trend 1h: {e}")
 
 
+        # -------------------------------------------------------------
+        # STEP 8 — CONTINUATION OVERRIDE (trend già avviato)
+        # -------------------------------------------------------------
+        try:
+            src15 = hist if isinstance(hist, pd.DataFrame) and not hist.empty else df_15m
+
+            e7_15  = float(src15["EMA_7"].iloc[-1])
+            e25_15 = float(src15["EMA_25"].iloc[-1])
+            e99_15 = float(src15["EMA_99"].iloc[-1])
+            c15    = float(src15["close"].iloc[-1])
+
+            trend15_up   = e7_15 > e25_15 > e99_15 and c15 >= e7_15
+            trend15_down = e7_15 < e25_15 < e99_15 and c15 <= e7_15
+
+            candele15_up   = conta_candele_trend(src15, rialzista=True)  if trend15_up   else 0
+            candele15_down = conta_candele_trend(src15, rialzista=False) if trend15_down else 0
+
+            # criteri: trend già partito (non pullback iniziale)
+            CONT_MIN_CANDLES = 6
+
+            cont_buy = (
+                segnale == "HOLD"
+                and trend15_up
+                and trend_up_1h
+                and daily_state == "BUY"
+                and candele15_up >= CONT_MIN_CANDLES
+            )
+
+            cont_sell = (
+                segnale == "HOLD"
+                and trend15_down
+                and trend_down_1h
+                and daily_state == "SELL"
+                and candele15_down >= CONT_MIN_CANDLES
+            )
+
+            if cont_buy:
+                segnale = "BUY"
+                note.append("🧩 Continuation BUY (trend già avviato)")
+                logging.info(f"[CONTINUATION BUY] {symbol} c15={candele15_up}")
+
+            elif cont_sell:
+                segnale = "SELL"
+                note.append("🧩 Continuation SELL (trend già avviato)")
+                logging.info(f"[CONTINUATION SELL] {symbol} c15={candele15_down}")
+
+        except Exception as e:
+            logging.debug(f"[CONTINUATION OVERRIDE] skip {symbol}: {e}")
+
+
+
 
         # 7) Note 1d e possibile apertura simulazione
         if segnale in ["BUY", "SELL"]:
@@ -1013,41 +1059,68 @@ def analyze(symbol: str):
                     note.append("📅 1d✓")
                 else:
                     note.append(f"⚠️ Daily in conflitto ({daily_state})")
+        else:
+            # anche quando è HOLD: logga lo stato daily per capire se sta “frenando” i trend intraday
+            if daily_state == "NA":
+                note.append("📅 1d: NA")
+            else:
+                note.append(f"📅 1d: {daily_state}")
+
 
         # (REMOVED) Denominazione ASSET già inclusa in trend_logic nella riga "📊 Trend score ... | 🛈 ...".
         # Evita duplicati nelle notifiche/card.
 
         
+        # apertura simulazione SOLO se c'è un vero segnale
+        if segnale in ["BUY", "SELL"]:
+            # spread_block: se True, non apriamo simulazioni (ma segnaliamo comunque BUY/SELL)
+            if "spread_block" in locals() and spread_block:
+                note.append(f"⛔ Simulazione NON avviata: spread alto ({spread:.2f}%)")
+                logging.warning(
+                    f"⛔ BLOCCO SIMULAZIONE {segnale} per {symbol}: spread={spread:.2f}% (spread_block=True)"
+                )
+            else:
+                logging.info(
+                    f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – "
+                    f"TP: {tp}, SL: {sl}, spread: {spread:.2f}%, tick_size={tick_size}"
+                )
+
+                # testo completo della notifica (per app + per log simulazioni)
+                commento = "\n".join(note) if note else "Nessuna nota"
+
+                with _pos_lock:
+                    posizioni_attive[symbol] = {
+                        "tipo": segnale,
+                        "entry": float(prezzo_output) if prezzo_output else float(close),
+                        "tp": tp,
+                        "sl": sl,
+                        "spread": spread,
+                        "tick_size": tick_size,
+                        "chiusa_da_backend": False,
+                        "motivo": " | ".join(note),
+                        "note_notifica": commento,  
+                    }
+
+
         # testo completo della notifica (per app + per log simulazioni)
         commento = "\n".join(note) if note else "Nessuna nota"
 
 
-        # apertura simulazione SOLO se c'è un vero segnale
-        if segnale in ["BUY", "SELL"]:
-            logging.info(
-                f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – "
-                f"TP: {tp}, SL: {sl}, spread: {spread:.2f}%, tick_size={tick_size}"
-            )
-            with _pos_lock:
-                posizioni_attive[symbol] = {
-                    "tipo": segnale,
-                    "entry": close,
-                    "tp": tp,
-                    "sl": sl,
-                    "spread": spread,
-                    "tick_size": tick_size,
-                    "chiusa_da_backend": False,
-                    "motivo": " | ".join(note),
-                    "note_notifica": commento,  
-                }
+
+        # Se spread_block è attivo: il segnale è solo "alert" (no livelli operativi)
+        tp_out = tp
+        sl_out = sl
+        if "spread_block" in locals() and spread_block and segnale in ("BUY", "SELL"):
+            tp_out = 0.0
+            sl_out = 0.0
 
         return SignalResponse(
             symbol=symbol,
             segnale=segnale,
             commento=commento,
             prezzo=prezzo_output,
-            take_profit=tp,
-            stop_loss=sl,
+            take_profit=tp_out,
+            stop_loss=sl_out,
             rsi=rsi,
             macd=macd,
             macd_signal=macd_signal,
@@ -1060,6 +1133,7 @@ def analyze(symbol: str):
             motivo=" | ".join(note),
             chiusa_da_backend=False
         )
+
 
 
     except Exception as e:
@@ -1211,9 +1285,51 @@ def _ensure_scanner():
 
 @router.get("/price")
 def get_price(symbol: str):
-    
+
     start = time.time()
-    symbol = symbol.upper()
+    symbol = (symbol or "").upper()
+
+    # ---- Yahoo price ----
+    if symbol in YAHOO_SYMBOL_MAP:
+        try:
+            y_ticker = YAHOO_SYMBOL_MAP[symbol]
+            p = get_yahoo_last_price(y_ticker)
+
+            elapsed = round(time.time() - start, 3)
+
+            # Allinea output al ramo Binance (motivo / TP / SL / chiusaDaBackend)
+            with _pos_lock:
+                pos = posizioni_attive.get(symbol, {})
+
+            return {
+                "symbol": symbol,
+                "prezzo": round(float(p or 0.0), 4),
+                "spread": 0.0,
+                "tempo": elapsed,
+                "motivo": pos.get("motivo", ""),
+                "takeProfit": pos.get("tp", 0.0),
+                "stopLoss":  pos.get("sl", 0.0),
+                "chiusaDaBackend": pos.get("chiusa_da_backend", False),
+            }
+
+        except Exception as e:
+            logging.error(f"❌ Errore /price Yahoo {symbol}: {e}")
+
+            elapsed = round(time.time() - start, 3)
+
+            return {
+                "symbol": symbol,
+                "prezzo": 0.0,
+                "spread": 0.0,
+                "errore": str(e),
+                "tempo": elapsed,
+                "motivo": "",
+                "takeProfit": 0.0,
+                "stopLoss":  0.0,
+                "chiusaDaBackend": False,
+            }
+
+    # ---- Binance price ----
 
     try:
         url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
