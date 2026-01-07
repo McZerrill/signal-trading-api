@@ -18,6 +18,8 @@ from indicators import calcola_rsi, calcola_macd, calcola_atr
 from models import SignalResponse
 
 from top_mover_scanner import start_top_mover_scanner
+from capital_scaler import scaler
+
 import json
 from pathlib import Path
 
@@ -1037,6 +1039,16 @@ def analyze(symbol: str):
                 f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – "
                 f"TP: {tp}, SL: {sl}, spread: {spread:.2f}%, tick_size={tick_size}"
             )
+
+            # ✅ Capital scaling: arruola su file SOLO se BUY e parte davvero la simulazione
+            nota_acquisto = None
+            if segnale == "BUY":
+                nota_acquisto = scaler.on_simulation_started(symbol, close)  # <-- salva su file
+
+                if nota_acquisto:  # <-- fondamentale
+                    commento = (commento + "\n" if commento else "") + nota_acquisto
+                    note.append(nota_acquisto)
+
             with _pos_lock:
                 posizioni_attive[symbol] = {
                     "tipo": segnale,
@@ -1047,7 +1059,9 @@ def analyze(symbol: str):
                     "tick_size": tick_size,
                     "chiusa_da_backend": False,
                     "motivo": " | ".join(note),
-                    "note_notifica": commento,  
+                    "note_notifica": commento,
+                    # opzionale ma utile per app
+                    "nota_acquisto": nota_acquisto or "",
                 }
 
         return SignalResponse(
@@ -1682,7 +1696,10 @@ def verifica_posizioni_attive():
                     prezzo_live = float(book["ask"] if tipo == "BUY" else book["bid"])
                     with _pos_lock:
                         sim["prezzo_attuale"] = round(prezzo_live, 10)
-                    
+                        
+                    # ✅ aggiorna capital scaler (se scende abilita rebuy_ready)
+                    scaler.on_price_tick(symbol, prezzo_live)
+
                     distanza_entry = abs(prezzo_live - entry)
                     progresso = abs(prezzo_live - entry) / abs(tp - entry) if tp != entry else 0.0
 
@@ -1748,7 +1765,8 @@ def verifica_posizioni_attive():
                                 f"tp={tp:.6f} sl={sl:.6f} esito={sim['esito']} var={sim['variazione_pct']:.3f}%"
                             )
                             append_simulazione_chiusa(symbol, sim)
-
+                            
+                        scaler.on_exit(symbol)   # ✅ reset ciclo e rimuove asset monitorato dal file
                         continue
 
                     # ===== retracement verso SL? =====
