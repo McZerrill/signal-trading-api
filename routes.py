@@ -1,3 +1,6 @@
+from typing import List
+from models import HotAsset
+
 from fastapi import APIRouter
 from datetime import datetime, timezone as dt_timezone, timedelta
 import time
@@ -1293,7 +1296,7 @@ _hot_cache = {"time": 0, "data": []}
 
 MODALITA_TEST = True
 
-@router.get("/hotassets")
+@router.get("/hotassets", response_model=List[HotAsset])
 def hot_assets():
     now = time.time()
     if (now - _hot_cache["time"]) < 180:
