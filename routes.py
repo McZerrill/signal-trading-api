@@ -509,6 +509,16 @@ def analyze(symbol: str):
 
                 prezzo_output = round(prezzo_live or close, 4)
 
+                # ✅ Capital scaling: aggiungi nota SOLO se BUY (Yahoo), senza toccare posizioni_attive
+                if segnale == "BUY":
+                    try:
+                        nota_acquisto = scaler.on_simulation_started(symbol, close)
+                        if nota_acquisto:
+                            commento = (commento + "\n" if commento else "") + nota_acquisto
+                            note.append(nota_acquisto)
+                    except Exception as e:
+                        logging.warning(f"⚠️ scaler.on_simulation_started fallito per YAHOO {symbol}: {e}")
+
                 logging.info(f"📊 Yahoo analyze {symbol} – segnale={segnale}, prezzo={prezzo_output}")
 
                 return SignalResponse(
