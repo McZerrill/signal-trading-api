@@ -22,6 +22,19 @@ class SignalResponse(BaseModel):
     motivo: str = ""
     chiusa_da_backend: Optional[bool] = False
 
+# ✅ Modello per /hotassets (lista di card Binance/Yahoo)
+class HotAsset(BaseModel):
+    symbol: str
+    segnali: int
+    trend: str
+    prezzo: float
+    rsi: Optional[float] = None
+    ema7: Optional[float] = None
+    ema25: Optional[float] = None
+    ema99: Optional[float] = None
+    candele_trend: Optional[int] = None
+    note: Optional[str] = None
+
     
 
 
