@@ -512,15 +512,73 @@ def analyze(symbol: str):
 
                 prezzo_output = round(prezzo_live or close, 4)
 
-                # ✅ Capital scaling: aggiungi nota SOLO se BUY (Yahoo), senza toccare posizioni_attive
-                if segnale == "BUY":
-                    try:
-                        nota_acquisto = scaler.on_simulation_started(symbol, close)
-                        if nota_acquisto:
-                            commento = (commento + "\n" if commento else "") + nota_acquisto
-                            note.append(nota_acquisto)
-                    except Exception as e:
-                        logging.warning(f"⚠️ scaler.on_simulation_started fallito per YAHOO {symbol}: {e}")
+                # ✅ Capital scaling:
+                # Per Yahoo NON arruoliamo lo scaler qui, perché questo endpoint fa SOLO analisi.
+                # Lo scaler va chiamato SOLO quando parte una simulazione reale (posizioni_attive + monitor),
+                # esattamente come nel ramo Binance.
+                # (Verrà riallineato nello Step 2 quando abilitiamo il monitor anche per Yahoo.)
+
+
+                # 3) Se c'è già una simulazione attiva su questo simbolo Yahoo, non riaprirla
+                with _pos_lock:
+                    posizione_y = posizioni_attive.get(symbol)
+
+                if posizione_y:
+                    return SignalResponse(
+                        symbol=symbol,
+                        segnale="HOLD",
+                        commento=(
+                            f"\u23f3 Simulazione gi\u00e0 attiva su {symbol} - tipo: {posizione_y['tipo']} @ {posizione_y['entry']}$\n"
+                            f"🎯 TP: {posizione_y['tp']} | 🛡 SL: {posizione_y['sl']}"
+                        ),
+                        prezzo=posizione_y["entry"],
+                        take_profit=posizione_y["tp"],
+                        stop_loss=posizione_y["sl"],
+                        rsi=rsi,
+                        macd=macd,
+                        macd_signal=macd_signal,
+                        atr=atr,
+                        ema7=ema7,
+                        ema25=ema25,
+                        ema99=ema99,
+                        timeframe="15m",
+                        spread=0.0,
+                        motivo=posizione_y.get("motivo", ""),
+                        chiusa_da_backend=posizione_y.get("chiusa_da_backend", False)
+                    )
+
+                # 4) Apertura simulazione anche per Yahoo (stesso comportamento Binance)
+                nota_acquisto = None
+                if segnale in ["BUY", "SELL"]:
+                    logging.info(
+                        f"✅ Nuova simulazione {segnale} (YAHOO) per {symbol} @ {close}$ – "
+                        f"TP: {tp}, SL: {sl}"
+                    )
+
+                    # ✅ Capital scaling: SOLO se BUY e SOLO quando parte davvero la simulazione
+                    if segnale == "BUY":
+                        try:
+                            nota_acquisto = scaler.on_simulation_started(symbol, close)  # <-- salva su file
+                            if nota_acquisto:
+                                commento = (commento + "\n" if commento else "") + nota_acquisto
+                                note.append(nota_acquisto)
+                        except Exception as e:
+                            logging.warning(f"⚠️ scaler.on_simulation_started fallito per YAHOO {symbol}: {e}")
+
+                    with _pos_lock:
+                        posizioni_attive[symbol] = {
+                            "tipo": segnale,
+                            "entry": close,
+                            "tp": tp,
+                            "sl": sl,
+                            "spread": 0.0,
+                            "tick_size": 0.0,
+                            "chiusa_da_backend": False,
+                            "motivo": " | ".join(note),
+                            "note_notifica": commento,
+                            "nota_acquisto": nota_acquisto or "",
+                            "asset_class": "yahoo",
+                        }
 
                 logging.info(f"📊 Yahoo analyze {symbol} – segnale={segnale}, prezzo={prezzo_output}")
 
@@ -540,9 +598,10 @@ def analyze(symbol: str):
                     ema99=ema99,
                     timeframe="15m",
                     spread=spread,
-                    motivo=commento,
+                    motivo=" | ".join(note),
                     chiusa_da_backend=False
                 )
+
 
             except Exception as e:
                 logging.error(f"❌ Errore analisi Yahoo per {symbol}: {e}")
@@ -1247,11 +1306,38 @@ def _ensure_scanner():
 
 @router.get("/price")
 def get_price(symbol: str):
-    
+
     start = time.time()
     symbol = symbol.upper()
 
     try:
+        # ------------------------------------------------------------
+        #  Se è un simbolo Yahoo (logico) -> prezzo da Yahoo + stato sim
+        # ------------------------------------------------------------
+        if symbol in YAHOO_SYMBOL_MAP:
+            y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
+
+            prezzo = float(get_yahoo_last_price(y_ticker) or 0.0)
+            spread = 0.0
+
+            elapsed = round(time.time() - start, 3)
+            with _pos_lock:
+                pos = posizioni_attive.get(symbol, {})       # <-- lookup una sola volta
+
+            return {
+                "symbol": symbol,
+                "prezzo": round(prezzo, 4),
+                "spread": 0.0,
+                "tempo": elapsed,
+                "motivo": pos.get("motivo", ""),
+                "takeProfit": pos.get("tp", 0.0),
+                "stopLoss":  pos.get("sl", 0.0),
+                "chiusaDaBackend": pos.get("chiusa_da_backend", False)
+            }
+
+        # ------------------------------------------------------------
+        #  BINANCE (solo simboli completi USDT/USDC)
+        # ------------------------------------------------------------
         url = f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}"
         response = requests.get(url, timeout=3)
         data = response.json()
@@ -1276,7 +1362,7 @@ def get_price(symbol: str):
             "motivo": pos.get("motivo", ""),
             "takeProfit": pos.get("tp", 0.0),
             "stopLoss":  pos.get("sl", 0.0),
-            "chiusaDaBackend": pos.get("chiusa_da_backend", False)  # <-- nuovo campo
+            "chiusaDaBackend": pos.get("chiusa_da_backend", False)
         }
 
     except Exception as e:
@@ -1290,6 +1376,7 @@ def get_price(symbol: str):
             "errore": str(e),
             "tempo": elapsed
         }
+
 
 # Cache hotassets
 _hot_cache = {"time": 0, "data": []}
@@ -1699,48 +1786,95 @@ def verifica_posizioni_attive():
 
                 tipo = sim["tipo"]            # "BUY" | "SELL"
                 try:
-                    # ===== prezzi live bid/ask =====
-                    book      = get_bid_ask(symbol)
+                    asset_class = (sim.get("asset_class") or "crypto").lower()
+
                     entry     = float(sim["entry"])
                     tp        = float(sim["tp"])
                     sl        = float(sim["sl"])
 
-                    # prezzo live usato solo per progress/stato
-                    prezzo_live = float(book["ask"] if tipo == "BUY" else book["bid"])
-                    with _pos_lock:
-                        sim["prezzo_attuale"] = round(prezzo_live, 10)
-                        
-                    # ✅ aggiorna capital scaler (se scende abilita rebuy_ready)
-                    scaler.on_price_tick(symbol, prezzo_live)
+                    # ===== prezzi live =====
+                    if asset_class == "yahoo":
+                        y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
+                        prezzo_live = float(get_yahoo_last_price(y_ticker) or 0.0)
+                        with _pos_lock:
+                            sim["prezzo_attuale"] = round(prezzo_live, 10)
 
-                    distanza_entry = abs(prezzo_live - entry)
-                    progresso = abs(prezzo_live - entry) / abs(tp - entry) if tp != entry else 0.0
+                        # ✅ aggiorna capital scaler anche su Yahoo
+                        scaler.on_price_tick(symbol, prezzo_live)
 
-                    # ===== ultima candela timeframe trend =====
-                    df = get_binance_df(symbol, TIMEFRAME_TREND, limit=CANDLE_LIMIT)
-                    if df.empty:
-                        sim["motivo"] = f"⚠️ Dati insufficienti ({TIMEFRAME_TREND})"
-                        continue
+                        distanza_entry = abs(prezzo_live - entry)
+                        progresso = abs(prezzo_live - entry) / abs(tp - entry) if tp != entry else 0.0
 
-                    last = df.iloc[-1]
-                    o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
+                        # ===== ultima candela timeframe trend (Yahoo) =====
+                        df = get_yahoo_df(y_ticker, TIMEFRAME_TREND)
+                        if df is None or df.empty:
+                            sim["motivo"] = f"⚠️ Dati insufficienti Yahoo ({TIMEFRAME_TREND})"
+                            continue
 
-                    # ===== EMA per stato/trailing =====
-                    df["EMA_7"]  = df["close"].ewm(span=7).mean()
-                    df["EMA_25"] = df["close"].ewm(span=25).mean()
-                    ema7  = float(df["EMA_7"].iloc[-1])
-                    ema25 = float(df["EMA_25"].iloc[-1])
-                    dist_ema = abs(ema7 - ema25)
+                        # allinea a CANDLE_LIMIT
+                        if len(df) > CANDLE_LIMIT:
+                            df = df.tail(CANDLE_LIMIT)
 
-                    in_range = (EMA_DIST_MIN_PERC * c) <= dist_ema <= (EMA_DIST_MAX_PERC * c)
-                    trend_ok = (
-                        (tipo == "BUY"  and c >= ema7 and ema7 > ema25 and in_range) or
-                        (tipo == "SELL" and c <= ema7 and ema7 < ema25 and in_range)
-                    )
+                        last = df.iloc[-1]
+                        o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
 
-                    # ===== verifiche TP/SL su candela corrente =====
-                    TICK = float(sim.get("tick_size", 0.0)) if isinstance(sim.get("tick_size", 0.0), (int, float)) else 0.0
-                    eps = TICK
+                        # ===== EMA per stato/trailing (Yahoo) =====
+                        df["EMA_7"]  = df["close"].ewm(span=7).mean()
+                        df["EMA_25"] = df["close"].ewm(span=25).mean()
+                        ema7  = float(df["EMA_7"].iloc[-1])
+                        ema25 = float(df["EMA_25"].iloc[-1])
+                        dist_ema = abs(ema7 - ema25)
+
+                        in_range = (EMA_DIST_MIN_PERC * c) <= dist_ema <= (EMA_DIST_MAX_PERC * c)
+                        trend_ok = (
+                            (tipo == "BUY"  and c >= ema7 and ema7 > ema25 and in_range) or
+                            (tipo == "SELL" and c <= ema7 and ema7 < ema25 and in_range)
+                        )
+
+                        # ===== verifiche TP/SL su candela corrente (Yahoo) =====
+                        eps = 0.0
+
+                    else:
+                        # ===== BINANCE =====
+                        book      = get_bid_ask(symbol)
+
+                        # prezzo live usato solo per progress/stato
+                        prezzo_live = float(book["ask"] if tipo == "BUY" else book["bid"])
+                        with _pos_lock:
+                            sim["prezzo_attuale"] = round(prezzo_live, 10)
+
+                        # ✅ aggiorna capital scaler (se scende abilita rebuy_ready)
+                        scaler.on_price_tick(symbol, prezzo_live)
+
+                        distanza_entry = abs(prezzo_live - entry)
+                        progresso = abs(prezzo_live - entry) / abs(tp - entry) if tp != entry else 0.0
+
+                        # ===== ultima candela timeframe trend =====
+                        df = get_binance_df(symbol, TIMEFRAME_TREND, limit=CANDLE_LIMIT)
+                        if df.empty:
+                            sim["motivo"] = f"⚠️ Dati insufficienti ({TIMEFRAME_TREND})"
+                            continue
+
+                        last = df.iloc[-1]
+                        o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
+
+                        # ===== EMA per stato/trailing =====
+                        df["EMA_7"]  = df["close"].ewm(span=7).mean()
+                        df["EMA_25"] = df["close"].ewm(span=25).mean()
+                        ema7  = float(df["EMA_7"].iloc[-1])
+                        ema25 = float(df["EMA_25"].iloc[-1])
+                        dist_ema = abs(ema7 - ema25)
+
+                        in_range = (EMA_DIST_MIN_PERC * c) <= dist_ema <= (EMA_DIST_MAX_PERC * c)
+                        trend_ok = (
+                            (tipo == "BUY"  and c >= ema7 and ema7 > ema25 and in_range) or
+                            (tipo == "SELL" and c <= ema7 and ema7 < ema25 and in_range)
+                        )
+
+                        # ===== verifiche TP/SL su candela corrente =====
+                        TICK = float(sim.get("tick_size", 0.0)) if isinstance(sim.get("tick_size", 0.0), (int, float)) else 0.0
+                        eps = TICK
+
 
                     fill_price = None
                     exit_reason = None
