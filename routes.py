@@ -512,8 +512,8 @@ def analyze(symbol: str):
 
                 prezzo_output = round(prezzo_live or close, 4)
 
-                # ✅ Capital scaling:
-                # Per Yahoo NON arruoliamo lo scaler qui, perché questo endpoint fa SOLO analisi.
+                # ✅ Yahoo ora è allineato a Binance:
+                # lo scaler viene arruolato SOLO quando parte una simulazione reale
                 # Lo scaler va chiamato SOLO quando parte una simulazione reale (posizioni_attive + monitor),
                 # esattamente come nel ramo Binance.
                 # (Verrà riallineato nello Step 2 quando abilitiamo il monitor anche per Yahoo.)
@@ -877,6 +877,17 @@ def analyze(symbol: str):
 
         note = note15.split("\n") if note15 else []
 
+        # ✅ Capital scaling: BUY successivi (20% / 20% / 30%)
+        # Se l'asset è già monitorato e ha fatto drawdown,
+        # aggiunge SOLO la nota (non apre nuove simulazioni)
+        try:
+            if segnale == "BUY":
+                nota_scalata = scaler.decorate_buy_note_if_applicable(symbol, close)
+                if nota_scalata:
+                    note.append(nota_scalata)
+        except Exception as e:
+            logging.warning(f"⚠️ decorate_buy_note_if_applicable fallita per {symbol}: {e}")
+
 
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
@@ -1111,6 +1122,7 @@ def analyze(symbol: str):
                 f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – "
                 f"TP: {tp}, SL: {sl}, spread: {spread:.2f}%, tick_size={tick_size}"
             )
+
 
             # ✅ Capital scaling: arruola su file SOLO se BUY e parte davvero la simulazione
             nota_acquisto = None
@@ -2040,7 +2052,33 @@ def start_background_tasks():
             _monitor_thread.start()
             logging.info("✅ Monitor posizioni_attive avviato (thread)")
 
+        # 🔁 Ripristino asset in capital scaling dopo riavvio backend
+        try:
+            restored = scaler.watched_symbols()
+            if restored:
+                logging.info(f"♻️ Ripristino capital scaling per asset: {restored}")
+
+            with _pos_lock:
+                for symbol in restored:
+                    if symbol not in posizioni_attive:
+                        posizioni_attive[symbol] = {
+                            "tipo": "BUY",
+                            "entry": 0.0,
+                            "tp": 0.0,
+                            "sl": 0.0,
+                            "spread": 0.0,
+                            "tick_size": 0.0,
+                            "chiusa_da_backend": False,
+                            "motivo": "♻️ Ripristino monitor capital scaling (30-20-20-30)",
+                            "note_notifica": "",
+                            "nota_acquisto": "",
+                            "asset_class": "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto",
+                        }
+        except Exception as e:
+            logging.error(f"❌ Errore ripristino capital scaling: {e}")
+
         _BG_STARTED = True
+
 
 
 
