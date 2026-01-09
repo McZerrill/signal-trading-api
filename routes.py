@@ -2324,11 +2324,16 @@ def simulazioni_attive():
         logging.error(f"❌ Lazy-restore /simulazioni_attive fallito: {e}")
 
     with _pos_lock:
-        return {
-            symbol: data
-            for symbol, data in posizioni_attive.items()
-            if not data.get("chiusa_da_backend", False)
-        }
+        out = {}
+        for symbol, data in posizioni_attive.items():
+            if not isinstance(data, dict):
+                logging.error(f"⚠️ simulazioni_attive: entry non-dict per {symbol}: {type(data)} -> {data!r}")
+                continue
+            if data.get("chiusa_da_backend", False):
+                continue
+            out[symbol] = data
+        return out
+
 
         
 @router.get("/simulazioni_attive_app")
