@@ -1404,7 +1404,8 @@ _hot_cache = {"time": 0, "data": []}
 
 MODALITA_TEST = True
 
-@router.get("/hotassets")
+@router.get("/hotassets", response_model=List[HotAsset])
+
 def hot_assets():
     now = time.time()
     if (now - _hot_cache["time"]) < 180:
@@ -1766,14 +1767,11 @@ def hot_assets():
             continue
 
 
-    payload = {
-        "hotassets": risultati,
-        "simulazioniAttive": simulazioni_attive_app()
-    }
-
     _hot_cache["time"] = now
-    _hot_cache["data"] = payload
-    return payload
+    _hot_cache["data"] = risultati
+    return risultati
+
+
 
 
 
