@@ -1807,9 +1807,57 @@ def verifica_posizioni_attive():
                     tp        = float(sim["tp"])
                     sl        = float(sim["sl"])
 
-                    # ⛔ posizione ripristinata solo per capital scaling (no TP/SL/trailing)
+                    # ✅ capital scaling (scaling_only): aggiorna prezzo + stato scaler, ma NON gestire TP/SL/trailing
+                    if sim.get("scaling_only", False):
+                        # ===== prezzi live =====
+                        if asset_class == "yahoo":
+                            y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
+                            prezzo_live = float(get_yahoo_last_price(y_ticker) or 0.0)
+                        else:
+                            book = get_bid_ask(symbol)
+                            b = float(book.get("bid", 0.0))
+                            a = float(book.get("ask", 0.0))
+                            prezzo_live = float(((b + a) / 2.0)) if b > 0 and a > 0 else 0.0
+
+                        with _pos_lock:
+                            sim["prezzo_attuale"] = round(prezzo_live, 10)
+
+                        try:
+                            scaler.on_price_tick(symbol, prezzo_live)
+                        except Exception:
+                            pass
+
+                        st = None
+                        try:
+                            st = scaler.get_state(symbol)
+                        except Exception:
+                            st = None
+
+                        with _pos_lock:
+                            if st:
+                                sim["scaler_state"] = st
+                                step_num = int(st.get("step_index", 0))
+                                rebuy = bool(st.get("rebuy_ready", False))
+                                refp = float(st.get("last_ref_price", 0.0) or 0.0)
+
+                                sim["motivo"] = f"♻️ Capital scaling Step {step_num}/4 — rebuy_ready={rebuy}"
+                                sim["note_notifica"] = (
+                                    (sim.get("note_trend", "") + "\n" if sim.get("note_trend") else "") +
+                                    f"🧭 Monitor: Capital scaling Step {step_num}/4 • ref={refp:.6f} • rebuy_ready={rebuy}"
+                                )
+                            else:
+                                sim["motivo"] = "♻️ Capital scaling — stato non disponibile"
+                                sim["note_notifica"] = (
+                                    (sim.get("note_trend", "") + "\n" if sim.get("note_trend") else "") +
+                                    "🧭 Monitor: Capital scaling (stato non disponibile)"
+                                )
+
+                        continue
+
+                    # ⛔ simulazione reale: se livelli non validi, salta
                     if entry == 0.0 or tp == 0.0 or sl == 0.0:
                         continue
+
 
 
                     # ===== prezzi live =====
@@ -2126,20 +2174,67 @@ def start_background_tasks():
             with _pos_lock:
                 for symbol in restored:
                     if symbol not in posizioni_attive:
+                        asset_class = "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto"
+
+                        st = None
+                        try:
+                            st = scaler.get_state(symbol)
+                        except Exception:
+                            st = None
+
+                        ref_price = 0.0
+                        try:
+                            ref_price = float((st or {}).get("last_ref_price", 0.0) or 0.0)
+                        except Exception:
+                            ref_price = 0.0
+
+                        live_price = 0.0
+                        try:
+                            if asset_class == "yahoo":
+                                y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
+                                live_price = float(get_yahoo_last_price(y_ticker) or 0.0)
+                            else:
+                                book = get_bid_ask(symbol)
+                                b = float(book.get("bid", 0.0))
+                                a = float(book.get("ask", 0.0))
+                                live_price = float(((b + a) / 2.0)) if b > 0 and a > 0 else 0.0
+                        except Exception:
+                            live_price = 0.0
+
+                        entry_price = ref_price if ref_price > 0 else live_price
+                        if entry_price <= 0:
+                            entry_price = 0.00000001  # ultima spiaggia: evita 0 per render UI
+
+                        step_num = 0
+                        rebuy = False
+                        if st:
+                            try:
+                                step_num = int(st.get("step_index", 0))
+                            except Exception:
+                                step_num = 0
+                            try:
+                                rebuy = bool(st.get("rebuy_ready", False))
+                            except Exception:
+                                rebuy = False
+
                         posizioni_attive[symbol] = {
                             "tipo": "BUY",
-                            "entry": 0.0,
-                            "tp": 0.0,
-                            "sl": 0.0,
+                            "entry": float(entry_price),
+                            "tp": float(entry_price),
+                            "sl": float(entry_price),
                             "spread": 0.0,
                             "tick_size": 0.0,
                             "chiusa_da_backend": False,
                             "motivo": "♻️ Ripristino monitor capital scaling (30-20-20-30)",
-                            "note_notifica": "",
+                            "note_trend": "",
+                            "note_notifica": f"🧭 Monitor: Capital scaling restore Step {step_num}/4 • rebuy_ready={rebuy}",
                             "nota_acquisto": "",
-                            "asset_class": "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto",
+                            "asset_class": asset_class,
                             "scaling_only": True,
+                            "prezzo_attuale": float(entry_price),
+                            "scaler_state": st or {},
                         }
+
         except Exception as e:
             logging.error(f"❌ Errore ripristino capital scaling: {e}")
 
