@@ -126,6 +126,26 @@ class CapitalScaler:
                 self._save_to_disk()
             return tuple(self._states.keys())
 
+    def get_state(self, symbol: str) -> Optional[dict]:
+        with self._lock:
+            changed = self._cleanup_if_needed()
+            st = self._states.get(symbol)
+            if not st:
+                if changed:
+                    self._save_to_disk()
+                return None
+
+            if changed:
+                self._save_to_disk()
+
+            return {
+                "step_index": st.step_index,
+                "last_ref_price": st.last_ref_price,
+                "rebuy_ready": st.rebuy_ready,
+                "last_update_ts": st.last_update_ts,
+            }
+
+
     def reset(self, symbol: str) -> None:
         with self._lock:
             removed = self._states.pop(symbol, None) is not None
