@@ -2241,6 +2241,32 @@ def start_background_tasks():
         _BG_STARTED = True
 
 
+def _to_app_sim(symbol: str, d: dict) -> dict:
+    # usa i valori esistenti ma con chiavi camelCase
+    return {
+        "symbol": symbol,
+        "tipo": d.get("tipo"),
+        "entry": d.get("entry", 0.0),
+        "tp": d.get("tp", 0.0),
+        "sl": d.get("sl", 0.0),
+        "spread": d.get("spread", 0.0),
+
+        "tickSize": d.get("tick_size", d.get("tickSize", 0.0)),
+        "stepSize": d.get("step_size", d.get("stepSize", 0.0)),
+
+        "chiusaDaBackend": d.get("chiusa_da_backend", d.get("chiusaDaBackend", False)),
+        "motivo": d.get("motivo", ""),
+
+        "noteTrend": d.get("note_trend", d.get("noteTrend", "")),
+        "noteNotifica": d.get("note_notifica", d.get("noteNotifica", "")),
+        "notaAcquisto": d.get("nota_acquisto", d.get("notaAcquisto", "")),
+
+        "assetClass": d.get("asset_class", d.get("assetClass", "")),
+        "scalingOnly": d.get("scaling_only", d.get("scalingOnly", False)),
+        "prezzoAttuale": d.get("prezzo_attuale", d.get("prezzoAttuale", d.get("entry", 0.0))),
+
+        "scalerState": d.get("scaler_state", d.get("scalerState", {})),
+    }
 
 
     
@@ -2428,9 +2454,7 @@ def simulazioni_attive_app():
             if entry <= 0 or tp <= 0 or sl <= 0:
                 continue
 
-            d = dict(data)          # copia per non sporcare l’originale
-            d["symbol"] = symbol    # <-- QUESTO È IL FIX
-            out.append(d)
+            out.append(_to_app_sim(symbol, data))
 
     return out
 
