@@ -2162,6 +2162,31 @@ def simulazioni_attive():
             for symbol, data in posizioni_attive.items()
             if not data.get("chiusa_da_backend", False)
         }
+        
+@router.get("/simulazioni_attive_app")
+def simulazioni_attive_app():
+    """
+    Endpoint per APP:
+    restituisce SOLO simulazioni REALI ancora attive
+    (esclude capital scaling ripristinato: entry/tp/sl = 0)
+    """
+    out = {}
+    with _pos_lock:
+        for symbol, data in posizioni_attive.items():
+            if data.get("chiusa_da_backend", False):
+                continue
+
+            entry = float(data.get("entry", 0.0) or 0.0)
+            tp    = float(data.get("tp", 0.0) or 0.0)
+            sl    = float(data.get("sl", 0.0) or 0.0)
+
+            # simulazione reale = ha livelli validi
+            if entry <= 0 or tp <= 0 or sl <= 0:
+                continue
+
+            out[symbol] = data
+
+    return out
 
 
 __all__ = ["router", "start_background_tasks"]
