@@ -2412,7 +2412,7 @@ def simulazioni_attive_app():
     except Exception as e:
         logging.error(f"❌ Lazy-restore /simulazioni_attive_app fallito: {e}")
 
-    out = {}
+    out = []
     with _pos_lock:
         for symbol, data in posizioni_attive.items():
             if not isinstance(data, dict):
@@ -2428,7 +2428,9 @@ def simulazioni_attive_app():
             if entry <= 0 or tp <= 0 or sl <= 0:
                 continue
 
-            out[symbol] = data
+            d = dict(data)          # copia per non sporcare l’originale
+            d["symbol"] = symbol    # <-- QUESTO È IL FIX
+            out.append(d)
 
     return out
 
