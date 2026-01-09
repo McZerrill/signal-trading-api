@@ -2417,6 +2417,12 @@ def simulazioni_attive_app():
     out = {}
     with _pos_lock:
         for symbol, data in posizioni_attive.items():
+            if not isinstance(data, dict):
+                logging.error(
+                    f"⚠️ simulazioni_attive_app: entry non-dict per {symbol}: {type(data)} -> {data!r}"
+                )
+                continue
+
             if data.get("chiusa_da_backend", False):
                 continue
 
@@ -2430,6 +2436,7 @@ def simulazioni_attive_app():
             out[symbol] = data
 
     return out
+
 
 
 
