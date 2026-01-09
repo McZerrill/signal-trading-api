@@ -1342,10 +1342,12 @@ def get_price(symbol: str):
                 "spread": 0.0,
                 "tempo": elapsed,
                 "motivo": pos.get("motivo", ""),
+                "note_notifica": pos.get("note_notifica", ""),
                 "takeProfit": pos.get("tp", 0.0),
                 "stopLoss":  pos.get("sl", 0.0),
                 "chiusaDaBackend": pos.get("chiusa_da_backend", False)
             }
+
 
         # ------------------------------------------------------------
         #  BINANCE (solo simboli completi USDT/USDC)
@@ -1372,10 +1374,12 @@ def get_price(symbol: str):
             "spread": round(spread, 4),
             "tempo": elapsed,
             "motivo": pos.get("motivo", ""),
+            "note_notifica": pos.get("note_notifica", ""),
             "takeProfit": pos.get("tp", 0.0),
             "stopLoss":  pos.get("sl", 0.0),
             "chiusaDaBackend": pos.get("chiusa_da_backend", False)
         }
+
 
     except Exception as e:
         logging.error(f"❌ Errore durante l'analisi di {symbol.upper()}: {e}")
@@ -1827,6 +1831,25 @@ def verifica_posizioni_attive():
                         if len(df) > CANDLE_LIMIT:
                             df = df.tail(CANDLE_LIMIT)
 
+                        # 🔄 refresh note complete (trend_logic) – versione “come prima”
+                        monitor_note15 = ""
+                        try:
+                            seg_m, hist_m, dist_m, note15_m, tp_m, sl_m, sup_m = analizza_trend(
+                                df, 0.0, None,
+                                asset_name=f"{_asset_display_name(symbol)} ({symbol})",
+                                asset_class="yahoo"
+                            )
+
+                            monitor_note15 = (note15_m or "").strip()
+
+                            with _pos_lock:
+                                sim["note_notifica"] = monitor_note15
+
+                        except Exception as e_notes:
+                            with _pos_lock:
+                                sim["note_notifica"] = (sim.get("note_notifica", "") or "").strip()
+                            monitor_note15 = (sim.get("note_notifica", "") or "").strip()
+
                         last = df.iloc[-1]
                         o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
 
@@ -1866,6 +1889,34 @@ def verifica_posizioni_attive():
                         if df.empty:
                             sim["motivo"] = f"⚠️ Dati insufficienti ({TIMEFRAME_TREND})"
                             continue
+
+                        # 🔄 refresh note complete (trend_logic) – versione “come prima”
+                        monitor_note15 = ""
+                        try:
+                            df_1m_for_notes = None
+                            try:
+                                df_1m_for_notes = get_binance_df(symbol, "1m", limit=120)
+                            except Exception:
+                                df_1m_for_notes = None
+
+                            tick_size_notes = float(sim.get("tick_size", 0.0) or 0.0)
+
+                            seg_m, hist_m, dist_m, note15_m, tp_m, sl_m, sup_m = analizza_trend(
+                                df, float(book.get("spread", 0.0)), df_1m_for_notes,
+                                asset_name=f"{_asset_display_name(symbol)} ({symbol})",
+                                asset_class="crypto",
+                                tick_size=tick_size_notes
+                            )
+
+                            monitor_note15 = (note15_m or "").strip()
+
+                            with _pos_lock:
+                                sim["note_notifica"] = monitor_note15
+
+                        except Exception as e_notes:
+                            with _pos_lock:
+                                sim["note_notifica"] = (sim.get("note_notifica", "") or "").strip()
+                            monitor_note15 = (sim.get("note_notifica", "") or "").strip()
 
                         last = df.iloc[-1]
                         o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
@@ -2002,6 +2053,13 @@ def verifica_posizioni_attive():
                             sim["motivo"] = overlay
                         elif base_msg:
                             sim["motivo"] = base_msg
+
+                        # ✅ coda “monitor” alle note complete (come prima)
+                        base_notes = (sim.get("note_notifica", "") or "").strip()
+                        if sim.get("motivo"):
+                            base_notes = (base_notes + "\n" if base_notes else "") + f"🧭 Monitor: {sim['motivo']}"
+                        sim["note_notifica"] = base_notes
+
 
 
                     logging.info(
