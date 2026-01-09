@@ -2437,6 +2437,23 @@ def simulazioni_attive_app():
 
     return out
 
+@router.get("/simulazioni_attive_list")
+def simulazioni_attive_list():
+    """
+    Restituisce una LISTA (più facile da parsare in app) delle simulazioni aperte.
+    Ogni elemento include anche il symbol.
+    """
+    # riusa la logica attuale (così ti becchi anche lazy-restore)
+    data = simulazioni_attive()
+
+    out = []
+    for symbol, sim in (data or {}).items():
+        if isinstance(sim, dict):
+            item = dict(sim)
+            item["symbol"] = symbol
+            out.append(item)
+
+    return out
 
 
 
