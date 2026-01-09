@@ -2248,23 +2248,167 @@ def start_background_tasks():
 def simulazioni_attive():
     """
     Restituisce SOLO le simulazioni ancora aperte (non chiuse da backend).
-    Quelle chiuse restano in memoria max CLEANUP_AGE_HOURS e
-    vengono poi eliminate da cleanup_posizioni_attive().
+    Include anche le posizioni "scaling_only" ripristinate dal CapitalScaler.
     """
+    # ✅ lazy-restore: se lo scaler ha simboli monitorati ma non sono in memoria,
+    # li ricreiamo al volo così l'App ricostruisce SEMPRE la tab SIM.
+    try:
+        restored = scaler.watched_symbols()
+        if restored:
+            with _pos_lock:
+                for symbol in restored:
+                    if symbol in posizioni_attive:
+                        continue
+
+                    asset_class = "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto"
+
+                    st = None
+                    try:
+                        st = scaler.get_state(symbol)
+                    except Exception:
+                        st = None
+
+                    ref_price = 0.0
+                    try:
+                        ref_price = float((st or {}).get("last_ref_price", 0.0) or 0.0)
+                    except Exception:
+                        ref_price = 0.0
+
+                    live_price = 0.0
+                    try:
+                        if asset_class == "yahoo":
+                            y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
+                            live_price = float(get_yahoo_last_price(y_ticker) or 0.0)
+                        else:
+                            book = get_bid_ask(symbol)
+                            b = float(book.get("bid", 0.0))
+                            a = float(book.get("ask", 0.0))
+                            live_price = float(((b + a) / 2.0)) if b > 0 and a > 0 else 0.0
+                    except Exception:
+                        live_price = 0.0
+
+                    entry_price = ref_price if ref_price > 0 else live_price
+                    if entry_price <= 0:
+                        entry_price = 0.00000001  # evita 0 per render UI
+
+                    step_num = 0
+                    rebuy = False
+                    if st:
+                        try:
+                            step_num = int(st.get("step_index", 0))
+                        except Exception:
+                            step_num = 0
+                        try:
+                            rebuy = bool(st.get("rebuy_ready", False))
+                        except Exception:
+                            rebuy = False
+
+                    posizioni_attive[symbol] = {
+                        "tipo": "BUY",
+                        "entry": float(entry_price),
+                        "tp": float(entry_price),
+                        "sl": float(entry_price),
+                        "spread": 0.0,
+                        "tick_size": 0.0,
+                        "chiusa_da_backend": False,
+                        "motivo": "♻️ Ripristino monitor capital scaling (30-20-20-30)",
+                        "note_trend": "",
+                        "note_notifica": f"🧭 Monitor: Capital scaling restore Step {step_num}/4 • rebuy_ready={rebuy}",
+                        "nota_acquisto": "",
+                        "asset_class": asset_class,
+                        "scaling_only": True,
+                        "prezzo_attuale": float(entry_price),
+                        "scaler_state": st or {},
+                    }
+    except Exception as e:
+        logging.error(f"❌ Lazy-restore /simulazioni_attive fallito: {e}")
+
     with _pos_lock:
         return {
             symbol: data
             for symbol, data in posizioni_attive.items()
             if not data.get("chiusa_da_backend", False)
         }
+
         
 @router.get("/simulazioni_attive_app")
 def simulazioni_attive_app():
     """
     Endpoint per APP:
-    restituisce SOLO simulazioni REALI ancora attive
-    (esclude capital scaling ripristinato: entry/tp/sl = 0)
+    restituisce simulazioni attive, incluse scaling_only (purché renderizzabili).
     """
+    # ✅ lazy-restore anche qui (nel caso l'App chiami questo endpoint)
+    try:
+        restored = scaler.watched_symbols()
+        if restored:
+            with _pos_lock:
+                for symbol in restored:
+                    if symbol in posizioni_attive:
+                        continue
+
+                    asset_class = "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto"
+
+                    st = None
+                    try:
+                        st = scaler.get_state(symbol)
+                    except Exception:
+                        st = None
+
+                    ref_price = 0.0
+                    try:
+                        ref_price = float((st or {}).get("last_ref_price", 0.0) or 0.0)
+                    except Exception:
+                        ref_price = 0.0
+
+                    live_price = 0.0
+                    try:
+                        if asset_class == "yahoo":
+                            y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
+                            live_price = float(get_yahoo_last_price(y_ticker) or 0.0)
+                        else:
+                            book = get_bid_ask(symbol)
+                            b = float(book.get("bid", 0.0))
+                            a = float(book.get("ask", 0.0))
+                            live_price = float(((b + a) / 2.0)) if b > 0 and a > 0 else 0.0
+                    except Exception:
+                        live_price = 0.0
+
+                    entry_price = ref_price if ref_price > 0 else live_price
+                    if entry_price <= 0:
+                        entry_price = 0.00000001
+
+                    step_num = 0
+                    rebuy = False
+                    if st:
+                        try:
+                            step_num = int(st.get("step_index", 0))
+                        except Exception:
+                            step_num = 0
+                        try:
+                            rebuy = bool(st.get("rebuy_ready", False))
+                        except Exception:
+                            rebuy = False
+
+                    posizioni_attive[symbol] = {
+                        "tipo": "BUY",
+                        "entry": float(entry_price),
+                        "tp": float(entry_price),
+                        "sl": float(entry_price),
+                        "spread": 0.0,
+                        "tick_size": 0.0,
+                        "chiusa_da_backend": False,
+                        "motivo": "♻️ Ripristino monitor capital scaling (30-20-20-30)",
+                        "note_trend": "",
+                        "note_notifica": f"🧭 Monitor: Capital scaling restore Step {step_num}/4 • rebuy_ready={rebuy}",
+                        "nota_acquisto": "",
+                        "asset_class": asset_class,
+                        "scaling_only": True,
+                        "prezzo_attuale": float(entry_price),
+                        "scaler_state": st or {},
+                    }
+    except Exception as e:
+        logging.error(f"❌ Lazy-restore /simulazioni_attive_app fallito: {e}")
+
     out = {}
     with _pos_lock:
         for symbol, data in posizioni_attive.items():
@@ -2275,13 +2419,13 @@ def simulazioni_attive_app():
             tp    = float(data.get("tp", 0.0) or 0.0)
             sl    = float(data.get("sl", 0.0) or 0.0)
 
-            # simulazione reale = ha livelli validi
             if entry <= 0 or tp <= 0 or sl <= 0:
                 continue
 
             out[symbol] = data
 
     return out
+
 
 
 __all__ = ["router", "start_background_tasks"]
