@@ -2324,15 +2324,13 @@ def simulazioni_attive():
         logging.error(f"❌ Lazy-restore /simulazioni_attive fallito: {e}")
 
     with _pos_lock:
-        out = {}
-        for symbol, data in posizioni_attive.items():
-            if not isinstance(data, dict):
-                logging.error(f"⚠️ simulazioni_attive: entry non-dict per {symbol}: {type(data)} -> {data!r}")
-                continue
-            if data.get("chiusa_da_backend", False):
-                continue
-            out[symbol] = data
-        return out
+        return {
+            symbol: data
+            for symbol, data in posizioni_attive.items()
+            if isinstance(data, dict)
+            and not data.get("chiusa_da_backend", False)
+        }
+
 
 
         
@@ -2418,9 +2416,6 @@ def simulazioni_attive_app():
     with _pos_lock:
         for symbol, data in posizioni_attive.items():
             if not isinstance(data, dict):
-                logging.error(
-                    f"⚠️ simulazioni_attive_app: entry non-dict per {symbol}: {type(data)} -> {data!r}"
-                )
                 continue
 
             if data.get("chiusa_da_backend", False):
@@ -2436,6 +2431,7 @@ def simulazioni_attive_app():
             out[symbol] = data
 
     return out
+
 
 @router.get("/simulazioni_attive_list")
 def simulazioni_attive_list():
