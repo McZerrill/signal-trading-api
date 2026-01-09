@@ -1333,7 +1333,13 @@ def get_price(symbol: str):
 
             elapsed = round(time.time() - start, 3)
             with _pos_lock:
-                pos = posizioni_attive.get(symbol, {})       # <-- lookup una sola volta
+            pos = posizioni_attive.get(symbol)
+            if not pos:
+                # fallback: se esiste ALMENO una simulazione attiva (anche scaling_only)
+                for _s, _p in posizioni_attive.items():
+                    if not _p.get("chiusa_da_backend", False):
+                        pos = _p
+                        break
 
             return {
                 "symbol": symbol,
