@@ -1319,27 +1319,31 @@ def _ensure_scanner():
 def get_price(symbol: str):
 
     start = time.time()
-    symbol = symbol.upper()
+    symbol = (symbol or "").upper()
 
     try:
         # ------------------------------------------------------------
-        #  Se è un simbolo Yahoo (logico) -> prezzo da Yahoo + stato sim
+        #  YAHOO (simboli "logici": AAPL, SP500, XAUUSD, ecc.)
         # ------------------------------------------------------------
         if symbol in YAHOO_SYMBOL_MAP:
             y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
 
             prezzo = float(get_yahoo_last_price(y_ticker) or 0.0)
-            spread = 0.0
-
             elapsed = round(time.time() - start, 3)
+
+            # recupera eventuale stato simulazione (se presente)
             with _pos_lock:
-            pos = posizioni_attive.get(symbol)
-            if not pos:
-                # fallback: se esiste ALMENO una simulazione attiva (anche scaling_only)
-                for _s, _p in posizioni_attive.items():
-                    if not _p.get("chiusa_da_backend", False):
-                        pos = _p
-                        break
+                pos = posizioni_attive.get(symbol)
+
+                # fallback: se non esiste una pos per quel symbol,
+                # prendi la prima simulazione ancora aperta (anche scaling_only)
+                if not pos:
+                    for _s, _p in posizioni_attive.items():
+                        if isinstance(_p, dict) and not _p.get("chiusa_da_backend", False):
+                            pos = _p
+                            break
+
+            pos = pos or {}
 
             return {
                 "symbol": symbol,
@@ -1349,10 +1353,9 @@ def get_price(symbol: str):
                 "motivo": pos.get("motivo", ""),
                 "note_notifica": pos.get("note_notifica", ""),
                 "takeProfit": pos.get("tp", 0.0),
-                "stopLoss":  pos.get("sl", 0.0),
-                "chiusaDaBackend": pos.get("chiusa_da_backend", False)
+                "stopLoss": pos.get("sl", 0.0),
+                "chiusaDaBackend": pos.get("chiusa_da_backend", False),
             }
-
 
         # ------------------------------------------------------------
         #  BINANCE (solo simboli completi USDT/USDC)
@@ -1366,12 +1369,12 @@ def get_price(symbol: str):
         if bid <= 0 or ask <= 0:
             raise ValueError(f"Prezzo non valido: bid={bid}, ask={ask}")
 
-        spread = (ask - bid) / ((ask + bid) / 2) * 100
+        spread = (ask - bid) / ((ask + bid) / 2) * 100.0
         prezzo = round((bid + ask) / 2, 4)
 
         elapsed = round(time.time() - start, 3)
         with _pos_lock:
-            pos = posizioni_attive.get(symbol, {})       # <-- lookup una sola volta
+            pos = posizioni_attive.get(symbol) or {}
 
         return {
             "symbol": symbol,
@@ -1381,13 +1384,12 @@ def get_price(symbol: str):
             "motivo": pos.get("motivo", ""),
             "note_notifica": pos.get("note_notifica", ""),
             "takeProfit": pos.get("tp", 0.0),
-            "stopLoss":  pos.get("sl", 0.0),
-            "chiusaDaBackend": pos.get("chiusa_da_backend", False)
+            "stopLoss": pos.get("sl", 0.0),
+            "chiusaDaBackend": pos.get("chiusa_da_backend", False),
         }
 
-
     except Exception as e:
-        logging.error(f"❌ Errore durante l'analisi di {symbol.upper()}: {e}")
+        logging.error(f"❌ Errore durante /price per {symbol}: {e}")
 
         elapsed = round(time.time() - start, 3)
         return {
@@ -1395,9 +1397,8 @@ def get_price(symbol: str):
             "prezzo": 0.0,
             "spread": 0.0,
             "errore": str(e),
-            "tempo": elapsed
+            "tempo": elapsed,
         }
-
 
 # Cache hotassets
 _hot_cache = {"time": 0, "data": []}
