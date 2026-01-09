@@ -267,7 +267,7 @@ def _asset_display_name(symbol: str) -> str:
 
 
 
-def _augment_with_whitelist(symbols: list[str]) -> list[str]:
+def _augment_with_whitelist(symbols: List[str]) -> List[str]:
     """
     Garantisce che ogni asset base in HOT_WHITELIST_BASE
     sia presente come simbolo completo (es. BTCUSDT/BTCUSDC).
@@ -275,7 +275,7 @@ def _augment_with_whitelist(symbols: list[str]) -> list[str]:
     """
     current = set(symbols)
     base_present = {
-        s[:-4] if s.endswith("USDT") else (s[:-4] if s.endswith("USDC") else s)
+        (s[:-4] if (s.endswith("USDT") or s.endswith("USDC")) else s)
         for s in symbols
     }
 
@@ -877,18 +877,6 @@ def analyze(symbol: str):
 
         note = note15.split("\n") if note15 else []
 
-        # ✅ Capital scaling: BUY successivi (20% / 20% / 30%)
-        # Se l'asset è già monitorato e ha fatto drawdown,
-        # aggiunge SOLO la nota (non apre nuove simulazioni)
-        try:
-            if segnale == "BUY":
-                nota_scalata = scaler.decorate_buy_note_if_applicable(symbol, close)
-                if nota_scalata:
-                    note.append(nota_scalata)
-        except Exception as e:
-            logging.warning(f"⚠️ decorate_buy_note_if_applicable fallita per {symbol}: {e}")
-
-
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
         if posizione:
@@ -972,6 +960,17 @@ def analyze(symbol: str):
         # – se disponibile, usa il mid live bid/ask
         # – altrimenti fallback al close 15m
         prezzo_output = round(prezzo_live, 4) if "prezzo_live" in locals() and prezzo_live > 0 else close
+
+        # ✅ Capital scaling: BUY successivi (20% / 20% / 30%)
+        # Aggiunge SOLO la nota (non apre nuove simulazioni)
+        try:
+            if segnale == "BUY":
+                ref_price = close if close > 0 else float(prezzo_output or 0.0)
+                nota_scalata = scaler.decorate_buy_note_if_applicable(symbol, ref_price)
+                if nota_scalata:
+                    note.append(nota_scalata)
+        except Exception as e:
+            logging.warning(f"⚠️ decorate_buy_note_if_applicable fallita per {symbol}: {e}")
 
 
         # 5) Logging timeframe e analisi di conferma
@@ -1808,6 +1807,11 @@ def verifica_posizioni_attive():
                     tp        = float(sim["tp"])
                     sl        = float(sim["sl"])
 
+                    # ⛔ posizione ripristinata solo per capital scaling (no TP/SL/trailing)
+                    if entry == 0.0 or tp == 0.0 or sl == 0.0:
+                        continue
+
+
                     # ===== prezzi live =====
                     if asset_class == "yahoo":
                         y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
@@ -1815,8 +1819,12 @@ def verifica_posizioni_attive():
                         with _pos_lock:
                             sim["prezzo_attuale"] = round(prezzo_live, 10)
 
-                        # ✅ aggiorna capital scaler anche su Yahoo
-                        scaler.on_price_tick(symbol, prezzo_live)
+                        # ✅ aggiorna capital scaler anche su Yahoo (safe)
+                        try:
+                            scaler.on_price_tick(symbol, prezzo_live)
+                        except Exception:
+                            pass
+
 
                         distanza_entry = abs(prezzo_live - entry)
                         progresso = abs(prezzo_live - entry) / abs(tp - entry) if tp != entry else 0.0
@@ -1831,8 +1839,7 @@ def verifica_posizioni_attive():
                         if len(df) > CANDLE_LIMIT:
                             df = df.tail(CANDLE_LIMIT)
 
-                        # 🔄 refresh note complete (trend_logic) – versione “come prima”
-                        monitor_note15 = ""
+                        # 🔄 refresh note complete (trend_logic) – versione “come prima” (robusta)
                         try:
                             seg_m, hist_m, dist_m, note15_m, tp_m, sl_m, sup_m = analizza_trend(
                                 df, 0.0, None,
@@ -1840,15 +1847,13 @@ def verifica_posizioni_attive():
                                 asset_class="yahoo"
                             )
 
-                            monitor_note15 = (note15_m or "").strip()
-
                             with _pos_lock:
-                                sim["note_notifica"] = monitor_note15
+                                sim["note_trend"] = (note15_m or "").strip()
 
                         except Exception as e_notes:
                             with _pos_lock:
-                                sim["note_notifica"] = (sim.get("note_notifica", "") or "").strip()
-                            monitor_note15 = (sim.get("note_notifica", "") or "").strip()
+                                sim["note_trend"] = (sim.get("note_trend", "") or "").strip()
+
 
                         last = df.iloc[-1]
                         o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
@@ -1890,8 +1895,7 @@ def verifica_posizioni_attive():
                             sim["motivo"] = f"⚠️ Dati insufficienti ({TIMEFRAME_TREND})"
                             continue
 
-                        # 🔄 refresh note complete (trend_logic) – versione “come prima”
-                        monitor_note15 = ""
+                        # 🔄 refresh note complete (trend_logic) – versione “come prima” (robusta)
                         try:
                             df_1m_for_notes = None
                             try:
@@ -1908,15 +1912,13 @@ def verifica_posizioni_attive():
                                 tick_size=tick_size_notes
                             )
 
-                            monitor_note15 = (note15_m or "").strip()
-
                             with _pos_lock:
-                                sim["note_notifica"] = monitor_note15
+                                sim["note_trend"] = (note15_m or "").strip()
 
                         except Exception as e_notes:
+                            # se fallisce, NON usare note_notifica (che include monitor): tieni l'ultima note_trend pulita
                             with _pos_lock:
-                                sim["note_notifica"] = (sim.get("note_notifica", "") or "").strip()
-                            monitor_note15 = (sim.get("note_notifica", "") or "").strip()
+                                sim["note_trend"] = (sim.get("note_trend", "") or "").strip()
 
                         last = df.iloc[-1]
                         o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
@@ -2054,11 +2056,16 @@ def verifica_posizioni_attive():
                         elif base_msg:
                             sim["motivo"] = base_msg
 
-                        # ✅ coda “monitor” alle note complete (come prima)
-                        base_notes = (sim.get("note_notifica", "") or "").strip()
-                        if sim.get("motivo"):
-                            base_notes = (base_notes + "\n" if base_notes else "") + f"🧭 Monitor: {sim['motivo']}"
-                        sim["note_notifica"] = base_notes
+                    base_trend = (sim.get("note_trend", "") or "").strip()
+                    motivo_now = (sim.get("motivo", "") or "").strip()
+
+                    # ✅ note_notifica = note_trend + UNA SOLA riga monitor
+                    if motivo_now:
+                        sim["note_notifica"] = (base_trend + "\n" if base_trend else "") + f"🧭 Monitor: {motivo_now}"
+                    else:
+                        sim["note_notifica"] = base_trend
+
+
 
 
 
@@ -2131,6 +2138,7 @@ def start_background_tasks():
                             "note_notifica": "",
                             "nota_acquisto": "",
                             "asset_class": "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto",
+                            "scaling_only": True,
                         }
         except Exception as e:
             logging.error(f"❌ Errore ripristino capital scaling: {e}")
