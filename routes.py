@@ -24,7 +24,9 @@ from top_mover_scanner import start_top_mover_scanner
 from capital_scaler import scaler
 
 import json
+import os
 from pathlib import Path
+
 
 try:
     CURRENT_COMMIT = Path(".current_commit").read_text().strip()
@@ -1335,15 +1337,8 @@ def get_price(symbol: str):
             with _pos_lock:
                 pos = posizioni_attive.get(symbol)
 
-                # fallback: se non esiste una pos per quel symbol,
-                # prendi la prima simulazione ancora aperta (anche scaling_only)
-                if not pos:
-                    for _s, _p in posizioni_attive.items():
-                        if isinstance(_p, dict) and not _p.get("chiusa_da_backend", False):
-                            pos = _p
-                            break
-
             pos = pos or {}
+
 
             return {
                 "symbol": symbol,
@@ -1940,7 +1935,11 @@ def verifica_posizioni_attive():
                             sim["prezzo_attuale"] = round(prezzo_live, 10)
 
                         # ✅ aggiorna capital scaler (se scende abilita rebuy_ready)
-                        scaler.on_price_tick(symbol, prezzo_live)
+                        try:
+                            scaler.on_price_tick(symbol, prezzo_live)
+                        except Exception:
+                            pass
+
 
                         distanza_entry = abs(prezzo_live - entry)
                         progresso = abs(prezzo_live - entry) / abs(tp - entry) if tp != entry else 0.0
@@ -2276,6 +2275,86 @@ def _to_app_sim(symbol: str, d: dict) -> dict:
         "scalerState": d.get("scaler_state", d.get("scalerState", {})),
     }
 
+def _ensure_scaling_positions():
+    """
+    Ricrea/forza in memoria le posizioni capital scaling (scaling_only) partendo dallo scaler.
+    """
+    try:
+        restored = scaler.watched_symbols()
+        if not restored:
+            return
+
+        with _pos_lock:
+            for symbol in restored:
+                asset_class = "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto"
+
+                # se già presente, forza scaling_only e basta
+                existing = posizioni_attive.get(symbol)
+                if isinstance(existing, dict):
+                    existing["scaling_only"] = True
+                    continue
+
+                st = None
+                try:
+                    st = scaler.get_state(symbol)
+                except Exception:
+                    st = None
+
+                ref_price = 0.0
+                try:
+                    ref_price = float((st or {}).get("last_ref_price", 0.0) or 0.0)
+                except Exception:
+                    ref_price = 0.0
+
+                live_price = 0.0
+                try:
+                    if asset_class == "yahoo":
+                        y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
+                        live_price = float(get_yahoo_last_price(y_ticker) or 0.0)
+                    else:
+                        book = get_bid_ask(symbol)
+                        b = float(book.get("bid", 0.0))
+                        a = float(book.get("ask", 0.0))
+                        live_price = float(((b + a) / 2.0)) if b > 0 and a > 0 else 0.0
+                except Exception:
+                    live_price = 0.0
+
+                entry_price = ref_price if ref_price > 0 else live_price
+                if entry_price <= 0:
+                    entry_price = 0.00000001  # evita 0 per render UI
+
+                step_num = 0
+                rebuy = False
+                if st:
+                    try:
+                        step_num = int(st.get("step_index", 0))
+                    except Exception:
+                        step_num = 0
+                    try:
+                        rebuy = bool(st.get("rebuy_ready", False))
+                    except Exception:
+                        rebuy = False
+
+                posizioni_attive[symbol] = {
+                    "tipo": "BUY",
+                    "entry": float(entry_price),
+                    "tp": float(entry_price),
+                    "sl": float(entry_price),
+                    "spread": 0.0,
+                    "tick_size": 0.0,
+                    "chiusa_da_backend": False,
+                    "motivo": "♻️ Ripristino monitor capital scaling (30-20-20-30)",
+                    "note_trend": "",
+                    "note_notifica": f"🧭 Monitor: Capital scaling restore Step {step_num}/4 • rebuy_ready={rebuy}",
+                    "nota_acquisto": "",
+                    "asset_class": asset_class,
+                    "scaling_only": True,
+                    "prezzo_attuale": float(entry_price),
+                    "scaler_state": st or {},
+                }
+
+    except Exception as e:
+        logging.error(f"❌ _ensure_scaling_positions fallito: {e}")
 
     
 @router.get("/simulazioni_attive")
@@ -2284,78 +2363,7 @@ def simulazioni_attive():
     Restituisce SOLO le simulazioni ancora aperte (non chiuse da backend).
     Include anche le posizioni "scaling_only" ripristinate dal CapitalScaler.
     """
-    # ✅ lazy-restore: se lo scaler ha simboli monitorati ma non sono in memoria,
-    # li ricreiamo al volo così l'App ricostruisce SEMPRE la tab SIM.
-    try:
-        restored = scaler.watched_symbols()
-        if restored:
-            with _pos_lock:
-                for symbol in restored:
-                    if symbol in posizioni_attive:
-                        continue
-
-                    asset_class = "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto"
-
-                    st = None
-                    try:
-                        st = scaler.get_state(symbol)
-                    except Exception:
-                        st = None
-
-                    ref_price = 0.0
-                    try:
-                        ref_price = float((st or {}).get("last_ref_price", 0.0) or 0.0)
-                    except Exception:
-                        ref_price = 0.0
-
-                    live_price = 0.0
-                    try:
-                        if asset_class == "yahoo":
-                            y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
-                            live_price = float(get_yahoo_last_price(y_ticker) or 0.0)
-                        else:
-                            book = get_bid_ask(symbol)
-                            b = float(book.get("bid", 0.0))
-                            a = float(book.get("ask", 0.0))
-                            live_price = float(((b + a) / 2.0)) if b > 0 and a > 0 else 0.0
-                    except Exception:
-                        live_price = 0.0
-
-                    entry_price = ref_price if ref_price > 0 else live_price
-                    if entry_price <= 0:
-                        entry_price = 0.00000001  # evita 0 per render UI
-
-                    step_num = 0
-                    rebuy = False
-                    if st:
-                        try:
-                            step_num = int(st.get("step_index", 0))
-                        except Exception:
-                            step_num = 0
-                        try:
-                            rebuy = bool(st.get("rebuy_ready", False))
-                        except Exception:
-                            rebuy = False
-
-                    posizioni_attive[symbol] = {
-                        "tipo": "BUY",
-                        "entry": float(entry_price),
-                        "tp": float(entry_price),
-                        "sl": float(entry_price),
-                        "spread": 0.0,
-                        "tick_size": 0.0,
-                        "chiusa_da_backend": False,
-                        "motivo": "♻️ Ripristino monitor capital scaling (30-20-20-30)",
-                        "note_trend": "",
-                        "note_notifica": f"🧭 Monitor: Capital scaling restore Step {step_num}/4 • rebuy_ready={rebuy}",
-                        "nota_acquisto": "",
-                        "asset_class": asset_class,
-                        "scaling_only": True,
-                        "prezzo_attuale": float(entry_price),
-                        "scaler_state": st or {},
-                    }
-    except Exception as e:
-        logging.error(f"❌ Lazy-restore /simulazioni_attive fallito: {e}")
+    _ensure_scaling_positions()
 
     with _pos_lock:
         return {
@@ -2365,86 +2373,14 @@ def simulazioni_attive():
             and not data.get("chiusa_da_backend", False)
         }
 
-
-
         
 @router.get("/simulazioni_attive_app")
 def simulazioni_attive_app():
     """
     Endpoint per APP:
-    restituisce simulazioni attive, incluse scaling_only (purché renderizzabili).
+    restituisce SOLO scaling_only (capital scaling), anche se tp/sl non validi.
     """
-    # ✅ lazy-restore anche qui (nel caso l'App chiami questo endpoint)
-    try:
-        restored = scaler.watched_symbols()
-        if restored:
-            with _pos_lock:
-                for symbol in restored:
-                    if symbol in posizioni_attive:
-                        continue
-
-                    asset_class = "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto"
-
-                    st = None
-                    try:
-                        st = scaler.get_state(symbol)
-                    except Exception:
-                        st = None
-
-                    ref_price = 0.0
-                    try:
-                        ref_price = float((st or {}).get("last_ref_price", 0.0) or 0.0)
-                    except Exception:
-                        ref_price = 0.0
-
-                    live_price = 0.0
-                    try:
-                        if asset_class == "yahoo":
-                            y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
-                            live_price = float(get_yahoo_last_price(y_ticker) or 0.0)
-                        else:
-                            book = get_bid_ask(symbol)
-                            b = float(book.get("bid", 0.0))
-                            a = float(book.get("ask", 0.0))
-                            live_price = float(((b + a) / 2.0)) if b > 0 and a > 0 else 0.0
-                    except Exception:
-                        live_price = 0.0
-
-                    entry_price = ref_price if ref_price > 0 else live_price
-                    if entry_price <= 0:
-                        entry_price = 0.00000001
-
-                    step_num = 0
-                    rebuy = False
-                    if st:
-                        try:
-                            step_num = int(st.get("step_index", 0))
-                        except Exception:
-                            step_num = 0
-                        try:
-                            rebuy = bool(st.get("rebuy_ready", False))
-                        except Exception:
-                            rebuy = False
-
-                    posizioni_attive[symbol] = {
-                        "tipo": "BUY",
-                        "entry": float(entry_price),
-                        "tp": float(entry_price),
-                        "sl": float(entry_price),
-                        "spread": 0.0,
-                        "tick_size": 0.0,
-                        "chiusa_da_backend": False,
-                        "motivo": "♻️ Ripristino monitor capital scaling (30-20-20-30)",
-                        "note_trend": "",
-                        "note_notifica": f"🧭 Monitor: Capital scaling restore Step {step_num}/4 • rebuy_ready={rebuy}",
-                        "nota_acquisto": "",
-                        "asset_class": asset_class,
-                        "scaling_only": True,
-                        "prezzo_attuale": float(entry_price),
-                        "scaler_state": st or {},
-                    }
-    except Exception as e:
-        logging.error(f"❌ Lazy-restore /simulazioni_attive_app fallito: {e}")
+    _ensure_scaling_positions()
 
     out = []
     with _pos_lock:
@@ -2455,12 +2391,20 @@ def simulazioni_attive_app():
             if data.get("chiusa_da_backend", False):
                 continue
 
-            entry = float(data.get("entry", 0.0) or 0.0)
-            tp    = float(data.get("tp", 0.0) or 0.0)
-            sl    = float(data.get("sl", 0.0) or 0.0)
-
-            if entry <= 0 or tp <= 0 or sl <= 0:
+            if not data.get("scaling_only", False):
                 continue
+
+            entry = float(data.get("entry", 0.0) or 0.0)
+            if entry <= 0:
+                continue
+
+            tp = float(data.get("tp", 0.0) or 0.0)
+            sl = float(data.get("sl", 0.0) or 0.0)
+
+            if tp <= 0:
+                data["tp"] = entry
+            if sl <= 0:
+                data["sl"] = entry
 
             out.append(_to_app_sim(symbol, data))
 
