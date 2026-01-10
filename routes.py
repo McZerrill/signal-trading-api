@@ -24,9 +24,7 @@ from top_mover_scanner import start_top_mover_scanner
 from capital_scaler import scaler
 
 import json
-import os
 from pathlib import Path
-
 
 try:
     CURRENT_COMMIT = Path(".current_commit").read_text().strip()
@@ -269,7 +267,7 @@ def _asset_display_name(symbol: str) -> str:
 
 
 
-def _augment_with_whitelist(symbols: List[str]) -> List[str]:
+def _augment_with_whitelist(symbols: list[str]) -> list[str]:
     """
     Garantisce che ogni asset base in HOT_WHITELIST_BASE
     sia presente come simbolo completo (es. BTCUSDT/BTCUSDC).
@@ -277,7 +275,7 @@ def _augment_with_whitelist(symbols: List[str]) -> List[str]:
     """
     current = set(symbols)
     base_present = {
-        (s[:-4] if (s.endswith("USDT") or s.endswith("USDC")) else s)
+        s[:-4] if s.endswith("USDT") else (s[:-4] if s.endswith("USDC") else s)
         for s in symbols
     }
 
@@ -496,12 +494,6 @@ def analyze(symbol: str):
 
                 commento = "\n".join(note)
 
-                if segnale == "BUY" and "BUY confermato" not in commento:
-                    commento = "BUY confermato\n" + (commento or "")
-                elif segnale == "SELL" and "SELL confermato" not in commento:
-                    commento = "SELL confermato\n" + (commento or "")
-
-
                 # --- estrai ultimi indicatori ---
                 close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
                 try:
@@ -532,40 +524,6 @@ def analyze(symbol: str):
                     posizione_y = posizioni_attive.get(symbol)
 
                 if posizione_y:
-                    # ✅ scaling_only: l'APP deve vedere BUY confermato per creare la card SIM
-                    if posizione_y.get("scaling_only", False):
-                        commento_scaling = (posizione_y.get("note_notifica") or posizione_y.get("motivo") or "").strip()
-                        if "BUY confermato" not in commento_scaling:
-                            commento_scaling = "BUY confermato\n" + (commento_scaling or "♻️ Capital scaling attivo")
-
-                        tp_out = float(posizione_y.get("tp", 0.0) or 0.0)
-                        sl_out = float(posizione_y.get("sl", 0.0) or 0.0)
-                        entry_out = float(posizione_y.get("entry", 0.0) or 0.0)
-                        if tp_out <= 0:
-                            tp_out = entry_out
-                        if sl_out <= 0:
-                            sl_out = entry_out
-
-                        return SignalResponse(
-                            symbol=symbol,
-                            segnale="BUY",
-                            commento=commento_scaling,
-                            prezzo=entry_out,
-                            take_profit=tp_out,
-                            stop_loss=sl_out,
-                            rsi=rsi,
-                            macd=macd,
-                            macd_signal=macd_signal,
-                            atr=atr,
-                            ema7=ema7,
-                            ema25=ema25,
-                            ema99=ema99,
-                            timeframe="15m",
-                            spread=0.0,
-                            motivo=posizione_y.get("motivo", ""),
-                            chiusa_da_backend=posizione_y.get("chiusa_da_backend", False)
-                        )
-
                     return SignalResponse(
                         symbol=symbol,
                         segnale="HOLD",
@@ -588,7 +546,6 @@ def analyze(symbol: str):
                         motivo=posizione_y.get("motivo", ""),
                         chiusa_da_backend=posizione_y.get("chiusa_da_backend", False)
                     )
-
 
                 # 4) Apertura simulazione anche per Yahoo (stesso comportamento Binance)
                 nota_acquisto = None
@@ -621,6 +578,7 @@ def analyze(symbol: str):
                             "note_notifica": commento,
                             "nota_acquisto": nota_acquisto or "",
                             "asset_class": "yahoo",
+                            "timestamp": int(time.time() * 1000),
                         }
 
                 logging.info(f"📊 Yahoo analyze {symbol} – segnale={segnale}, prezzo={prezzo_output}")
@@ -920,6 +878,18 @@ def analyze(symbol: str):
 
         note = note15.split("\n") if note15 else []
 
+        # ✅ Capital scaling: BUY successivi (20% / 20% / 30%)
+        # Se l'asset è già monitorato e ha fatto drawdown,
+        # aggiunge SOLO la nota (non apre nuove simulazioni)
+        try:
+            if segnale == "BUY":
+                nota_scalata = scaler.decorate_buy_note_if_applicable(symbol, close)
+                if nota_scalata:
+                    note.append(nota_scalata)
+        except Exception as e:
+            logging.warning(f"⚠️ decorate_buy_note_if_applicable fallita per {symbol}: {e}")
+
+
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
         if posizione:
@@ -927,35 +897,6 @@ def analyze(symbol: str):
                 f"⏳ Simulazione già attiva su {symbol} – tipo: "
                 f"{posizione['tipo']} @ {posizione['entry']}$"
             )
-
-            # ✅ scaling_only: l'APP deve vedere BUY confermato per creare la card SIM
-            if posizione.get("scaling_only", False):
-                commento_scaling = (posizione.get("note_notifica") or posizione.get("motivo") or "").strip()
-                if "BUY confermato" not in commento_scaling:
-                    commento_scaling = "BUY confermato\n" + (commento_scaling or "♻️ Capital scaling attivo")
-
-                tp_out = float(posizione.get("tp", 0.0) or 0.0)
-                sl_out = float(posizione.get("sl", 0.0) or 0.0)
-                entry_out = float(posizione.get("entry", 0.0) or 0.0)
-                if tp_out <= 0:
-                    tp_out = entry_out
-                if sl_out <= 0:
-                    sl_out = entry_out
-
-                return SignalResponse(
-                    symbol=symbol,
-                    segnale="BUY",
-                    commento=commento_scaling,
-                    prezzo=entry_out,
-                    take_profit=tp_out,
-                    stop_loss=sl_out,
-                    rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
-                    ema7=0.0, ema25=0.0, ema99=0.0,
-                    timeframe="15m",
-                    spread=posizione.get("spread", 0.0),
-                    motivo=posizione.get("motivo", ""),
-                    chiusa_da_backend=posizione.get("chiusa_da_backend", False)
-                )
 
             # se l’analisi ha “annullato” il segnale → marca la simulazione e restituisci HOLD annotato
             if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
@@ -1032,17 +973,6 @@ def analyze(symbol: str):
         # – se disponibile, usa il mid live bid/ask
         # – altrimenti fallback al close 15m
         prezzo_output = round(prezzo_live, 4) if "prezzo_live" in locals() and prezzo_live > 0 else close
-
-        # ✅ Capital scaling: BUY successivi (20% / 20% / 30%)
-        # Aggiunge SOLO la nota (non apre nuove simulazioni)
-        try:
-            if segnale == "BUY":
-                ref_price = close if close > 0 else float(prezzo_output or 0.0)
-                nota_scalata = scaler.decorate_buy_note_if_applicable(symbol, ref_price)
-                if nota_scalata:
-                    note.append(nota_scalata)
-        except Exception as e:
-            logging.warning(f"⚠️ decorate_buy_note_if_applicable fallita per {symbol}: {e}")
 
 
         # 5) Logging timeframe e analisi di conferma
@@ -1186,12 +1116,6 @@ def analyze(symbol: str):
         # testo completo della notifica (per app + per log simulazioni)
         commento = "\n".join(note) if note else "Nessuna nota"
 
-        if segnale == "BUY" and "BUY confermato" not in commento:
-            commento = "BUY confermato\n" + (commento or "")
-        elif segnale == "SELL" and "SELL confermato" not in commento:
-            commento = "SELL confermato\n" + (commento or "")
-
-
 
         # apertura simulazione SOLO se c'è un vero segnale
         if segnale in ["BUY", "SELL"]:
@@ -1221,8 +1145,8 @@ def analyze(symbol: str):
                     "chiusa_da_backend": False,
                     "motivo": " | ".join(note),
                     "note_notifica": commento,
-                    # opzionale ma utile per app
                     "nota_acquisto": nota_acquisto or "",
+                    "timestamp": int(time.time() * 1000),
                 }
 
         return SignalResponse(
@@ -1397,24 +1321,21 @@ def _ensure_scanner():
 def get_price(symbol: str):
 
     start = time.time()
-    symbol = (symbol or "").upper()
+    symbol = symbol.upper()
 
     try:
         # ------------------------------------------------------------
-        #  YAHOO (simboli "logici": AAPL, SP500, XAUUSD, ecc.)
+        #  Se è un simbolo Yahoo (logico) -> prezzo da Yahoo + stato sim
         # ------------------------------------------------------------
         if symbol in YAHOO_SYMBOL_MAP:
             y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
 
             prezzo = float(get_yahoo_last_price(y_ticker) or 0.0)
+            spread = 0.0
+
             elapsed = round(time.time() - start, 3)
-
-            # recupera eventuale stato simulazione (se presente)
             with _pos_lock:
-                pos = posizioni_attive.get(symbol)
-
-            pos = pos or {}
-
+                pos = posizioni_attive.get(symbol, {})       # <-- lookup una sola volta
 
             return {
                 "symbol": symbol,
@@ -1422,10 +1343,9 @@ def get_price(symbol: str):
                 "spread": 0.0,
                 "tempo": elapsed,
                 "motivo": pos.get("motivo", ""),
-                "note_notifica": pos.get("note_notifica", ""),
                 "takeProfit": pos.get("tp", 0.0),
-                "stopLoss": pos.get("sl", 0.0),
-                "chiusaDaBackend": pos.get("chiusa_da_backend", False),
+                "stopLoss":  pos.get("sl", 0.0),
+                "chiusaDaBackend": pos.get("chiusa_da_backend", False)
             }
 
         # ------------------------------------------------------------
@@ -1440,12 +1360,12 @@ def get_price(symbol: str):
         if bid <= 0 or ask <= 0:
             raise ValueError(f"Prezzo non valido: bid={bid}, ask={ask}")
 
-        spread = (ask - bid) / ((ask + bid) / 2) * 100.0
+        spread = (ask - bid) / ((ask + bid) / 2) * 100
         prezzo = round((bid + ask) / 2, 4)
 
         elapsed = round(time.time() - start, 3)
         with _pos_lock:
-            pos = posizioni_attive.get(symbol) or {}
+            pos = posizioni_attive.get(symbol, {})       # <-- lookup una sola volta
 
         return {
             "symbol": symbol,
@@ -1453,14 +1373,13 @@ def get_price(symbol: str):
             "spread": round(spread, 4),
             "tempo": elapsed,
             "motivo": pos.get("motivo", ""),
-            "note_notifica": pos.get("note_notifica", ""),
             "takeProfit": pos.get("tp", 0.0),
-            "stopLoss": pos.get("sl", 0.0),
-            "chiusaDaBackend": pos.get("chiusa_da_backend", False),
+            "stopLoss":  pos.get("sl", 0.0),
+            "chiusaDaBackend": pos.get("chiusa_da_backend", False)
         }
 
     except Exception as e:
-        logging.error(f"❌ Errore durante /price per {symbol}: {e}")
+        logging.error(f"❌ Errore durante l'analisi di {symbol.upper()}: {e}")
 
         elapsed = round(time.time() - start, 3)
         return {
@@ -1468,8 +1387,9 @@ def get_price(symbol: str):
             "prezzo": 0.0,
             "spread": 0.0,
             "errore": str(e),
-            "tempo": elapsed,
+            "tempo": elapsed
         }
+
 
 # Cache hotassets
 _hot_cache = {"time": 0, "data": []}
@@ -1477,7 +1397,6 @@ _hot_cache = {"time": 0, "data": []}
 MODALITA_TEST = True
 
 @router.get("/hotassets", response_model=List[HotAsset])
-
 def hot_assets():
     now = time.time()
     if (now - _hot_cache["time"]) < 180:
@@ -1839,56 +1758,11 @@ def hot_assets():
             continue
 
 
-    # ✅ forza presenza asset in capital scaling (scaling_only) in /hotassets
-    try:
-        watched = scaler.watched_symbols() or []
-        present = set()
-        for r in risultati:
-            try:
-                present.add(str(r.get("symbol", "")).upper())
-            except Exception:
-                pass
 
-        for s in watched:
-            sym = (s or "").upper()
-            if not sym or sym in present:
-                continue
-
-            prezzo_live = 0.0
-            try:
-                if sym in YAHOO_SYMBOL_MAP:
-                    y_ticker = YAHOO_SYMBOL_MAP.get(sym, sym)
-                    prezzo_live = float(get_yahoo_last_price(y_ticker) or 0.0)
-                else:
-                    book = get_bid_ask(sym)
-                    b = float(book.get("bid", 0.0))
-                    a = float(book.get("ask", 0.0))
-                    prezzo_live = float(((b + a) / 2.0)) if b > 0 and a > 0 else 0.0
-            except Exception:
-                prezzo_live = 0.0
-
-            if prezzo_live <= 0:
-                prezzo_live = 0.00000001
-
-            risultati.append({
-                "symbol": sym,
-                "segnali": 1,
-                "trend": "BUY",
-                "rsi": None,
-                "ema7": 0.0, "ema25": 0.0, "ema99": 0.0,
-                "prezzo": round(float(prezzo_live), 6),
-                "candele_trend": 0,
-                "note": f"♻️ Capital scaling • 🛈 {_asset_display_name(sym)}"
-            })
-    except Exception:
-        pass
 
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
     return risultati
-
-
-
 
 
 
@@ -1931,59 +1805,6 @@ def verifica_posizioni_attive():
                     tp        = float(sim["tp"])
                     sl        = float(sim["sl"])
 
-                    # ✅ capital scaling (scaling_only): aggiorna prezzo + stato scaler, ma NON gestire TP/SL/trailing
-                    if sim.get("scaling_only", False):
-                        # ===== prezzi live =====
-                        if asset_class == "yahoo":
-                            y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
-                            prezzo_live = float(get_yahoo_last_price(y_ticker) or 0.0)
-                        else:
-                            book = get_bid_ask(symbol)
-                            b = float(book.get("bid", 0.0))
-                            a = float(book.get("ask", 0.0))
-                            prezzo_live = float(((b + a) / 2.0)) if b > 0 and a > 0 else 0.0
-
-                        with _pos_lock:
-                            sim["prezzo_attuale"] = round(prezzo_live, 10)
-
-                        try:
-                            scaler.on_price_tick(symbol, prezzo_live)
-                        except Exception:
-                            pass
-
-                        st = None
-                        try:
-                            st = scaler.get_state(symbol)
-                        except Exception:
-                            st = None
-
-                        with _pos_lock:
-                            if st:
-                                sim["scaler_state"] = st
-                                step_num = int(st.get("step_index", 0))
-                                rebuy = bool(st.get("rebuy_ready", False))
-                                refp = float(st.get("last_ref_price", 0.0) or 0.0)
-
-                                sim["motivo"] = f"♻️ Capital scaling Step {step_num}/4 — rebuy_ready={rebuy}"
-                                sim["note_notifica"] = (
-                                    (sim.get("note_trend", "") + "\n" if sim.get("note_trend") else "") +
-                                    f"🧭 Monitor: Capital scaling Step {step_num}/4 • ref={refp:.6f} • rebuy_ready={rebuy}"
-                                )
-                            else:
-                                sim["motivo"] = "♻️ Capital scaling — stato non disponibile"
-                                sim["note_notifica"] = (
-                                    (sim.get("note_trend", "") + "\n" if sim.get("note_trend") else "") +
-                                    "🧭 Monitor: Capital scaling (stato non disponibile)"
-                                )
-
-                        continue
-
-                    # ⛔ simulazione reale: se livelli non validi, salta
-                    if entry == 0.0 or tp == 0.0 or sl == 0.0:
-                        continue
-
-
-
                     # ===== prezzi live =====
                     if asset_class == "yahoo":
                         y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
@@ -1991,12 +1812,8 @@ def verifica_posizioni_attive():
                         with _pos_lock:
                             sim["prezzo_attuale"] = round(prezzo_live, 10)
 
-                        # ✅ aggiorna capital scaler anche su Yahoo (safe)
-                        try:
-                            scaler.on_price_tick(symbol, prezzo_live)
-                        except Exception:
-                            pass
-
+                        # ✅ aggiorna capital scaler anche su Yahoo
+                        scaler.on_price_tick(symbol, prezzo_live)
 
                         distanza_entry = abs(prezzo_live - entry)
                         progresso = abs(prezzo_live - entry) / abs(tp - entry) if tp != entry else 0.0
@@ -2010,22 +1827,6 @@ def verifica_posizioni_attive():
                         # allinea a CANDLE_LIMIT
                         if len(df) > CANDLE_LIMIT:
                             df = df.tail(CANDLE_LIMIT)
-
-                        # 🔄 refresh note complete (trend_logic) – versione “come prima” (robusta)
-                        try:
-                            seg_m, hist_m, dist_m, note15_m, tp_m, sl_m, sup_m = analizza_trend(
-                                df, 0.0, None,
-                                asset_name=f"{_asset_display_name(symbol)} ({symbol})",
-                                asset_class="yahoo"
-                            )
-
-                            with _pos_lock:
-                                sim["note_trend"] = (note15_m or "").strip()
-
-                        except Exception as e_notes:
-                            with _pos_lock:
-                                sim["note_trend"] = (sim.get("note_trend", "") or "").strip()
-
 
                         last = df.iloc[-1]
                         o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
@@ -2056,11 +1857,7 @@ def verifica_posizioni_attive():
                             sim["prezzo_attuale"] = round(prezzo_live, 10)
 
                         # ✅ aggiorna capital scaler (se scende abilita rebuy_ready)
-                        try:
-                            scaler.on_price_tick(symbol, prezzo_live)
-                        except Exception:
-                            pass
-
+                        scaler.on_price_tick(symbol, prezzo_live)
 
                         distanza_entry = abs(prezzo_live - entry)
                         progresso = abs(prezzo_live - entry) / abs(tp - entry) if tp != entry else 0.0
@@ -2070,31 +1867,6 @@ def verifica_posizioni_attive():
                         if df.empty:
                             sim["motivo"] = f"⚠️ Dati insufficienti ({TIMEFRAME_TREND})"
                             continue
-
-                        # 🔄 refresh note complete (trend_logic) – versione “come prima” (robusta)
-                        try:
-                            df_1m_for_notes = None
-                            try:
-                                df_1m_for_notes = get_binance_df(symbol, "1m", limit=120)
-                            except Exception:
-                                df_1m_for_notes = None
-
-                            tick_size_notes = float(sim.get("tick_size", 0.0) or 0.0)
-
-                            seg_m, hist_m, dist_m, note15_m, tp_m, sl_m, sup_m = analizza_trend(
-                                df, float(book.get("spread", 0.0)), df_1m_for_notes,
-                                asset_name=f"{_asset_display_name(symbol)} ({symbol})",
-                                asset_class="crypto",
-                                tick_size=tick_size_notes
-                            )
-
-                            with _pos_lock:
-                                sim["note_trend"] = (note15_m or "").strip()
-
-                        except Exception as e_notes:
-                            # se fallisce, NON usare note_notifica (che include monitor): tieni l'ultima note_trend pulita
-                            with _pos_lock:
-                                sim["note_trend"] = (sim.get("note_trend", "") or "").strip()
 
                         last = df.iloc[-1]
                         o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
@@ -2232,18 +2004,6 @@ def verifica_posizioni_attive():
                         elif base_msg:
                             sim["motivo"] = base_msg
 
-                    base_trend = (sim.get("note_trend", "") or "").strip()
-                    motivo_now = (sim.get("motivo", "") or "").strip()
-
-                    # ✅ note_notifica = note_trend + UNA SOLA riga monitor
-                    if motivo_now:
-                        sim["note_notifica"] = (base_trend + "\n" if base_trend else "") + f"🧭 Monitor: {motivo_now}"
-                    else:
-                        sim["note_notifica"] = base_trend
-
-
-
-
 
                     logging.info(
                         f"[15m] {symbol} {tipo} Entry={entry:.6f} Price={c:.6f} "
@@ -2302,292 +2062,87 @@ def start_background_tasks():
             with _pos_lock:
                 for symbol in restored:
                     if symbol not in posizioni_attive:
-                        asset_class = "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto"
-
-                        st = None
-                        try:
-                            st = scaler.get_state(symbol)
-                        except Exception:
-                            st = None
-
-                        ref_price = 0.0
-                        try:
-                            ref_price = float((st or {}).get("last_ref_price", 0.0) or 0.0)
-                        except Exception:
-                            ref_price = 0.0
-
-                        live_price = 0.0
-                        try:
-                            if asset_class == "yahoo":
-                                y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
-                                live_price = float(get_yahoo_last_price(y_ticker) or 0.0)
-                            else:
-                                book = get_bid_ask(symbol)
-                                b = float(book.get("bid", 0.0))
-                                a = float(book.get("ask", 0.0))
-                                live_price = float(((b + a) / 2.0)) if b > 0 and a > 0 else 0.0
-                        except Exception:
-                            live_price = 0.0
-
-                        entry_price = ref_price if ref_price > 0 else live_price
-                        if entry_price <= 0:
-                            entry_price = 0.00000001  # ultima spiaggia: evita 0 per render UI
-
-                        step_num = 0
-                        rebuy = False
-                        if st:
-                            try:
-                                step_num = int(st.get("step_index", 0))
-                            except Exception:
-                                step_num = 0
-                            try:
-                                rebuy = bool(st.get("rebuy_ready", False))
-                            except Exception:
-                                rebuy = False
-
                         posizioni_attive[symbol] = {
                             "tipo": "BUY",
-                            "entry": float(entry_price),
-                            "tp": float(entry_price),
-                            "sl": float(entry_price),
+                            "entry": 0.0,
+                            "tp": 0.0,
+                            "sl": 0.0,
                             "spread": 0.0,
                             "tick_size": 0.0,
                             "chiusa_da_backend": False,
                             "motivo": "♻️ Ripristino monitor capital scaling (30-20-20-30)",
-                            "note_trend": "",
-                            "note_notifica": f"🧭 Monitor: Capital scaling restore Step {step_num}/4 • rebuy_ready={rebuy}",
+                            "note_notifica": "",
                             "nota_acquisto": "",
-                            "asset_class": asset_class,
-                            "scaling_only": True,
-                            "prezzo_attuale": float(entry_price),
-                            "scaler_state": st or {},
+                            "asset_class": "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto",
+                            "timestamp": int(time.time() * 1000),
                         }
-
         except Exception as e:
             logging.error(f"❌ Errore ripristino capital scaling: {e}")
 
         _BG_STARTED = True
 
 
-def _to_app_sim(symbol: str, d: dict) -> dict:
-    # usa i valori esistenti ma con chiavi camelCase
-    return {
-        "symbol": symbol,
-        "tipo": d.get("tipo"),
-        "entry": d.get("entry", 0.0),
-        "tp": d.get("tp", 0.0),
-        "sl": d.get("sl", 0.0),
-        "spread": d.get("spread", 0.0),
-
-        "tickSize": d.get("tick_size", d.get("tickSize", 0.0)),
-        "stepSize": d.get("step_size", d.get("stepSize", 0.0)),
-
-        "chiusaDaBackend": d.get("chiusa_da_backend", d.get("chiusaDaBackend", False)),
-        "motivo": d.get("motivo", ""),
-
-        "noteTrend": d.get("note_trend", d.get("noteTrend", "")),
-        "noteNotifica": d.get("note_notifica", d.get("noteNotifica", "")),
-        "notaAcquisto": d.get("nota_acquisto", d.get("notaAcquisto", "")),
-
-        "assetClass": d.get("asset_class", d.get("assetClass", "")),
-        "scalingOnly": d.get("scaling_only", d.get("scalingOnly", False)),
-        "prezzoAttuale": d.get("prezzo_attuale", d.get("prezzoAttuale", d.get("entry", 0.0))),
-
-        "scalerState": d.get("scaler_state", d.get("scalerState", {})),
-    }
-
-def _ensure_scaling_positions():
+@router.get("/simulazioni_attive_app")
+def simulazioni_attive_app():
     """
-    Ricrea/forza in memoria le posizioni capital scaling (scaling_only) partendo dallo scaler.
+    Versione compatibile con l'app Android:
+    ritorna una LISTA di oggetti con chiavi camelCase
+    (SimulazioneOperazione Kotlin).
     """
-    try:
-        restored = scaler.watched_symbols()
-        if not restored:
-            return
+    out = []
+    now_ms = int(time.time() * 1000)
 
-        with _pos_lock:
-            for symbol in restored:
-                asset_class = "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto"
+    with _pos_lock:
+        items = [
+            (symbol, sim) for symbol, sim in posizioni_attive.items()
+            if not sim.get("chiusa_da_backend", False)
+        ]
 
-                # se già presente, forza scaling_only e basta
-                existing = posizioni_attive.get(symbol)
-                if isinstance(existing, dict):
-                    existing["scaling_only"] = True
-                    continue
+    for symbol, sim in items:
+        entry = float(sim.get("entry", 0.0) or 0.0)
+        tp    = float(sim.get("tp", 0.0) or 0.0)
+        sl    = float(sim.get("sl", 0.0) or 0.0)
 
-                st = None
-                try:
-                    st = scaler.get_state(symbol)
-                except Exception:
-                    st = None
+        prezzo_corrente = sim.get("prezzo_attuale", None)
+        try:
+            prezzo_corrente = float(prezzo_corrente) if prezzo_corrente is not None else 0.0
+        except Exception:
+            prezzo_corrente = 0.0
 
-                ref_price = 0.0
-                try:
-                    ref_price = float((st or {}).get("last_ref_price", 0.0) or 0.0)
-                except Exception:
-                    ref_price = 0.0
+        out.append({
+            "simbolo": symbol,
+            "tipo": sim.get("tipo", "BUY"),
+            "prezzoIngresso": entry,
+            "takeProfit": tp,
+            "stopLoss": sl,
+            "prezzoCorrente": prezzo_corrente,
+            "prezzoFinale": float(sim.get("prezzo_chiusura", 0.0) or 0.0),
+            "esito": sim.get("esito", "In corso"),
+            "spread": float(sim.get("spread", 0.0) or 0.0),
+            "motivo": sim.get("motivo", "") or "",
+            "chiusaDaBackend": bool(sim.get("chiusa_da_backend", False)),
+            "timestamp": int(sim.get("timestamp", now_ms) or now_ms),
+        })
 
-                live_price = 0.0
-                try:
-                    if asset_class == "yahoo":
-                        y_ticker = YAHOO_SYMBOL_MAP.get(symbol, symbol)
-                        live_price = float(get_yahoo_last_price(y_ticker) or 0.0)
-                    else:
-                        book = get_bid_ask(symbol)
-                        b = float(book.get("bid", 0.0))
-                        a = float(book.get("ask", 0.0))
-                        live_price = float(((b + a) / 2.0)) if b > 0 and a > 0 else 0.0
-                except Exception:
-                    live_price = 0.0
+    # opzionale: più recenti sopra
+    out.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+    return out
 
-                entry_price = ref_price if ref_price > 0 else live_price
-                if entry_price <= 0:
-                    entry_price = 0.00000001  # evita 0 per render UI
-
-                step_num = 0
-                rebuy = False
-                if st:
-                    try:
-                        step_num = int(st.get("step_index", 0))
-                    except Exception:
-                        step_num = 0
-                    try:
-                        rebuy = bool(st.get("rebuy_ready", False))
-                    except Exception:
-                        rebuy = False
-
-                posizioni_attive[symbol] = {
-                    "tipo": "BUY",
-                    "entry": float(entry_price),
-                    "tp": float(entry_price),
-                    "sl": float(entry_price),
-                    "spread": 0.0,
-                    "tick_size": 0.0,
-                    "chiusa_da_backend": False,
-                    "motivo": "♻️ Ripristino monitor capital scaling (30-20-20-30)",
-                    "note_trend": "",
-                    "note_notifica": f"🧭 Monitor: Capital scaling restore Step {step_num}/4 • rebuy_ready={rebuy}",
-                    "nota_acquisto": "",
-                    "asset_class": asset_class,
-                    "scaling_only": True,
-                    "prezzo_attuale": float(entry_price),
-                    "scaler_state": st or {},
-                }
-
-    except Exception as e:
-        logging.error(f"❌ _ensure_scaling_positions fallito: {e}")
 
     
 @router.get("/simulazioni_attive")
 def simulazioni_attive():
     """
     Restituisce SOLO le simulazioni ancora aperte (non chiuse da backend).
-    Include anche le posizioni "scaling_only" ripristinate dal CapitalScaler.
+    Quelle chiuse restano in memoria max CLEANUP_AGE_HOURS e
+    vengono poi eliminate da cleanup_posizioni_attive().
     """
-    _ensure_scaling_positions()
-
     with _pos_lock:
         return {
             symbol: data
             for symbol, data in posizioni_attive.items()
-            if isinstance(data, dict)
-            and not data.get("chiusa_da_backend", False)
+            if not data.get("chiusa_da_backend", False)
         }
-
-        
-@router.get("/simulazioni_attive_app")
-def simulazioni_attive_app():
-    """
-    Endpoint PER APP (SIM tab):
-    restituisce una LISTA compatibile con SimulazioneOperazione (Kotlin).
-    Include:
-    - simulazioni reali (tp/sl validi)
-    - scaling_only (tp/sl = entry), con esito "In corso"
-    """
-    _ensure_scaling_positions()
-
-    out = []
-    now_ms = int(time.time() * 1000)
-
-    with _pos_lock:
-        for symbol, sim in posizioni_attive.items():
-            if not isinstance(sim, dict):
-                continue
-
-            if sim.get("chiusa_da_backend", False):
-                continue
-
-            tipo = (sim.get("tipo") or "BUY").upper()
-
-            entry = float(sim.get("entry", 0.0) or 0.0)
-            if entry <= 0:
-                continue
-
-            tp = float(sim.get("tp", 0.0) or 0.0)
-            sl = float(sim.get("sl", 0.0) or 0.0)
-
-            # scaling_only: forza livelli = entry (così UI non rompe)
-            if sim.get("scaling_only", False):
-                if tp <= 0:
-                    tp = entry
-                if sl <= 0:
-                    sl = entry
-
-            prezzo_corrente = float(sim.get("prezzo_attuale", entry) or entry)
-
-            # per SIM in corso: prezzoFinale = 0
-            prezzo_finale = float(sim.get("prezzo_chiusura", 0.0) or 0.0)
-
-            # esito: se non esiste, in corso
-            esito = sim.get("esito") or "In corso"
-
-            spread = float(sim.get("spread", 0.0) or 0.0)
-            motivo = sim.get("motivo", "") or ""
-
-            # timestamp: se non c'è, metti adesso (ms)
-            ts = sim.get("timestamp")
-            try:
-                timestamp_ms = int(ts) if ts else now_ms
-            except Exception:
-                timestamp_ms = now_ms
-
-            out.append({
-                "simbolo": symbol,
-                "tipo": tipo,
-                "prezzoIngresso": entry,
-                "takeProfit": tp,
-                "stopLoss": sl,
-                "prezzoCorrente": prezzo_corrente,
-                "prezzoFinale": prezzo_finale,
-                "esito": esito,
-                "spread": spread,
-                "motivo": motivo,
-                "chiusaDaBackend": bool(sim.get("chiusa_da_backend", False)),
-                "timestamp": timestamp_ms,
-            })
-
-    return out
-
-
-
-@router.get("/simulazioni_attive_list")
-def simulazioni_attive_list():
-    """
-    Restituisce una LISTA (più facile da parsare in app) delle simulazioni aperte.
-    Ogni elemento include anche il symbol.
-    """
-    # riusa la logica attuale (così ti becchi anche lazy-restore)
-    data = simulazioni_attive()
-
-    out = []
-    for symbol, sim in (data or {}).items():
-        if isinstance(sim, dict):
-            item = dict(sim)
-            item["symbol"] = symbol
-            out.append(item)
-
-    return out
-
 
 
 __all__ = ["router", "start_background_tasks"]
