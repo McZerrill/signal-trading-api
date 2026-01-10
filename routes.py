@@ -496,6 +496,12 @@ def analyze(symbol: str):
 
                 commento = "\n".join(note)
 
+                if segnale == "BUY" and "BUY confermato" not in commento:
+                    commento = "BUY confermato\n" + (commento or "")
+                elif segnale == "SELL" and "SELL confermato" not in commento:
+                    commento = "SELL confermato\n" + (commento or "")
+
+
                 # --- estrai ultimi indicatori ---
                 close = rsi = ema7 = ema25 = ema99 = atr = macd = macd_signal = 0.0
                 try:
@@ -526,6 +532,40 @@ def analyze(symbol: str):
                     posizione_y = posizioni_attive.get(symbol)
 
                 if posizione_y:
+                    # ✅ scaling_only: l'APP deve vedere BUY confermato per creare la card SIM
+                    if posizione_y.get("scaling_only", False):
+                        commento_scaling = (posizione_y.get("note_notifica") or posizione_y.get("motivo") or "").strip()
+                        if "BUY confermato" not in commento_scaling:
+                            commento_scaling = "BUY confermato\n" + (commento_scaling or "♻️ Capital scaling attivo")
+
+                        tp_out = float(posizione_y.get("tp", 0.0) or 0.0)
+                        sl_out = float(posizione_y.get("sl", 0.0) or 0.0)
+                        entry_out = float(posizione_y.get("entry", 0.0) or 0.0)
+                        if tp_out <= 0:
+                            tp_out = entry_out
+                        if sl_out <= 0:
+                            sl_out = entry_out
+
+                        return SignalResponse(
+                            symbol=symbol,
+                            segnale="BUY",
+                            commento=commento_scaling,
+                            prezzo=entry_out,
+                            take_profit=tp_out,
+                            stop_loss=sl_out,
+                            rsi=rsi,
+                            macd=macd,
+                            macd_signal=macd_signal,
+                            atr=atr,
+                            ema7=ema7,
+                            ema25=ema25,
+                            ema99=ema99,
+                            timeframe="15m",
+                            spread=0.0,
+                            motivo=posizione_y.get("motivo", ""),
+                            chiusa_da_backend=posizione_y.get("chiusa_da_backend", False)
+                        )
+
                     return SignalResponse(
                         symbol=symbol,
                         segnale="HOLD",
@@ -548,6 +588,7 @@ def analyze(symbol: str):
                         motivo=posizione_y.get("motivo", ""),
                         chiusa_da_backend=posizione_y.get("chiusa_da_backend", False)
                     )
+
 
                 # 4) Apertura simulazione anche per Yahoo (stesso comportamento Binance)
                 nota_acquisto = None
@@ -887,6 +928,35 @@ def analyze(symbol: str):
                 f"{posizione['tipo']} @ {posizione['entry']}$"
             )
 
+            # ✅ scaling_only: l'APP deve vedere BUY confermato per creare la card SIM
+            if posizione.get("scaling_only", False):
+                commento_scaling = (posizione.get("note_notifica") or posizione.get("motivo") or "").strip()
+                if "BUY confermato" not in commento_scaling:
+                    commento_scaling = "BUY confermato\n" + (commento_scaling or "♻️ Capital scaling attivo")
+
+                tp_out = float(posizione.get("tp", 0.0) or 0.0)
+                sl_out = float(posizione.get("sl", 0.0) or 0.0)
+                entry_out = float(posizione.get("entry", 0.0) or 0.0)
+                if tp_out <= 0:
+                    tp_out = entry_out
+                if sl_out <= 0:
+                    sl_out = entry_out
+
+                return SignalResponse(
+                    symbol=symbol,
+                    segnale="BUY",
+                    commento=commento_scaling,
+                    prezzo=entry_out,
+                    take_profit=tp_out,
+                    stop_loss=sl_out,
+                    rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
+                    ema7=0.0, ema25=0.0, ema99=0.0,
+                    timeframe="15m",
+                    spread=posizione.get("spread", 0.0),
+                    motivo=posizione.get("motivo", ""),
+                    chiusa_da_backend=posizione.get("chiusa_da_backend", False)
+                )
+
             # se l’analisi ha “annullato” il segnale → marca la simulazione e restituisci HOLD annotato
             if segnale == "HOLD" and note15 and "Segnale annullato" in note15:
                 with _pos_lock:
@@ -1115,6 +1185,12 @@ def analyze(symbol: str):
         
         # testo completo della notifica (per app + per log simulazioni)
         commento = "\n".join(note) if note else "Nessuna nota"
+
+        if segnale == "BUY" and "BUY confermato" not in commento:
+            commento = "BUY confermato\n" + (commento or "")
+        elif segnale == "SELL" and "SELL confermato" not in commento:
+            commento = "SELL confermato\n" + (commento or "")
+
 
 
         # apertura simulazione SOLO se c'è un vero segnale
@@ -1763,9 +1839,54 @@ def hot_assets():
             continue
 
 
+    # ✅ forza presenza asset in capital scaling (scaling_only) in /hotassets
+    try:
+        watched = scaler.watched_symbols() or []
+        present = set()
+        for r in risultati:
+            try:
+                present.add(str(r.get("symbol", "")).upper())
+            except Exception:
+                pass
+
+        for s in watched:
+            sym = (s or "").upper()
+            if not sym or sym in present:
+                continue
+
+            prezzo_live = 0.0
+            try:
+                if sym in YAHOO_SYMBOL_MAP:
+                    y_ticker = YAHOO_SYMBOL_MAP.get(sym, sym)
+                    prezzo_live = float(get_yahoo_last_price(y_ticker) or 0.0)
+                else:
+                    book = get_bid_ask(sym)
+                    b = float(book.get("bid", 0.0))
+                    a = float(book.get("ask", 0.0))
+                    prezzo_live = float(((b + a) / 2.0)) if b > 0 and a > 0 else 0.0
+            except Exception:
+                prezzo_live = 0.0
+
+            if prezzo_live <= 0:
+                prezzo_live = 0.00000001
+
+            risultati.append({
+                "symbol": sym,
+                "segnali": 1,
+                "trend": "BUY",
+                "rsi": None,
+                "ema7": 0.0, "ema25": 0.0, "ema99": 0.0,
+                "prezzo": round(float(prezzo_live), 6),
+                "candele_trend": 0,
+                "note": f"♻️ Capital scaling • 🛈 {_asset_display_name(sym)}"
+            })
+    except Exception:
+        pass
+
     _hot_cache["time"] = now
     _hot_cache["data"] = risultati
     return risultati
+
 
 
 
@@ -2377,38 +2498,76 @@ def simulazioni_attive():
 @router.get("/simulazioni_attive_app")
 def simulazioni_attive_app():
     """
-    Endpoint per APP:
-    restituisce SOLO scaling_only (capital scaling), anche se tp/sl non validi.
+    Endpoint PER APP (SIM tab):
+    restituisce una LISTA compatibile con SimulazioneOperazione (Kotlin).
+    Include:
+    - simulazioni reali (tp/sl validi)
+    - scaling_only (tp/sl = entry), con esito "In corso"
     """
     _ensure_scaling_positions()
 
     out = []
+    now_ms = int(time.time() * 1000)
+
     with _pos_lock:
-        for symbol, data in posizioni_attive.items():
-            if not isinstance(data, dict):
+        for symbol, sim in posizioni_attive.items():
+            if not isinstance(sim, dict):
                 continue
 
-            if data.get("chiusa_da_backend", False):
+            if sim.get("chiusa_da_backend", False):
                 continue
 
-            if not data.get("scaling_only", False):
-                continue
+            tipo = (sim.get("tipo") or "BUY").upper()
 
-            entry = float(data.get("entry", 0.0) or 0.0)
+            entry = float(sim.get("entry", 0.0) or 0.0)
             if entry <= 0:
                 continue
 
-            tp = float(data.get("tp", 0.0) or 0.0)
-            sl = float(data.get("sl", 0.0) or 0.0)
+            tp = float(sim.get("tp", 0.0) or 0.0)
+            sl = float(sim.get("sl", 0.0) or 0.0)
 
-            if tp <= 0:
-                data["tp"] = entry
-            if sl <= 0:
-                data["sl"] = entry
+            # scaling_only: forza livelli = entry (così UI non rompe)
+            if sim.get("scaling_only", False):
+                if tp <= 0:
+                    tp = entry
+                if sl <= 0:
+                    sl = entry
 
-            out.append(_to_app_sim(symbol, data))
+            prezzo_corrente = float(sim.get("prezzo_attuale", entry) or entry)
+
+            # per SIM in corso: prezzoFinale = 0
+            prezzo_finale = float(sim.get("prezzo_chiusura", 0.0) or 0.0)
+
+            # esito: se non esiste, in corso
+            esito = sim.get("esito") or "In corso"
+
+            spread = float(sim.get("spread", 0.0) or 0.0)
+            motivo = sim.get("motivo", "") or ""
+
+            # timestamp: se non c'è, metti adesso (ms)
+            ts = sim.get("timestamp")
+            try:
+                timestamp_ms = int(ts) if ts else now_ms
+            except Exception:
+                timestamp_ms = now_ms
+
+            out.append({
+                "simbolo": symbol,
+                "tipo": tipo,
+                "prezzoIngresso": entry,
+                "takeProfit": tp,
+                "stopLoss": sl,
+                "prezzoCorrente": prezzo_corrente,
+                "prezzoFinale": prezzo_finale,
+                "esito": esito,
+                "spread": spread,
+                "motivo": motivo,
+                "chiusaDaBackend": bool(sim.get("chiusa_da_backend", False)),
+                "timestamp": timestamp_ms,
+            })
 
     return out
+
 
 
 @router.get("/simulazioni_attive_list")
