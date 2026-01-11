@@ -2111,6 +2111,8 @@ def simulazioni_attive_app():
 
         out.append({
             "symbol": symbol,
+            "simbolo": symbol,
+
             "tipo": sim.get("tipo", "BUY"),
 
             "prezzoIngresso": entry,
@@ -2125,8 +2127,11 @@ def simulazioni_attive_app():
             "motivo": sim.get("motivo", "") or "",
 
             "chiusa_da_backend": bool(sim.get("chiusa_da_backend", False)),
+            "chiusaDaBackend": bool(sim.get("chiusa_da_backend", False)),
+
             "timestamp": int(sim.get("timestamp", now_ms) or now_ms),
         })
+
 
 
     # opzionale: più recenti sopra
