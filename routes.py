@@ -2110,19 +2110,26 @@ def simulazioni_attive_app():
             prezzo_corrente = 0.0
 
         out.append({
-            "simbolo": symbol,
+            "symbol": symbol,
             "tipo": sim.get("tipo", "BUY"),
+
             "prezzoIngresso": entry,
             "takeProfit": tp,
             "stopLoss": sl,
+
             "prezzoCorrente": prezzo_corrente,
             "prezzoFinale": float(sim.get("prezzo_chiusura", 0.0) or 0.0),
+
             "esito": sim.get("esito", "In corso"),
             "spread": float(sim.get("spread", 0.0) or 0.0),
             "motivo": sim.get("motivo", "") or "",
-            "chiusaDaBackend": bool(sim.get("chiusa_da_backend", False)),
+
+            # Kotlin DTO legge questo (snake_case)
+            "chiusa_da_backend": bool(sim.get("chiusa_da_backend", False)),
+
             "timestamp": int(sim.get("timestamp", now_ms) or now_ms),
         })
+
 
     # opzionale: più recenti sopra
     out.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
