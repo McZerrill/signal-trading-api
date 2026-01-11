@@ -2124,9 +2124,7 @@ def simulazioni_attive_app():
             "spread": float(sim.get("spread", 0.0) or 0.0),
             "motivo": sim.get("motivo", "") or "",
 
-            # Kotlin DTO legge questo (snake_case)
             "chiusa_da_backend": bool(sim.get("chiusa_da_backend", False)),
-
             "timestamp": int(sim.get("timestamp", now_ms) or now_ms),
         })
 
