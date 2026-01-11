@@ -2098,6 +2098,24 @@ def simulazioni_attive_app():
     out = []
     now_ms = int(time.time() * 1000)
 
+    def _is_visibile(sim: dict, entry: float, tp: float, sl: float) -> bool:
+        motivo = (sim.get("motivo", "") or "").lower()
+
+        # ✅ simulazione reale (avviata davvero)
+        if entry > 0.0 and (tp > 0.0 or sl > 0.0):
+            return True
+
+        # ⏸️ pausa: mercato chiuso / feed non aggiornato (Yahoo/Binance)
+        if ("mercato chiuso" in motivo) or ("stale" in motivo) or ("ritardo" in motivo) or ("pausa" in motivo):
+            return True
+
+        # ♻️ capital scaling: mostra SOLO se è davvero arruolato (entry valido)
+        if ("capital scaling" in motivo) and (entry > 0.0):
+            return True
+
+        # ❌ tutto il resto (entry=0 tp=0 sl=0, trend incerto, ecc.) non deve uscire
+        return False
+
     with _pos_lock:
         items = [
             (symbol, sim) for symbol, sim in posizioni_attive.items()
@@ -2108,6 +2126,9 @@ def simulazioni_attive_app():
         entry = float(sim.get("entry", 0.0) or 0.0)
         tp    = float(sim.get("tp", 0.0) or 0.0)
         sl    = float(sim.get("sl", 0.0) or 0.0)
+
+        if not _is_visibile(sim, entry, tp, sl):
+            continue
 
         prezzo_corrente = sim.get("prezzo_attuale", None)
         try:
@@ -2138,11 +2159,10 @@ def simulazioni_attive_app():
             "timestamp": int(sim.get("timestamp", now_ms) or now_ms),
         })
 
-
-
     # opzionale: più recenti sopra
     out.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
     return {"simulazioni": out}
+
 
 
 
