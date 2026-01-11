@@ -2030,56 +2030,17 @@ def verifica_posizioni_attive():
             time.sleep(1)   # evita loop immediato
 
 
-# =========================================================
-#  STARTUP controllato (evita doppio avvio con reload/workers)
-# =========================================================
-_BG_STARTED = False
-_BG_LOCK = threading.Lock()
-_monitor_thread = None
-
-def start_background_tasks():
-    global _BG_STARTED, _monitor_thread
-
-    with _BG_LOCK:
-        if _BG_STARTED:
-            return
-
-        # 1) Scanner
-        _ensure_scanner()
-
-        # 2) Monitor
-        if _monitor_thread is None or not _monitor_thread.is_alive():
-            _monitor_thread = threading.Thread(target=verifica_posizioni_attive, daemon=True)
-            _monitor_thread.start()
-            logging.info("✅ Monitor posizioni_attive avviato (thread)")
-
-        # 🔁 Ripristino asset in capital scaling dopo riavvio backend
+        # 🔁 Ripristino capital scaling dopo riavvio backend
+        # NOTA: il capital scaler è SOLO monitoraggio, non una simulazione attiva.
+        # Quindi NON inseriamo placeholder in posizioni_attive (entry/tp/sl=0),
+        # altrimenti l'app mostra card SIM "finte".
         try:
             restored = scaler.watched_symbols()
             if restored:
-                logging.info(f"♻️ Ripristino capital scaling per asset: {restored}")
-
-            with _pos_lock:
-                for symbol in restored:
-                    if symbol not in posizioni_attive:
-                        posizioni_attive[symbol] = {
-                            "tipo": "BUY",
-                            "entry": 0.0,
-                            "tp": 0.0,
-                            "sl": 0.0,
-                            "spread": 0.0,
-                            "tick_size": 0.0,
-                            "chiusa_da_backend": False,
-                            "motivo": "♻️ Ripristino monitor capital scaling (30-20-20-30)",
-                            "note_notifica": "",
-                            "nota_acquisto": "",
-                            "asset_class": "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto",
-                            "timestamp": int(time.time() * 1000),
-                        }
+                logging.info(f"♻️ Capital scaling attivo (monitor) per asset: {restored}")
         except Exception as e:
             logging.error(f"❌ Errore ripristino capital scaling: {e}")
 
-        _BG_STARTED = True
 
 
 @router.get("/simulazioni_attive_app")
