@@ -2126,7 +2126,8 @@ def simulazioni_attive_app():
 
     # opzionale: più recenti sopra
     out.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
-    return out
+    return {"simulazioni": out}
+
 
 
     
