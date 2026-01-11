@@ -188,7 +188,8 @@ class CapitalScaler:
         """
         Chiamala nel tuo monitor prezzi.
         Abilita rebuy_ready se il prezzo scende rispetto a last_ref_price.
-        Resetta tutto se sale abbastanza (ha preso direzione).
+        NON rimuove più lo stato su "profit reset": la rimozione avviene SOLO su TP
+        o su SL dopo ultimo step.
         """
         if price <= 0:
             return
@@ -207,11 +208,8 @@ class CapitalScaler:
             if (not st.rebuy_ready) and price <= st.last_ref_price * (1.0 - self.dd_trigger_pct):
                 st.rebuy_ready = True
 
-            # Profit reset: se sale abbastanza, consideriamo il ciclo "risolto"
-            if price >= st.last_ref_price * (1.0 + self.reset_profit_pct):
-                self._states.pop(symbol, None)
-
             self._save_to_disk()
+
 
     # -------------------------
     # Quando trend_logic produce BUY (ma SOLO se già in monitoraggio)
@@ -258,14 +256,53 @@ class CapitalScaler:
             self._save_to_disk()
             return f"Nota acquisto: {pct}% del capitale (Step {step_num}/4 – nuovo BUY dopo drawdown)."
 
+    def on_take_profit(self, symbol: str) -> None:
+        """
+        TP raggiunto => STOP DEFINITIVO: non va più monitorato.
+        """
+        self.reset(symbol)
+
+    def on_stop_loss(self, symbol: str, fill_price: float) -> None:
+        """
+        SL raggiunto:
+        - se NON siamo a fine ciclo => resta monitorato e abilita rebuy_ready=True
+        - se siamo già a 4/4 => STOP DEFINITIVO (remove)
+        """
+        with self._lock:
+            changed = self._cleanup_if_needed()
+            st = self._states.get(symbol)
+            if not st:
+                if changed:
+                    self._save_to_disk()
+                return
+
+            st.last_update_ts = time()
+
+            # ciclo completato: stop definitivo
+            if st.step_index >= 4:
+                self._states.pop(symbol, None)
+                self._save_to_disk()
+                return
+
+            if fill_price > 0:
+                st.last_ref_price = fill_price
+
+            st.rebuy_ready = True
+            self._save_to_disk()
+
+    
     # -------------------------
     # Segnali di uscita (SELL / chiusa)
     # -------------------------
     def on_exit(self, symbol: str) -> None:
         """
-        Chiamala quando chiudi la simulazione (SELL o chiusaDaBackend).
+        Deprecated per la tua logica.
+        Usa:
+        - on_take_profit(symbol) su TP
+        - on_stop_loss(symbol, price) su SL
         """
         self.reset(symbol)
+
 
 
 # Singleton
