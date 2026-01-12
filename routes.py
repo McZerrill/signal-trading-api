@@ -2152,6 +2152,7 @@ def simulazioni_attive_app():
             "esito": sim.get("esito", "In corso"),
             "spread": float(sim.get("spread", 0.0) or 0.0),
             "motivo": sim.get("motivo", "") or "",
+            "commento": sim.get("note_notifica", "") or "",
 
             "chiusa_da_backend": bool(sim.get("chiusa_da_backend", False)),
             "chiusaDaBackend": bool(sim.get("chiusa_da_backend", False)),
