@@ -687,16 +687,18 @@ def calcola_probabilita_successo(
             punteggio += 10
         elif (macd > 0) and (gap_rel > _p("macd_gap_rel_debole")):
             punteggio += 5
-        elif abs(macd_gap) < _p("macd_signal_threshold"):
+        elif abs(gap_rel) < _p("macd_gap_rel_debole"):
             punteggio -= 5
+
 
     elif segnale == "SELL":
         if (macd < macd_signal) and (gap_rel < -_p("macd_gap_rel_forte")):
             punteggio += 10
         elif (macd < 0) and (gap_rel < -_p("macd_gap_rel_debole")):
             punteggio += 5
-        elif abs(macd_gap) < _p("macd_signal_threshold"):
+        elif abs(gap_rel) < _p("macd_gap_rel_debole"):
             punteggio -= 5
+
 
 
     # 4. Volume coerente (se non affidabile -> neutro)
@@ -962,6 +964,9 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
                 note.append("📏 EMA200: trend↓")
             else:
                 note.append("📏 EMA200: neutro")
+        else:
+            note.append("📏 EMA200: n/d")
+
 
     except Exception as e:
         logging.error(f"❌ Errore nell'accesso ai dati finali: {e}")
@@ -1383,7 +1388,13 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
         
 
                 # --- Gate qualità EMA (BUY netto: rette + separazione) ---
+                req_25_99 = (asset_class or "crypto").lower() != "yahoo"
                 ok_ema, why_ema, m_ema = ema_quality_buy_gate(
+                    hist,
+                    w=8,
+                    require_25_99=req_25_99
+                )
+
                     hist,
                     w=8,
                     require_25_99=True
