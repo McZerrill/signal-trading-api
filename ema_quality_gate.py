@@ -67,7 +67,11 @@ def ema_quality_buy_gate(
 
     # EMA25 “retta” anche come progressione: evita zig-zag (rumore)
     d25 = np.diff(e25) / c
-    ema25_monotone = bool(np.all(d25 >= 0))
+    # tolleranza: consenti 1 piccolo passo negativo (rumore)
+    tol = 0.00002
+    neg = int(np.sum(d25 < -tol))
+    ema25_monotone = bool(neg <= 1)
+
     metrics = {
         "slope7": slope7,
         "slope25": slope25,
