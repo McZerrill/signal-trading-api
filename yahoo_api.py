@@ -213,16 +213,19 @@ def get_yahoo_df(
 
 def get_yahoo_last_price(symbol: str) -> float:
     """
-    Ultimo prezzo di chiusura recente.
-    Usa un daily 1d/5d (pochi dati, quasi zero rischio 429).
+    Ultimo prezzo "recente" (bar-based).
+    Preferisce 15m per essere più vicino al live; fallback su 1d.
     """
-    df = get_yahoo_df(symbol, interval="1d", range_str="5d")
+    df = get_yahoo_df(symbol, interval="15m", range_str="5d")
     if df.empty:
-        return 0.0
+        df = get_yahoo_df(symbol, interval="1d", range_str="5d")
+        if df.empty:
+            return 0.0
     try:
         return float(df["close"].iloc[-1])
     except Exception:
         return 0.0
+
 
 
 # ============================================================
