@@ -550,15 +550,18 @@ def analyze(symbol: str):
                 # 4) Apertura simulazione anche per Yahoo (stesso comportamento Binance)
                 nota_acquisto = None
                 if segnale in ["BUY", "SELL"]:
+                    entry_y = float(prezzo_output)  # ✅ allineato a ciò che esponi all'app
+
                     logging.info(
-                        f"✅ Nuova simulazione {segnale} (YAHOO) per {symbol} @ {close}$ – "
+                        f"✅ Nuova simulazione {segnale} (YAHOO) per {symbol} @ {entry_y}$ – "
                         f"TP: {tp}, SL: {sl}"
                     )
 
                     # ✅ Capital scaling: SOLO se BUY e SOLO quando parte davvero la simulazione
                     if segnale == "BUY":
                         try:
-                            nota_acquisto = scaler.on_simulation_started(symbol, close)  # <-- salva su file
+                            nota_acquisto = scaler.on_simulation_started(symbol, entry_y)  # <-- salva su file
+
                             if nota_acquisto:
                                 commento = (commento + "\n" if commento else "") + nota_acquisto
                                 note.append(nota_acquisto)
@@ -568,7 +571,7 @@ def analyze(symbol: str):
                     with _pos_lock:
                         posizioni_attive[symbol] = {
                             "tipo": segnale,
-                            "entry": close,
+                            "entry": entry_y,
                             "tp": tp,
                             "sl": sl,
                             "spread": 0.0,
@@ -1336,6 +1339,8 @@ def get_price(symbol: str):
             elapsed = round(time.time() - start, 3)
             with _pos_lock:
                 pos = posizioni_attive.get(symbol, {})       # <-- lookup una sola volta
+                if pos:
+                    pos["prezzo_attuale"] = round(prezzo, 10)
 
             return {
                 "symbol": symbol,
@@ -1962,27 +1967,29 @@ def verifica_posizioni_attive():
                     # ===== REVERSAL detector su 1m (robusto: 6 barre) =====
                     reversal_msg = None
                     try:
-                        df_1m_rev = get_binance_df(symbol, "1m", limit=60)
-                        if isinstance(df_1m_rev, pd.DataFrame) and len(df_1m_rev) >= 40:
-                            df_1m_rev["EMA_7"]  = df_1m_rev["close"].ewm(span=7).mean()
-                            df_1m_rev["EMA_25"] = df_1m_rev["close"].ewm(span=25).mean()
+                        if (asset_class or "").lower() != "yahoo":
+                            df_1m_rev = get_binance_df(symbol, "1m", limit=60)
+                            if isinstance(df_1m_rev, pd.DataFrame) and len(df_1m_rev) >= 40:
+                                df_1m_rev["EMA_7"]  = df_1m_rev["close"].ewm(span=7).mean()
+                                df_1m_rev["EMA_25"] = df_1m_rev["close"].ewm(span=25).mean()
 
-                            tail = df_1m_rev.tail(6)
-                            reds   = int((tail["close"] < tail["open"]).sum())
-                            greens = int((tail["close"] > tail["open"]).sum())
+                                tail = df_1m_rev.tail(6)
+                                reds   = int((tail["close"] < tail["open"]).sum())
+                                greens = int((tail["close"] > tail["open"]).sum())
 
-                            e7  = float(df_1m_rev["EMA_7"].iloc[-1])
-                            e25 = float(df_1m_rev["EMA_25"].iloc[-1])
-                            c0  = float(df_1m_rev["close"].iloc[-1])
+                                e7  = float(df_1m_rev["EMA_7"].iloc[-1])
+                                e25 = float(df_1m_rev["EMA_25"].iloc[-1])
+                                c0  = float(df_1m_rev["close"].iloc[-1])
 
-                            if tipo == "BUY":
-                                if (reds >= 4) and (e7 < e25) and (c0 < e7):
-                                    reversal_msg = "⬇️ 1m contro BUY"
-                            else:  # SELL
-                                if (greens >= 4) and (e7 > e25) and (c0 > e7):
-                                    reversal_msg = "⬆️ 1m contro SELL"
+                                if tipo == "BUY":
+                                    if (reds >= 4) and (e7 < e25) and (c0 < e7):
+                                        reversal_msg = "⬇️ 1m contro BUY"
+                                else:  # SELL
+                                    if (greens >= 4) and (e7 > e25) and (c0 > e7):
+                                        reversal_msg = "⬆️ 1m contro SELL"
                     except Exception:
                         pass
+
 
                     # ===== messaggio di stato =====
                     with _pos_lock:
