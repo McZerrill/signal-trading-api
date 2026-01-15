@@ -531,7 +531,7 @@ def analyze(symbol: str):
                             f"\u23f3 Simulazione gi\u00e0 attiva su {symbol} - tipo: {posizione_y['tipo']} @ {posizione_y['entry']}$\n"
                             f"🎯 TP: {posizione_y['tp']} | 🛡 SL: {posizione_y['sl']}"
                         ),
-                        prezzo=posizione_y["entry"],
+                        prezzo=float(posizione_y.get("prezzo_attuale", posizione_y["entry"])),
                         take_profit=posizione_y["tp"],
                         stop_loss=posizione_y["sl"],
                         rsi=rsi,
@@ -881,18 +881,6 @@ def analyze(symbol: str):
 
         note = note15.split("\n") if note15 else []
 
-        # ✅ Capital scaling: BUY successivi (20% / 20% / 30%)
-        # Se l'asset è già monitorato e ha fatto drawdown,
-        # aggiunge SOLO la nota (non apre nuove simulazioni)
-        try:
-            if segnale == "BUY":
-                nota_scalata = scaler.decorate_buy_note_if_applicable(symbol, close)
-                if nota_scalata:
-                    note.append(nota_scalata)
-        except Exception as e:
-            logging.warning(f"⚠️ decorate_buy_note_if_applicable fallita per {symbol}: {e}")
-
-
 
         # 3) Gestione posizione già attiva (UNA SOLA VOLTA QUI)
         if posizione:
@@ -976,6 +964,17 @@ def analyze(symbol: str):
         # – se disponibile, usa il mid live bid/ask
         # – altrimenti fallback al close 15m
         prezzo_output = round(prezzo_live, 4) if "prezzo_live" in locals() and prezzo_live > 0 else close
+
+        # ✅ Capital scaling: BUY successivi (20% / 20% / 30%)
+        # Se l'asset è già monitorato e ha fatto drawdown,
+        # aggiunge SOLO la nota (non apre nuove simulazioni)
+        try:
+            if segnale == "BUY":
+                nota_scalata = scaler.decorate_buy_note_if_applicable(symbol, float(prezzo_output))
+                if nota_scalata:
+                    note.append(nota_scalata)
+        except Exception as e:
+            logging.warning(f"⚠️ decorate_buy_note_if_applicable fallita per {symbol}: {e}")
 
 
         # 5) Logging timeframe e analisi di conferma
@@ -1817,8 +1816,15 @@ def verifica_posizioni_attive():
                         with _pos_lock:
                             sim["prezzo_attuale"] = round(prezzo_live, 10)
 
-                        # ✅ aggiorna capital scaler anche su Yahoo
-                        scaler.on_price_tick(symbol, prezzo_live)
+                        # ✅ aggiorna capital scaler anche su Yahoo (solo se prezzo valido)
+                        if prezzo_live > 0:
+                            scaler.on_price_tick(symbol, prezzo_live)
+
+                        # ⛔ prezzo Yahoo non valido (mercato chiuso / feed KO)
+                        if prezzo_live <= 0:
+                            sim["motivo"] = "⏸️ Yahoo prezzo non disponibile"
+                            continue
+
 
                         distanza_entry = abs(prezzo_live - entry)
                         progresso = abs(prezzo_live - entry) / abs(tp - entry) if tp != entry else 0.0
@@ -1828,6 +1834,24 @@ def verifica_posizioni_attive():
                         if df is None or df.empty:
                             sim["motivo"] = f"⚠️ Dati insufficienti Yahoo ({TIMEFRAME_TREND})"
                             continue
+
+                        # ===== FRESHNESS CHECK Yahoo (evita trailing su dati vecchi) =====
+                        try:
+                            last_ts = df.index[-1]
+                            if hasattr(last_ts, "to_pydatetime"):
+                                last_ts = last_ts.to_pydatetime()
+                            if getattr(last_ts, "tzinfo", None) is None:
+                                last_ts = last_ts.replace(tzinfo=dt_timezone.utc)
+
+                            now_utc = datetime.now(dt_timezone.utc)
+                            age_min = (now_utc - last_ts).total_seconds() / 60.0
+
+                            if age_min > YAHOO_STALE_MAX_MIN:
+                                sim["motivo"] = "⏸️ Yahoo dati non aggiornati (mercato chiuso)"
+                                continue   # ⛔ salta trailing / TP / SL
+                        except Exception:
+                            pass
+
 
                         # allinea a CANDLE_LIMIT
                         if len(df) > CANDLE_LIMIT:
@@ -2113,7 +2137,7 @@ def simulazioni_attive_app():
             return True
 
         # ⏸️ pausa: mercato chiuso / feed non aggiornato (Yahoo/Binance)
-        if ("mercato chiuso" in motivo) or ("stale" in motivo) or ("ritardo" in motivo) or ("pausa" in motivo):
+        if ("mercato chiuso" in motivo) or ("stale" in motivo) or ("ritardo" in motivo) or ("pausa" in motivo) or ("non aggiornati" in motivo):
             return True
 
         # ♻️ capital scaling: mostra SOLO se è davvero arruolato (entry valido)
