@@ -1955,8 +1955,15 @@ def verifica_posizioni_attive():
                             )
                             append_simulazione_chiusa(symbol, sim)
                             
-                        scaler.on_exit(symbol)   # ✅ reset ciclo e rimuove asset monitorato dal file
+                        try:
+                            if exit_reason == "TP":
+                                scaler.on_take_profit(symbol)
+                            else:
+                                scaler.on_stop_loss(symbol, float(fill_price))
+                        except Exception:
+                            scaler.on_exit(symbol)
                         continue
+
 
                     # ===== retracement verso SL? =====
                     if sl and sl > 0:
