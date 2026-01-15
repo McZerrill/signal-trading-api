@@ -54,16 +54,21 @@ def _map_interval(interval: str) -> str:
 
 
 def _default_period(interval: str) -> str:
-    """
-    Sceglie un periodo di default compatibile con l'intervallo.
-    (equivalente al vecchio range_str)
-    """
-    interval = interval.lower()
-    if interval.endswith("m") or interval in ("60m", "90m", "1h"):
-        return "7d"
+    interval = (interval or "").lower().strip()
+
+    # intraday: period più corti = meno errori e più "fresco"
+    if interval == "1m":
+        return "1d"
+    if interval in ("2m", "5m"):
+        return "5d"
+    if interval in ("15m", "30m", "60m", "90m"):
+        return "30d"
+
+    # daily+
     if interval in ("1d", "5d"):
         return "1y"
     return "1y"
+
 
 
 def _cache_get(symbol: str, interval: str, period: str) -> Optional[pd.DataFrame]:
@@ -119,7 +124,7 @@ def _normalize_ohlc_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         "High": "high",
         "Low": "low",
         "Close": "close",
-        "Adj Close": "close",
+        "Adj Close": "adj_close",
         "Volume": "volume",
     }
 
@@ -127,13 +132,18 @@ def _normalize_ohlc_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     df.columns = [str(c[0]) if isinstance(c, tuple) else str(c) for c in df.columns]
     df = df.rename(columns=rename_map)
 
-    # --- Gestisci doppio 'close' (Close + Adj Close) ---
-    close_cols = [c for c in df.columns if c == "close"]
-    if len(close_cols) > 1:
-        # prendi, per ogni riga, il primo valore non-NaN tra le colonne close
-        close_series = df[close_cols].bfill(axis=1).iloc[:, 0]
-        df = df.drop(columns=close_cols)
-        df["close"] = close_series
+    # se close manca ma adj_close c'è, usa adj_close come close
+    if "close" not in df.columns and "adj_close" in df.columns:
+        df["close"] = df["adj_close"]
+
+    # se close è tutto NaN ma adj_close ha valori, usa quello
+    if "adj_close" in df.columns and "close" in df.columns:
+        try:
+            if df["close"].isna().all() and (not df["adj_close"].isna().all()):
+                df["close"] = df["adj_close"]
+        except Exception:
+            pass
+
 
 
     # --- Aggiungi colonne mancanti ---
@@ -232,15 +242,23 @@ def get_yahoo_last_price(symbol: str) -> float:
     except Exception:
         pass
 
-    # 2) fallback: 15m
+    # 2) fallback: 5m
     try:
-        df15 = get_yahoo_df(symbol, interval="15m", range_str="5d")
+        df5 = get_yahoo_df(symbol, interval="5m", range_str="5d")
+        if df5 is not None and not df5.empty:
+            return float(df5["close"].iloc[-1])
+    except Exception:
+        pass
+
+    # 3) fallback: 15m
+    try:
+        df15 = get_yahoo_df(symbol, interval="15m", range_str="30d")
         if df15 is not None and not df15.empty:
             return float(df15["close"].iloc[-1])
     except Exception:
         pass
 
-    # 3) fallback finale: daily
+    # 4) fallback finale: daily
     try:
         df = get_yahoo_df(symbol, interval="1d", range_str="5d")
         if df is None or df.empty:
