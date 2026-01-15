@@ -21,6 +21,13 @@ YF_CACHE_TTL = 60  # secondi
 _YF_CACHE: Dict[Tuple[str, str, str], Tuple[pd.DataFrame, float]] = {}
 _YF_LOCK = RLock()
 
+def _ttl_for_interval(interval: str) -> int:
+    interval = (interval or "").lower().strip()
+    if interval in ("1m", "2m", "5m"):
+        return 15
+    if interval in ("15m", "30m", "60m", "90m"):
+        return 45
+    return YF_CACHE_TTL
 
 def _map_interval(interval: str) -> str:
     """
@@ -67,7 +74,8 @@ def _cache_get(symbol: str, interval: str, period: str) -> Optional[pd.DataFrame
         if not entry:
             return None
         df, ts = entry
-        if now - ts > YF_CACHE_TTL:
+        ttl = _ttl_for_interval(interval)
+        if now - ts > ttl:
             _YF_CACHE.pop(key, None)
             return None
         return df.copy(deep=True)
@@ -213,18 +221,34 @@ def get_yahoo_df(
 
 def get_yahoo_last_price(symbol: str) -> float:
     """
-    Ultimo prezzo "recente" (bar-based).
-    Preferisce 15m per essere più vicino al live; fallback su 1d.
+    Ultimo close intraday quando disponibile (più vicino al "live"),
+    fallback su daily se mercato chiuso o feed non disponibile.
     """
-    df = get_yahoo_df(symbol, interval="15m", range_str="5d")
-    if df.empty:
-        df = get_yahoo_df(symbol, interval="1d", range_str="5d")
-        if df.empty:
-            return 0.0
+    # 1) prova intraday 1m (se disponibile)
     try:
+        df1 = get_yahoo_df(symbol, interval="1m", range_str="1d")
+        if df1 is not None and not df1.empty:
+            return float(df1["close"].iloc[-1])
+    except Exception:
+        pass
+
+    # 2) fallback: 15m
+    try:
+        df15 = get_yahoo_df(symbol, interval="15m", range_str="5d")
+        if df15 is not None and not df15.empty:
+            return float(df15["close"].iloc[-1])
+    except Exception:
+        pass
+
+    # 3) fallback finale: daily
+    try:
+        df = get_yahoo_df(symbol, interval="1d", range_str="5d")
+        if df is None or df.empty:
+            return 0.0
         return float(df["close"].iloc[-1])
     except Exception:
         return 0.0
+
 
 
 
