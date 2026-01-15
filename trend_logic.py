@@ -1395,10 +1395,6 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
                     require_25_99=req_25_99
                 )
 
-                    hist,
-                    w=8,
-                    require_25_99=True
-                )
                 if not ok_ema:
                     note.append(f"🧊 EMA Gate: {why_ema}")
                     # opzionale debug numeri (se vuoi):
