@@ -574,6 +574,7 @@ def analyze(symbol: str):
                             "entry": entry_y,
                             "tp": tp,
                             "sl": sl,
+                            "atr": atr,
                             "spread": 0.0,
                             "tick_size": 0.0,
                             "chiusa_da_backend": False,
@@ -1142,6 +1143,7 @@ def analyze(symbol: str):
                     "entry": close,
                     "tp": tp,
                     "sl": sl,
+                    "atr": atr,
                     "spread": spread,
                     "tick_size": tick_size,
                     "chiusa_da_backend": False,
@@ -1860,6 +1862,16 @@ def verifica_posizioni_attive():
                         last = df.iloc[-1]
                         o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
 
+                        atr = float(sim.get("atr", 0.0) or 0.0)
+                        if atr <= 0.0:
+                            try:
+                                df["ATR"] = calcola_atr(df)
+                                atr = float(df["ATR"].iloc[-1] or 0.0)
+                                with _pos_lock:
+                                    sim["atr"] = atr
+                            except Exception:
+                                atr = 0.0
+
                         # ===== EMA per stato/trailing (Yahoo) =====
                         df["EMA_7"]  = df["close"].ewm(span=7).mean()
                         df["EMA_25"] = df["close"].ewm(span=25).mean()
@@ -1900,6 +1912,16 @@ def verifica_posizioni_attive():
                         last = df.iloc[-1]
                         o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
 
+                        atr = float(sim.get("atr", 0.0) or 0.0)
+                        if atr <= 0.0:
+                            try:
+                                df["ATR"] = calcola_atr(df)
+                                atr = float(df["ATR"].iloc[-1] or 0.0)
+                                with _pos_lock:
+                                    sim["atr"] = atr
+                            except Exception:
+                                atr = 0.0
+
                         # ===== EMA per stato/trailing =====
                         df["EMA_7"]  = df["close"].ewm(span=7).mean()
                         df["EMA_25"] = df["close"].ewm(span=25).mean()
@@ -1916,6 +1938,66 @@ def verifica_posizioni_attive():
                         # ===== verifiche TP/SL su candela corrente =====
                         TICK = float(sim.get("tick_size", 0.0)) if isinstance(sim.get("tick_size", 0.0), (int, float)) else 0.0
                         eps = TICK
+
+
+
+                    # ===== BE + TRAILING SL (15m) =====
+                    try:
+                        # requisiti minimi
+                        if entry > 0 and sl > 0 and atr > 0 and tipo in ("BUY", "SELL"):
+
+                            # rischio iniziale (R)
+                            R = abs(entry - sl)
+                            if R > 0:
+                                # soglie
+                                BE_AT = 0.75     # a +0.75R -> break-even
+                                TR_AT = 1.20     # a +1.20R -> trailing attivo
+                                TR_ATR_MULT = 1.05  # distanza trailing = 1.05 * ATR
+
+                                if tipo == "BUY":
+                                    profit = h - entry
+
+                                    # Break-even: porta SL a entry + buffer minimo (fees/spread)
+                                    if profit >= BE_AT * R:
+                                        be_sl = entry + max(0.15 * atr, entry * 0.0002)
+                                        if be_sl > sl:
+                                            with _pos_lock:
+                                                sim["sl"] = be_sl
+                                                sim["motivo"] = (sim.get("motivo", "") + " | BE").strip()
+
+                                    # Trailing: segue il prezzo con distanza ATR
+                                    if profit >= TR_AT * R:
+                                        trail_sl = h - (TR_ATR_MULT * atr)
+                                        cur_sl = float(sim.get("sl", sl) or sl)
+                                        if trail_sl > cur_sl:
+                                            with _pos_lock:
+                                                sim["sl"] = trail_sl
+                                                sim["motivo"] = (sim.get("motivo", "") + " | TR").strip()
+
+                                else:  # SELL
+                                    profit = entry - l
+
+                                    if profit >= BE_AT * R:
+                                        be_sl = entry - max(0.15 * atr, entry * 0.0002)
+                                        if be_sl < sl:
+                                            with _pos_lock:
+                                                sim["sl"] = be_sl
+                                                sim["motivo"] = (sim.get("motivo", "") + " | BE").strip()
+
+                                    if profit >= TR_AT * R:
+                                        trail_sl = l + (TR_ATR_MULT * atr)
+                                        cur_sl = float(sim.get("sl", sl) or sl)
+                                        if trail_sl < cur_sl:
+                                            with _pos_lock:
+                                                sim["sl"] = trail_sl
+                                                sim["motivo"] = (sim.get("motivo", "") + " | TR").strip()
+
+                    except Exception as e:
+                        logging.debug(f"[BE/TR] skip {symbol}: {e}")
+
+                  
+                    tp = float(sim.get("tp", tp) or 0.0)
+                    sl = float(sim.get("sl", sl) or 0.0)
 
 
                     fill_price = None
@@ -1947,7 +2029,8 @@ def verifica_posizioni_attive():
                                 var_pct = (entry - fill_price) / entry * 100.0
                             sim["variazione_pct"] = round(float(var_pct), 4)
                             sim["esito"] = "Profitto" if exit_reason == "TP" else "Perdita"
-                            sim["motivo"] = ("🎯 TP colpito" if exit_reason == "TP" else "🛡️ SL colpito")
+                            sim["motivo"] = (sim.get("motivo","") + " | " + ("🎯 TP colpito" if exit_reason == "TP" else "🛡️ SL colpito")).strip(" |")
+
 
                             logging.info(
                                 f"🔚 CLOSE {symbol} {tipo}: entry={entry:.6f} fill={fill_price:.6f} "
@@ -1975,7 +2058,8 @@ def verifica_posizioni_attive():
                         verso_sl = False
 
                     # ===== trailing TP dinamico =====
-                    if GESTIONE_ATTIVA and trend_ok and not verso_sl:
+                    if GESTIONE_ATTIVA and trend_ok and not verso_sl and ("| BE" not in sim.get("motivo","")) and ("| TR" not in sim.get("motivo","")):
+
                         with _pos_lock:
                             sim.setdefault("tp_esteso", 1)
 
@@ -1984,14 +2068,14 @@ def verifica_posizioni_attive():
                             if nuovo_tp > tp:
                                 with _pos_lock:
                                     sim["tp"] = nuovo_tp
-                                    sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                                    sim["motivo"] = (sim.get("motivo","") + " | 📈 TP aggiornato (trend 15m)").strip(" |")
                                 tp = nuovo_tp
                         else:
                             nuovo_tp = round(entry - distanza_entry * TP_TRAIL_FACTOR, 6)
                             if nuovo_tp < tp:
                                 with _pos_lock:
                                     sim["tp"] = nuovo_tp
-                                    sim["motivo"] = "📈 TP aggiornato (trend 15m)"
+                                    sim["motivo"] = (sim.get("motivo","") + " | 📈 TP aggiornato (trend 15m)").strip(" |")
                                 tp = nuovo_tp
 
 
@@ -2024,28 +2108,38 @@ def verifica_posizioni_attive():
 
                     # ===== messaggio di stato =====
                     with _pos_lock:
+                        prefix = ""
+                        m0 = sim.get("motivo", "") or ""
+                        if "| BE" in m0:
+                            prefix = (prefix + " | BE").strip()
+                        if "| TR" in m0:
+                            prefix = (prefix + " | TR").strip()
+
                         base_msg = None
+                        
                         if not trend_ok:
                             base_msg = "⚠️ Trend 15m incerto"
                         elif verso_sl:
                             base_msg = "⏸️ Ritracciamento, TP stabile"
                         else:
-                            if "TP aggiornato" not in sim.get("motivo", ""):
+                            if "TP aggiornato" not in m0:
                                 base_msg = "✅ Trend 15m in linea"
 
                         overlay = reversal_msg or ""
 
                         if overlay and base_msg:
-                            sim["motivo"] = f"{overlay} • {base_msg}"
+                            sim["motivo"] = (f"{overlay} • {base_msg}" + prefix).strip()
                         elif overlay:
-                            sim["motivo"] = overlay
+                            sim["motivo"] = (overlay + prefix).strip()
                         elif base_msg:
-                            sim["motivo"] = base_msg
+                            sim["motivo"] = (base_msg + prefix).strip()
+                        elif prefix:
+                            sim["motivo"] = prefix.strip()
 
 
                     logging.info(
                         f"[15m] {symbol} {tipo} Entry={entry:.6f} Price={c:.6f} "
-                        f"TP={sim['tp']:.6f} SL={sl:.6f} Prog={progresso:.2f} Motivo={sim['motivo']}"
+                        f"TP={tp:.6f} SL={sl:.6f} Prog={progresso:.2f} Motivo={sim['motivo']}"
                     )
 
                 except Exception as e:
