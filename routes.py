@@ -2101,25 +2101,13 @@ def start_background_tasks():
         try:
             restored = scaler.watched_symbols()
             if restored:
-                logging.info(f"♻️ Ripristino capital scaling per asset: {restored}")
+                logging.info(f"♻️ Capital scaling ripristinato: {len(restored)} asset ({restored})")
 
-            with _pos_lock:
                 for symbol in restored:
-                    if symbol not in posizioni_attive:
-                        posizioni_attive[symbol] = {
-                            "tipo": "BUY",
-                            "entry": 0.0,
-                            "tp": 0.0,
-                            "sl": 0.0,
-                            "spread": 0.0,
-                            "tick_size": 0.0,
-                            "chiusa_da_backend": False,
-                            "motivo": "♻️ Ripristino monitor capital scaling (30-20-20-30)",
-                            "note_notifica": "",
-                            "nota_acquisto": "",
-                            "asset_class": "yahoo" if symbol in YAHOO_SYMBOL_MAP else "crypto",
-                            "timestamp": int(time.time() * 1000),
-                        }
+                    logging.info(
+                        f"♻️ Capital scaling ripristinato per {symbol} "
+                        "(monitor interno, nessuna simulazione visibile)"
+                    )
         except Exception as e:
             logging.error(f"❌ Errore ripristino capital scaling: {e}")
 
