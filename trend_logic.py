@@ -1692,26 +1692,57 @@ def analizza_trend(hist: pd.DataFrame, spread: float = 0.0,
             note.append(f"⏸️ Gate KO ({prob_fusa:.2f})")
             return "HOLD", hist, distanza_ema, "\n".join(note).strip(), tp, sl, supporto
 
-        # TP/SL proporzionale alla probabilità fusa
+        # TP/SL realistico 15m: ATR + struttura (swing) + RR dinamico
         ATR_MIN_FRAC = 0.003
-        TP_BASE, TP_SPAN = 0.6, 0.6     # TP più vicino → meno fallimenti immediati
-        SL_BASE, SL_SPAN = 1.6, 0.35    # SL meno stretto → meno stop-loss immediati
         RR_MIN = 1.2
-        DELTA_MINIMO = 0.1
+
+        # SL: più "protettivo" (meno stop random) ma con cap rischio
+        SL_MIN_ATR = 1.15          # minimo respiro
+        SL_MAX_ATR = 2.10          # cap rischio (non oltre)
+        SWING_WIN  = 6             # 6 candele 15m = ~1.5h
+
+        # TP: RR dinamico (più alto solo se prob_fusa alta)
+        RR_BASE = 1.25
+        RR_SPAN = 0.55             # RR 1.25..1.80
+
+        # cap TP in ATR per 15m (evita target troppo lontani)
+        TP_MAX_ATR = 2.60
 
         atr_eff = atr if atr and atr > 0 else close_s * ATR_MIN_FRAC
 
-        tp_mult = TP_BASE + TP_SPAN * prob_fusa
-        sl_mult = SL_BASE - SL_SPAN * prob_fusa
-        if tp_mult <= sl_mult:
-            tp_mult = sl_mult + DELTA_MINIMO
+        # swing levels
+        try:
+            swing_low  = float(hist["low"].tail(SWING_WIN).min())
+            swing_high = float(hist["high"].tail(SWING_WIN).max())
+        except Exception:
+            swing_low, swing_high = close, close
+
+        # base SL in ATR: se prob_fusa bassa -> un filo più largo, se alta -> un filo più stretto
+        sl_mult = SL_MIN_ATR + (1.0 - prob_fusa) * (SL_MAX_ATR - SL_MIN_ATR)  # 1.15..2.10
 
         if segnale == "BUY":
-            tp_raw = close + atr_eff * tp_mult
-            sl_raw = close - atr_eff * sl_mult
+            sl_base  = close - atr_eff * sl_mult
+            sl_swing = swing_low - atr_eff * 0.15
+            sl_raw   = min(sl_base, sl_swing)                 # sotto struttura se serve
+            sl_raw   = max(sl_raw, close - atr_eff * SL_MAX_ATR)  # cap rischio (non troppo largo)
+
+            risk = abs(close - sl_raw)
+            rr_target = RR_BASE + RR_SPAN * prob_fusa
+            rr_target = max(RR_MIN, rr_target)
+
+            tp_raw = close + min(risk * rr_target, atr_eff * TP_MAX_ATR)
+
         else:  # SELL
-            tp_raw = close - atr_eff * tp_mult
-            sl_raw = close + atr_eff * sl_mult
+            sl_base  = close + atr_eff * sl_mult
+            sl_swing = swing_high + atr_eff * 0.15
+            sl_raw   = max(sl_base, sl_swing)
+            sl_raw   = min(sl_raw, close + atr_eff * SL_MAX_ATR)
+
+            risk = abs(sl_raw - close)
+            rr_target = RR_BASE + RR_SPAN * prob_fusa
+            rr_target = max(RR_MIN, rr_target)
+
+            tp_raw = close - min(risk * rr_target, atr_eff * TP_MAX_ATR)
 
         # Correzione spread realistica (ask/bid)
         half_spread = close_s * (max(spread, 0.0) / 100.0) / 2.0
