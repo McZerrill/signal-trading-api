@@ -1807,9 +1807,9 @@ def verifica_posizioni_attive():
                 try:
                     asset_class = (sim.get("asset_class") or "crypto").lower()
 
-                    entry     = float(sim["entry"])
-                    tp        = float(sim["tp"])
-                    sl        = float(sim["sl"])
+                    entry = float(sim.get("entry", 0.0) or 0.0)
+                    tp = float(sim.get("tp", 0.0) or 0.0)
+                    sl = float(sim.get("sl", 0.0) or 0.0)
 
                     # ===== prezzi live =====
                     if asset_class == "yahoo":
