@@ -2227,18 +2227,59 @@ def start_background_tasks():
             logging.error(f"❌ Errore avvio monitor posizioni_attive: {e}")
 
         # 🔁 Ripristino asset in capital scaling dopo riavvio backend
+        #    -> crea SOLO card "monitoraggio" (non-trade) per mostrarle all'app
         try:
             restored = scaler.watched_symbols()
             if restored:
                 logging.info(f"♻️ Capital scaling ripristinato: {len(restored)} asset ({restored})")
 
-                for symbol in restored:
-                    logging.info(
-                        f"♻️ Capital scaling ripristinato per {symbol} "
-                        "(monitor interno, nessuna simulazione visibile)"
-                    )
+            now_ms = int(time.time() * 1000)
+
+            for symbol in restored:
+                st = None
+                try:
+                    st = scaler.get_state(symbol)
+                except Exception:
+                    st = None
+
+                last_ref = 0.0
+                step_idx = 0
+                rebuy = False
+                if isinstance(st, dict):
+                    last_ref = float(st.get("last_ref_price", 0.0) or 0.0)
+                    step_idx = int(st.get("step_index", 0) or 0)
+                    rebuy = bool(st.get("rebuy_ready", False))
+
+                # Se non ho un ref price sensato, non creo card
+                if last_ref <= 0:
+                    logging.info(f"♻️ Capital scaling ripristinato per {symbol} (no ref price) — solo stato interno")
+                    continue
+
+                motivo = f"♻️ Capital scaling monitoraggio (Step {step_idx}/4){' • rebuy_ready' if rebuy else ''}"
+
+                with _pos_lock:
+                    # Non sovrascrivere simulazioni reali già presenti
+                    if symbol not in posizioni_attive:
+                        posizioni_attive[symbol] = {
+                            "tipo": "HOLD",
+                            "entry": last_ref,          # ✅ serve per renderla visibile
+                            "tp": 0.0,
+                            "sl": 0.0,
+                            "atr": 0.0,
+                            "spread": 0.0,
+                            "tick_size": 0.0,
+                            "chiusa_da_backend": False,
+                            "motivo": motivo,
+                            "note_notifica": motivo,
+                            "nota_acquisto": "",
+                            "asset_class": "crypto",    # ok: lo scaler è per Binance; se vuoi puoi inferire Yahoo
+                            "timestamp": now_ms,
+                        }
+
+                logging.info(f"♻️ Card monitoraggio capital scaling creata per {symbol} @ {last_ref}")
         except Exception as e:
             logging.error(f"❌ Errore ripristino capital scaling: {e}")
+
 
         _BG_STARTED = True
 
