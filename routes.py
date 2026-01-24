@@ -1366,6 +1366,8 @@ def get_price(symbol: str):
                 "spread": 0.0,
                 "tempo": elapsed,
                 "motivo": pos.get("motivo", ""),
+                "take_profit": pos.get("tp", 0.0),
+                "stop_loss":  pos.get("sl", 0.0),
                 "takeProfit": pos.get("tp", 0.0),
                 "stopLoss":  pos.get("sl", 0.0),
                 "chiusaDaBackend": pos.get("chiusa_da_backend", False)
@@ -1396,6 +1398,8 @@ def get_price(symbol: str):
             "spread": round(spread, 4),
             "tempo": elapsed,
             "motivo": pos.get("motivo", ""),
+            "take_profit": pos.get("tp", 0.0),
+            "stop_loss":  pos.get("sl", 0.0),
             "takeProfit": pos.get("tp", 0.0),
             "stopLoss":  pos.get("sl", 0.0),
             "chiusaDaBackend": pos.get("chiusa_da_backend", False)
