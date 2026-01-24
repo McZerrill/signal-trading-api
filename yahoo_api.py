@@ -69,6 +69,41 @@ def _default_period(interval: str) -> str:
         return "1y"
     return "1y"
 
+def _interval_to_timedelta(interval: str) -> pd.Timedelta:
+    interval = (interval or "").lower().strip()
+    if interval.endswith("m"):
+        try:
+            return pd.Timedelta(minutes=int(interval[:-1]))
+        except Exception:
+            return pd.Timedelta(minutes=15)
+    if interval.endswith("h"):
+        try:
+            return pd.Timedelta(hours=int(interval[:-1]))
+        except Exception:
+            return pd.Timedelta(hours=1)
+    if interval in ("1d", "5d"):
+        return pd.Timedelta(days=1)
+    return pd.Timedelta(minutes=15)
+
+
+def _allowed_lag(interval: str) -> pd.Timedelta:
+    """
+    Quanto ritardo massimo tolleriamo per considerare 'freschi' i dati Yahoo.
+    Se oltre, li marchiamo come STALE (e in routes puoi evitare notifiche).
+    """
+    interval = (interval or "").lower().strip()
+    # margini “larghi” per evitare falsi STALE, ma bloccano i 15m vecchi di 15m+
+    if interval in ("1m", "2m", "5m"):
+        return pd.Timedelta(minutes=6)
+    if interval == "15m":
+        return pd.Timedelta(minutes=12)
+    if interval == "30m":
+        return pd.Timedelta(minutes=22)
+    if interval in ("60m", "1h"):
+        return pd.Timedelta(minutes=50)
+    if interval == "90m":
+        return pd.Timedelta(minutes=75)
+    return pd.Timedelta(minutes=25)
 
 
 def _cache_get(symbol: str, interval: str, period: str) -> Optional[pd.DataFrame]:
@@ -174,6 +209,75 @@ def _normalize_ohlc_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
 
     return df
 
+def _patch_last_bar_with_1m(symbol: str, df: pd.DataFrame, interval: str) -> pd.DataFrame:
+    """
+    Se Yahoo 15m/30m/60m è in ritardo, prova a “rinfrescare” l’ultima candela
+    usando i dati 1m (close/high/low + volume se presente).
+    """
+    try:
+        if df is None or df.empty:
+            return df
+        interval = (interval or "").lower().strip()
+        if interval not in ("15m", "30m", "60m", "90m"):
+            return df
+
+        last_ts = df.index[-1]
+        now_utc = pd.Timestamp.now(tz="UTC")
+
+        # Se non siamo in ritardo, non fare nulla
+        if (now_utc - last_ts) <= _allowed_lag(interval):
+            return df
+
+        # Prendi 1m (può fallire su alcuni ticker: ok, allora non patchiamo)
+        df1 = get_yahoo_df(symbol, interval="1m", range_str="1d")
+        if df1 is None or df1.empty:
+            return df
+
+        # Finestra 1m a partire dall’inizio dell’ultima candela "grossa"
+        start = last_ts
+        sub = df1[df1.index >= start]
+        if sub.empty:
+            return df
+
+        # Patch OHLCV dell’ultima riga
+        last_close = float(sub["close"].iloc[-1])
+        hi = float(sub["high"].max()) if "high" in sub.columns else last_close
+        lo = float(sub["low"].min())  if "low"  in sub.columns else last_close
+
+        df = df.copy()
+        df.loc[last_ts, "close"] = last_close
+        if "high" in df.columns and pd.notna(df.loc[last_ts, "high"]):
+            df.loc[last_ts, "high"] = max(float(df.loc[last_ts, "high"]), hi)
+        else:
+            df.loc[last_ts, "high"] = hi
+
+        if "low" in df.columns and pd.notna(df.loc[last_ts, "low"]):
+            df.loc[last_ts, "low"] = min(float(df.loc[last_ts, "low"]), lo)
+        else:
+            df.loc[last_ts, "low"] = lo
+
+        # volume: solo se significativo (su indici/metalli spesso è 0)
+        if "volume" in df.columns and "volume" in sub.columns:
+            v = float(pd.to_numeric(sub["volume"], errors="coerce").fillna(0.0).sum())
+            if v > 0:
+                df.loc[last_ts, "volume"] = v
+
+        # info diagnostica per routes/log
+        df.attrs = dict(getattr(df, "attrs", {}) or {})
+        df.attrs["patched_with_1m"] = True
+        df.attrs["patched_at_utc"] = str(now_utc)
+        df.attrs["patch_from_1m_last_ts"] = str(sub.index[-1])
+
+        logger.warning(
+            f"[YAHOO_API] PATCH 1m -> {symbol} {interval}: "
+            f"last_ts={last_ts} now={now_utc} lag={(now_utc-last_ts)}"
+        )
+
+        return df
+
+    except Exception as e:
+        logger.warning(f"[YAHOO_API] patch_last_bar_with_1m error {symbol} {interval}: {e}")
+        return df
 
 
 # ============================================================
@@ -219,6 +323,35 @@ def get_yahoo_df(
 
     df = _normalize_ohlc_df(raw, symbol)
 
+    # --- RECENCY CHECK + METADATA (per evitare notifiche su dati vecchi) ---
+    try:
+        df.attrs = dict(getattr(df, "attrs", {}) or {})
+        df.attrs["fetched_at_utc"] = str(pd.Timestamp.now(tz="UTC"))
+        df.attrs["yf_interval"] = yf_interval
+        df.attrs["period"] = period
+
+        if not df.empty:
+            last_ts = df.index[-1]
+            now_utc = pd.Timestamp.now(tz="UTC")
+            lag = now_utc - last_ts
+            df.attrs["last_ts_utc"] = str(last_ts)
+            df.attrs["lag_seconds"] = float(lag.total_seconds())
+
+            lag_ok = lag <= _allowed_lag(yf_interval)
+            df.attrs["is_stale"] = (not lag_ok)
+
+            if not lag_ok:
+                logger.warning(
+                    f"[YAHOO_API] STALE {symbol} {yf_interval}: "
+                    f"last_ts={last_ts} now={now_utc} lag={lag}"
+                )
+
+        # --- PATCH last bar con 1m se 15m/30m/60m è in ritardo ---
+        df = _patch_last_bar_with_1m(symbol, df, yf_interval)
+
+    except Exception as e:
+        logger.debug(f"[YAHOO_API] recency/patch skip: {e}")
+
     _cache_set(symbol, yf_interval, period, df)
 
     if 'df' in locals() and isinstance(df, pd.DataFrame):
@@ -227,6 +360,7 @@ def get_yahoo_df(
         logging.debug(f"[YAHOO_API] {symbol}: nessun dato ricevuto ({interval})")
 
     return df
+
 
 
 def get_yahoo_last_price(symbol: str) -> float:
