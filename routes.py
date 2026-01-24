@@ -404,37 +404,36 @@ def analyze(symbol: str):
                     raise ValueError(f"Nessun dato disponibile da Yahoo per {symbol}")
 
                 # ----------------------------------------------------------------
-                # ✅ FRESHNESS CHECK (Yahoo): se l'ultima candela è troppo vecchia,
-                #    NON fare analisi e NON far partire simulazioni.
+                # ✅ FRESHNESS CHECK (Yahoo) basato su yahoo_api.py (df.attrs)
+                #    - se è stale -> HOLD (no analisi / no simulazioni)
+                #    - se è stato patchato con 1m -> OK (non bloccare)
                 # ----------------------------------------------------------------
                 try:
-                    last_ts = df_15m.index[-1]
+                    attrs = getattr(df_15m, "attrs", {}) or {}
+                    is_stale = bool(attrs.get("is_stale", False))
+                    patched = bool(attrs.get("patched_with_1m", False))
+                    lag_s = float(attrs.get("lag_seconds", 0.0) or 0.0)
+                    last_ts_utc = attrs.get("last_ts_utc", "")
 
-                    # df index può essere Timestamp pandas
-                    if hasattr(last_ts, "to_pydatetime"):
-                        last_ts = last_ts.to_pydatetime()
-
-                    # rendi timezone-aware
-                    if getattr(last_ts, "tzinfo", None) is None:
-                        last_ts = last_ts.replace(tzinfo=dt_timezone.utc)
-
-                    now_utc = datetime.now(dt_timezone.utc)
-                    age_min = (now_utc - last_ts).total_seconds() / 60.0
-
-                    if age_min > YAHOO_STALE_MAX_MIN:
+                    # Se è stale ma abbiamo patch 1m → NON bloccare
+                    if is_stale and (not patched):
+                        age_min = (lag_s / 60.0) if lag_s > 0 else None
                         msg = (
                             f"⏸️ Yahoo dati non aggiornati per {symbol}: "
-                            f"ultima candela {last_ts.isoformat()} (≈{age_min:.1f} min fa). "
+                            f"ultima candela {last_ts_utc or 'N/A'} "
+                            f"({(f'≈{age_min:.1f} min fa' if age_min is not None else 'lag N/A')}). "
                             "Mercato chiuso/ritardo feed → analisi e simulazione bloccate."
                         )
-                        logging.warning(f"[YAHOO STALE] {symbol} age_min={age_min:.1f} last_ts={last_ts}")
+                        logging.warning(
+                            f"[YAHOO STALE] {symbol} stale={is_stale} patched={patched} "
+                            f"lag_s={lag_s:.1f} last_ts={last_ts_utc}"
+                        )
 
-                        # ritorna HOLD subito, senza analizza_trend
                         return SignalResponse(
                             symbol=symbol,
                             segnale="HOLD",
                             commento=msg,
-                            prezzo=0.0,          # oppure close se preferisci mostrare l'ultimo close
+                            prezzo=0.0,
                             take_profit=0.0,
                             stop_loss=0.0,
                             rsi=0.0,
@@ -449,23 +448,39 @@ def analyze(symbol: str):
                             motivo=msg,
                             chiusa_da_backend=False
                         )
+
+                    # se patchato, aggiungi una nota (utile per debug)
+                    if patched:
+                        logging.info(
+                            f"[YAHOO PATCH OK] {symbol} 15m rinfrescato con 1m "
+                            f"(lag_s={lag_s:.1f}, last_ts={last_ts_utc})"
+                        )
+
                 except Exception as e:
                     logging.warning(f"[YAHOO STALE CHECK] fallito per {symbol}: {e}")
-                    
 
-                logging.info(f"[CALL analizza_trend] YAHOO symbol={symbol} ticker={y_symbol}")
 
-                # Se i dati sono freschi → ok, fai analisi
+
+                # -------------------------------
+                # ✅ Analisi Yahoo 15m (come Binance)
+                # -------------------------------
                 segnale, hist, distanza_ema, note15, tp, sl, supporto = analizza_trend(
                     df_15m, spread, None,
                     asset_name=f"{_asset_display_name(symbol)} ({symbol})",
                     asset_class="yahoo"
                 )
 
-
-
-
                 note = note15.split("\n") if note15 else []
+
+                # Debug: mostra se 15m è stato patchato con 1m (solo informativo)
+                try:
+                    attrs = getattr(df_15m, "attrs", {}) or {}
+                    if bool(attrs.get("patched_with_1m", False)):
+                        note.append("🧩 15m patch 1m")
+                except Exception:
+                    pass
+
+
 
                 # --- conferma 1h ---
                 try:
@@ -1120,10 +1135,11 @@ def analyze(symbol: str):
         commento = "\n".join(note) if note else "Nessuna nota"
 
 
-        # apertura simulazione SOLO se c'è un vero segnale
         if segnale in ["BUY", "SELL"]:
+            entry_b = float(prezzo_output) if prezzo_output and prezzo_output > 0 else float(close)
+
             logging.info(
-                f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – "
+                f"✅ Nuova simulazione {segnale} per {symbol} @ {entry_b}$ – "
                 f"TP: {tp}, SL: {sl}, spread: {spread:.2f}%, tick_size={tick_size}"
             )
 
@@ -1131,7 +1147,7 @@ def analyze(symbol: str):
             # ✅ Capital scaling: arruola su file SOLO se BUY e parte davvero la simulazione
             nota_acquisto = None
             if segnale == "BUY":
-                nota_acquisto = scaler.on_simulation_started(symbol, close)  # <-- salva su file
+                nota_acquisto = scaler.on_simulation_started(symbol, entry_b)  # <-- salva su file
 
                 if nota_acquisto:  # <-- fondamentale
                     commento = (commento + "\n" if commento else "") + nota_acquisto
@@ -1140,7 +1156,7 @@ def analyze(symbol: str):
             with _pos_lock:
                 posizioni_attive[symbol] = {
                     "tipo": segnale,
-                    "entry": close,
+                    "entry": entry_b,
                     "tp": tp,
                     "sl": sl,
                     "atr": atr,
@@ -1152,6 +1168,7 @@ def analyze(symbol: str):
                     "nota_acquisto": nota_acquisto or "",
                     "timestamp": int(time.time() * 1000),
                 }
+
 
         return SignalResponse(
             symbol=symbol,
@@ -1700,6 +1717,18 @@ def hot_assets():
 
             # ✅ FRESHNESS CHECK (Yahoo) anche in /hotassets: se è stale -> skip
             try:
+                attrs = getattr(df_y, "attrs", {}) or {}
+                is_stale = bool(attrs.get("is_stale", False))
+                patched = bool(attrs.get("patched_with_1m", False))
+
+                if is_stale and (not patched):
+                    logging.debug(
+                        f"[YAHOO hotassets] skip STALE {y_sym} stale={is_stale} patched={patched} "
+                        f"last_ts={attrs.get('last_ts_utc','')} lag_s={attrs.get('lag_seconds', 0)}"
+                    )
+                    continue
+
+                # fallback (se attrs non bastano): check su index timestamp
                 last_ts = df_y.index[-1]
                 if hasattr(last_ts, "to_pydatetime"):
                     last_ts = last_ts.to_pydatetime()
@@ -1709,11 +1738,13 @@ def hot_assets():
                 now_utc = datetime.now(dt_timezone.utc)
                 age_min = (now_utc - last_ts).total_seconds() / 60.0
 
-                if age_min > YAHOO_STALE_MAX_MIN:
-                    logging.debug(f"[YAHOO hotassets] skip STALE {y_sym} age_min={age_min:.1f} last_ts={last_ts}")
+                if age_min > YAHOO_STALE_MAX_MIN and (not patched):
+                    logging.debug(f"[YAHOO hotassets] skip STALE (index) {y_sym} age_min={age_min:.1f}")
                     continue
+
             except Exception as e:
                 logging.debug(f"[YAHOO hotassets] freshness check fail {y_sym}: {e}")
+
 
 
 
