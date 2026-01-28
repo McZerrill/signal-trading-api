@@ -920,7 +920,7 @@ def analyze(symbol: str):
                     f"\u23f3 Simulazione gi\u00e0 attiva su {symbol} - tipo: {posizione['tipo']} @ {posizione['entry']}$\n"
                     f"🎯 TP: {posizione['tp']} | 🛡 SL: {posizione['sl']}"
                 ),
-                prezzo=posizione["entry"],
+                prezzo=float(posizione.get("prezzo_attuale", posizione["entry"])),
                 take_profit=posizione["tp"],
                 stop_loss=posizione["sl"],
                 rsi=0.0, macd=0.0, macd_signal=0.0, atr=0.0,
@@ -1122,8 +1122,10 @@ def analyze(symbol: str):
 
         # apertura simulazione SOLO se c'è un vero segnale
         if segnale in ["BUY", "SELL"]:
+            entry_b = float(prezzo_output) if prezzo_output and prezzo_output > 0 else float(close)
+
             logging.info(
-                f"✅ Nuova simulazione {segnale} per {symbol} @ {close}$ – "
+                f"✅ Nuova simulazione {segnale} per {symbol} @ {entry_b}$ – "
                 f"TP: {tp}, SL: {sl}, spread: {spread:.2f}%, tick_size={tick_size}"
             )
 
@@ -1131,7 +1133,7 @@ def analyze(symbol: str):
             # ✅ Capital scaling: arruola su file SOLO se BUY e parte davvero la simulazione
             nota_acquisto = None
             if segnale == "BUY":
-                nota_acquisto = scaler.on_simulation_started(symbol, close)  # <-- salva su file
+                nota_acquisto = scaler.on_simulation_started(symbol, entry_b)  # <-- salva su file
 
                 if nota_acquisto:  # <-- fondamentale
                     commento = (commento + "\n" if commento else "") + nota_acquisto
@@ -1140,7 +1142,7 @@ def analyze(symbol: str):
             with _pos_lock:
                 posizioni_attive[symbol] = {
                     "tipo": segnale,
-                    "entry": close,
+                    "entry": entry_b,
                     "tp": tp,
                     "sl": sl,
                     "atr": atr,
